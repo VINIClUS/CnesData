@@ -141,9 +141,13 @@ def require_session_credentials(environment: Mapping[str, str]) -> None:
 
 
 def session_factory(spec: RunSpec, environment: Mapping[str, str]) -> SessionFactory:
+    base = {key: value for key, value in environment.items() if key not in CREDENTIAL_KEYS}
+
     def build(credentials: Mapping[str, str]) -> CommandPort:
-        merged = {**environment, **{key: credentials[key] for key in CREDENTIAL_KEYS}}
-        return AwsCommands(spec.region, merged, COMMAND_TIMEOUT)
+        if not all(credentials.get(key) for key in CREDENTIAL_KEYS[:2]):
+            raise SafetyFailure("session_credentials_required")
+        chosen = {key: credentials[key] for key in CREDENTIAL_KEYS if key in credentials}
+        return AwsCommands(spec.region, {**base, **chosen}, COMMAND_TIMEOUT)
 
     return build
 

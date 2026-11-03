@@ -139,3 +139,33 @@ def test_fabrica_de_sessao_troca_apenas_as_tres_credenciais(lab: Lab) -> None:
     }
     assert "CANARY" not in repr(session) + repr(ports.services.ports)
     assert values["AWS_ACCESS_KEY_ID"] == environment()["AWS_ACCESS_KEY_ID"]
+
+
+def test_fabrica_de_sessao_sem_token_nao_herda_o_token_do_operador(lab: Lab) -> None:
+    values = {**environment(), **operator_environment()}
+    ports = build(lab, "s3-retention", values)
+    assert isinstance(ports.services, AwsServices)
+    factory = ports.services.ports.session
+    assert factory is not None
+    session = factory(
+        {"AWS_ACCESS_KEY_ID": "KEY_CANARY", "AWS_SECRET_ACCESS_KEY": "SECRET_CANARY"}
+    )
+    assert isinstance(session, AwsCommands)
+    assert "AWS_SESSION_TOKEN" not in session.environment
+    keys = ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY")
+    chosen = {key: session.environment[key] for key in keys}
+    assert chosen == {"AWS_ACCESS_KEY_ID": "KEY_CANARY", "AWS_SECRET_ACCESS_KEY": "SECRET_CANARY"}
+    assert values["AWS_SESSION_TOKEN"] == environment()["AWS_SESSION_TOKEN"]
+
+
+@pytest.mark.parametrize("missing", ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"])
+def test_fabrica_de_sessao_exige_chave_e_segredo(lab: Lab, missing: str) -> None:
+    ports = build(lab, "s3-retention", {**environment(), **operator_environment()})
+    assert isinstance(ports.services, AwsServices)
+    factory = ports.services.ports.session
+    assert factory is not None
+    credentials = {"AWS_ACCESS_KEY_ID": "K", "AWS_SECRET_ACCESS_KEY": "S"}
+    del credentials[missing]
+    with pytest.raises(SafetyFailure) as error:
+        factory(credentials)
+    assert error.value.reason == "session_credentials_required"
