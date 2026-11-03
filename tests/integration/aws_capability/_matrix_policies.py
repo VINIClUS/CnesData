@@ -1,5 +1,6 @@
 """Statements das policies de runtime espelhadas de task-roles.tf; só os ARNs mudam."""
 
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 AUDIT_DDB = "cap-audit-ddb"
@@ -129,3 +130,23 @@ def recovery_s3(bucket: str) -> list[dict[str, Any]]:
         },
         _listing(bucket, PUBLISH_PREFIXES),
     ]
+
+
+def get_prefixes(statements: Sequence[Mapping[str, Any]], bucket: str) -> tuple[str, ...]:
+    """Args: Statements do espelho e ARN do bucket.
+    Returns: Prefixos de s3:GetObject no bucket, em ordem, sem o '*' final.
+    """
+    head = f"{bucket}/"
+    prefixes: list[str] = []
+    for statement in statements:
+        actions = statement["Action"]
+        if "s3:GetObject" not in ([actions] if isinstance(actions, str) else actions):
+            continue
+        resources = statement["Resource"]
+        listed = [resources] if isinstance(resources, str) else resources
+        prefixes.extend(
+            item.removeprefix(head).removesuffix("*")
+            for item in listed
+            if item.startswith(head) and item.endswith("*")
+        )
+    return tuple(prefixes)

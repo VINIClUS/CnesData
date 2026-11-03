@@ -15,11 +15,14 @@ from tests.integration.aws_capability.contracts import ServiceFailure
 BUCKET_ARN = "arn:aws:s3:::" + NAME
 AUDIT, API = f"{NAME}-audit", f"{NAME}-api"
 DENIED = "AccessDenied"
-SEEDS = ["serving/x", "serving/blocked/x", "raw/x", "reconciliation/x"]
+SEEDS = ["serving/x", "serving/blocked/x", "raw/x", "reconciliation/x", "tmp/x", "normalized/x"]
+UNIT_NAMES = ("raw", "tmp", "normalized", "reconciliation", "serving")
+RECOVERY_NAMES = UNIT_NAMES[1:]
 SECONDS = {
     "assume_audit_seconds", "audit_put_ready_seconds", "audit_retention_extend_ready_seconds",
-    "audit_get_ready_seconds", "assume_api_seconds", "api_get_ready_seconds",
-    "api_list_ready_seconds", "blocked_flip_seconds",
+    "audit_get_ready_seconds", "assume_unit_seconds", "unit_get_ready_seconds",
+    "assume_recovery_seconds", "recovery_get_ready_seconds", "assume_api_seconds",
+    "api_get_ready_seconds", "api_list_ready_seconds", "blocked_flip_seconds",
 }
 CODES = {
     "audit_put_lock": "ok",
@@ -30,7 +33,11 @@ CODES = {
     "audit_get_retention": "ok",
     "audit_delete_version_ungranted": DENIED,
     "audit_list_ungranted": DENIED,
+    **{f"unit_get_missing_{name}": "404" for name in UNIT_NAMES},
+    **{f"recovery_get_missing_{name}": "404" for name in RECOVERY_NAMES},
+    "recovery_get_missing_raw": "403",
     "api_get_missing": "404",
+    "api_get_missing_reconciliation": "404",
     "api_get_raw": "403",
     "api_list_raw": DENIED,
     "api_put_object_ungranted": DENIED,
@@ -80,10 +87,26 @@ STEPS = [
     ("role-audit", "head-object", "audit/a"),
     ("role-audit", "delete-object", "audit/a"),
     ("role-audit", "list-objects-v2", "audit/"),
+    ("operator", "assume-role", "unit"),
+    ("operator", "put-role-policy", "unit", "cap-unit-s3"),
+    *[
+        ("role-unit", "head-object", f"{name}/{leaf}")
+        for name in UNIT_NAMES for leaf in ("x", "missing")
+    ],
+    ("operator", "assume-role", "recovery"),
+    ("operator", "put-role-policy", "recovery", "cap-recovery-s3"),
+    *[
+        ("role-recovery", "head-object", f"{name}/{leaf}")
+        for name in RECOVERY_NAMES for leaf in ("x", "missing")
+    ],
+    ("role-recovery", "head-object", "serving/x"),
+    ("role-recovery", "head-object", "raw/missing"),
     ("operator", "assume-role", "api"),
     ("operator", "put-role-policy", "api", "cap-api-s3"),
     ("role-api", "head-object", "serving/x"),
     ("role-api", "head-object", "serving/missing"),
+    ("role-api", "head-object", "reconciliation/x"),
+    ("role-api", "head-object", "reconciliation/missing"),
     ("role-api", "head-object", "raw/x"),
     ("role-api", "list-objects-v2", "serving/"),
     ("role-api", "list-objects-v2", "raw/"),
@@ -217,6 +240,42 @@ def test_policies_inline_espelham_task_roles_com_o_arn_do_bucket(lab: ProbeLab) 
     assert json.loads(puts[API]["PolicyDocument"]) == {  # type: ignore[arg-type]
         "Version": "2012-10-17", "Statement": policies.api_s3(BUCKET_ARN),
     }
+    for role in ("unit", "recovery"):
+        document = json.loads(puts[f"{NAME}-{role}"]["PolicyDocument"])  # type: ignore[arg-type]
+        statements = getattr(policies, f"{role}_s3")(BUCKET_ARN)
+        assert document == {"Version": "2012-10-17", "Statement": statements}
+
+
+def test_prefixos_de_get_saem_do_espelho_em_ordem() -> None:
+    assert policies.get_prefixes(policies.unit_s3(BUCKET_ARN), BUCKET_ARN) == (
+        "raw/", "tmp/", "normalized/", "reconciliation/", "serving/",
+    )
+    assert policies.get_prefixes(policies.recovery_s3(BUCKET_ARN), BUCKET_ARN) == (
+        "tmp/", "normalized/", "reconciliation/", "serving/",
+    )
+    assert policies.get_prefixes(policies.api_s3(BUCKET_ARN), BUCKET_ARN) == (
+        "reconciliation/", "serving/",
+    )
+    assert policies.get_prefixes(policies.audit_s3(BUCKET_ARN), BUCKET_ARN) == ("audit/",)
+    assert policies.get_prefixes(policies.unit_s3(BUCKET_ARN), BUCKET_ARN + "2") == ()
+
+
+def test_cada_prefixo_de_get_de_cada_espelho_recebe_head_de_chave_ausente_apos_controle(
+    lab: ProbeLab,
+) -> None:
+    calls = record(lab)
+    run(lab)
+    for role in ("unit", "recovery", "api"):
+        statements = getattr(policies, f"{role}_s3")(BUCKET_ARN)
+        prefixes = policies.get_prefixes(statements, BUCKET_ARN)
+        assert prefixes
+        heads = [
+            (c.ok, dims(c)["key"])
+            for c in calls if c.who == f"role-{role}" and c.operation == "head-object"
+        ]
+        for prefix in prefixes:
+            missing = heads.index((False, f"{prefix}missing"))
+            assert heads[missing - 1] == (True, f"{prefix}x")
 
 
 def test_todas_as_chamadas_de_objeto_levam_o_dono_esperado_do_bucket(lab: ProbeLab) -> None:
@@ -228,9 +287,11 @@ def test_todas_as_chamadas_de_objeto_levam_o_dono_esperado_do_bucket(lab: ProbeL
     assert all(c.payload["Bucket"] == NAME for c in objects)
 
 
-def test_so_o_operador_e_as_duas_sessoes_chamam(lab: ProbeLab) -> None:
+def test_so_o_operador_e_as_quatro_sessoes_chamam(lab: ProbeLab) -> None:
     run(lab)
-    assert {who for _, _, who in lab.aws.calls} == {"operator", "role-audit", "role-api"}
+    assert {who for _, _, who in lab.aws.calls} == {
+        "operator", "role-audit", "role-unit", "role-recovery", "role-api",
+    }
 
 
 @pytest.mark.parametrize("option", [{"policy_lag": 10**6}])
@@ -245,6 +306,26 @@ def test_controle_que_nunca_fica_verde_falha_sem_gravar_negacao(
     audit = [c for c in calls if c.who == "role-audit"]
     assert {dims(c)["key"] for c in audit} == {"audit/a"}
     assert len(audit) == 12
+
+
+@pytest.mark.parametrize(("role", "first"), [("unit", "raw/x"), ("recovery", "tmp/x")])
+def test_espelho_sem_get_falha_fechado_sem_head_de_chave_ausente(
+    tmp_path: Path, role: str, first: str
+) -> None:
+    lab = make_probe_lab(tmp_path, "iam-s3")
+    original = lab.aws.permits
+
+    def no_get(who: str, action: str, resource: str, keys: object = None) -> bool:
+        if who == f"role-{role}" and action == "s3:GetObject":
+            return False
+        return original(who, action, resource, keys)  # type: ignore[arg-type]
+
+    lab.aws.permits = no_get  # type: ignore[method-assign]
+    calls = record(lab)
+    with pytest.raises(ServiceFailure) as error:
+        run(lab)
+    assert error.value.args == (f"probe=control_failed step={role}_get",)
+    assert {dims(c)["key"] for c in calls if c.who == f"role-{role}"} == {first}
 
 
 def test_lock_negado_registra_o_codigo_e_pula_a_retencao(tmp_path: Path) -> None:

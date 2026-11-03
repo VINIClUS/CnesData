@@ -1,4 +1,4 @@
-"""Probe iam-s3: prefixos, retenção e ações não concedidas, cada negação pareada."""
+"""Probe iam-s3: prefixos, chave ausente por role espelhada, retenção e negações pareadas."""
 
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -23,7 +23,9 @@ from tests.integration.aws_capability.contracts import (
     ServiceFailure,
 )
 
-SEED_KEYS = ("serving/x", "serving/blocked/x", "raw/x", "reconciliation/x")
+SEED_KEYS = (
+    "serving/x", "serving/blocked/x", "raw/x", "reconciliation/x", "tmp/x", "normalized/x",
+)
 SERVING, RAW = "serving/x", "raw/x"
 PLAIN, LOCKED = "audit/a", "audit/b"
 LOCK_SECONDS = 300
@@ -117,11 +119,40 @@ class _Matrix:
             "audit_list_ungranted": actor.list("audit/").code,
         }
 
+    def mirror(
+        self, suffix: str, policy: str, statements: Sequence[Mapping[str, object]]
+    ) -> tuple[Actor, dict[str, object]]:
+        actor, seconds = self.open(suffix, policy, statements)
+        first, *rest = policies.get_prefixes(statements, self.arn)
+        observed: dict[str, object] = {f"assume_{suffix}_seconds": seconds}
+        observed[f"{suffix}_get_ready_seconds"] = self.control(
+            lambda: actor.head(f"{first}x"), f"{suffix}_get"
+        )
+        observed[f"{suffix}_get_missing_{first.rstrip('/')}"] = actor.head(f"{first}missing").code
+        for prefix in rest:
+            must(actor.head(f"{prefix}x"), f"{suffix}_get_control")
+            missing = actor.head(f"{prefix}missing").code
+            observed[f"{suffix}_get_missing_{prefix.rstrip('/')}"] = missing
+        return actor, observed
+
+    def unit(self) -> dict[str, object]:
+        _, observed = self.mirror("unit", policies.UNIT_S3, policies.unit_s3(self.arn))
+        return observed
+
+    def recovery(self) -> dict[str, object]:
+        statements = policies.recovery_s3(self.arn)
+        actor, observed = self.mirror("recovery", policies.RECOVERY_S3, statements)
+        must(actor.head(SERVING), "recovery_live_control")
+        observed["recovery_get_missing_raw"] = actor.head("raw/missing").code
+        return observed
+
     def api(self) -> dict[str, object]:
         actor, seconds = self.open("api", policies.API_S3, policies.api_s3(self.arn))
         observed: dict[str, object] = {"assume_api_seconds": seconds}
         observed["api_get_ready_seconds"] = self.control(lambda: actor.head(SERVING), "api_get")
         observed["api_get_missing"] = actor.head("serving/missing").code
+        must(actor.head("reconciliation/x"), "api_reconciliation_control")
+        observed["api_get_missing_reconciliation"] = actor.head("reconciliation/missing").code
         observed["api_get_raw"] = actor.head(RAW).code
         observed["api_list_ready_seconds"] = self.control(
             lambda: actor.list("serving/"), "api_list"
@@ -139,7 +170,8 @@ def probe_iam_s3(
 ) -> Mapping[str, object]:
     """Returns: códigos e segundos; Raises: ServiceFailure sem controle verde."""
     name = run_name(spec)
-    roles = [Resource("iam", root_name(spec, s), root_name(spec, s)) for s in ("audit", "api")]
+    suffixes = ("audit", "unit", "recovery", "api")
+    roles = [Resource("iam", root_name(spec, s), root_name(spec, s)) for s in suffixes]
     if context.lane != "work" or list(resources) != [Resource("s3", name, name), *roles]:
         raise ServiceFailure("probe=iam_s3_invalid")
     if ports.session is None or ports.operator is None:
@@ -147,5 +179,7 @@ def probe_iam_s3(
     matrix = _Matrix(ports, spec, context, name)
     matrix.seed()
     observed = matrix.audit()
+    observed.update(matrix.unit())
+    observed.update(matrix.recovery())
     observed.update(matrix.api())
     return observed
