@@ -95,7 +95,8 @@ uv run python -m tests.integration.aws_capability.lifecycle run \
   `cognito-pkce-negatives` e `cognito-sdk` deixaram de existir: seus checks usam códigos e refresh
   token do mesmo login do `cognito-login`.
 - **Deadline:** no máximo a janela de trabalho do perfil à frente (180 s por padrão; `ddb-throughput`
-  usa 140 s, `iam-leadingkeys` 330 s, `iam-s3` 425 s e `cognito-login` 1100 s); `<uuid8>` são 8 hex minúsculos novos a cada execução.
+  usa 140 s, `iam-leadingkeys` 330 s, `iam-s3` 425 s e `cognito-login` 1100 s); `<uuid8>` são
+  8 hex minúsculos novos a cada execução.
 - **Credenciais:** somente sessão temporária de role assumida em `AWS_ACCESS_KEY_ID`,
   `AWS_SECRET_ACCESS_KEY` e `AWS_SESSION_TOKEN`. Nunca root, nunca CI. O comando recusa
   (`profile_credentials_forbidden`, `session_credentials_required`) se `AWS_PROFILE` ou
@@ -189,7 +190,8 @@ uv run python -m tests.integration.aws_capability.lifecycle run \
   checado com `head-object` (negação chega como `403`); `get-object` exige arquivo de saída e o
   transporte não persiste respostas. A decisão 404/403 para chave ausente é a mesma nas duas
   chamadas (amendment #441). Ordem: audit, unit, recovery, api; o A/B de bucket policy fica no fim
-  do api, então nenhuma bucket policy existe durante as leituras de chave ausente. Mesma regra de evidência do `iam-leadingkeys`: toda negação fica
+  do api, então nenhuma bucket policy existe durante as leituras de chave ausente. Mesma regra de
+  evidência do `iam-leadingkeys`: toda negação fica
   depois de um sucesso retentado da mesma ação, pela mesma sessão, com uma única troca (a chave, o
   prefixo ou a data da retenção); ações nunca concedidas ganham `_ungranted` e vêm logo depois de
   um `head-object` verde da mesma sessão. O delete ungranted do audit mira `audit/a`, sem
@@ -203,7 +205,8 @@ uv run python -m tests.integration.aws_capability.lifecycle run \
   Data5, `assume_recovery_seconds`, `recovery_get_ready_seconds`, `recovery_get_missing_<prefixo>`
   para cada prefixo Publish4, `recovery_get_missing_raw` (contraste: `raw/` fora do `ListBucket`
   do recovery, esperado `403`), `assume_api_seconds`, `api_get_ready_seconds`, `api_get_missing`
-  (`serving/`), `api_get_missing_reconciliation`, `api_get_raw`, `api_list_ready_seconds`, `api_list_raw`,
+  (`serving/`), `api_get_missing_reconciliation`, `api_get_raw`, `api_list_ready_seconds`,
+  `api_list_raw`,
   `api_put_object_ungranted`, `blocked_before`, `policy_put_attempts`, `blocked_after`,
   `blocked_flip_seconds`, `serving_after_flip`. Se o `PutObject` com lock for negado, as três
   chaves de retenção valem `skipped`. Cleanup: versões retidas saem com bypass; depois a bucket
@@ -213,7 +216,8 @@ uv run python -m tests.integration.aws_capability.lifecycle run \
   1,2) com lag de cleanup: até 4 leituras do bucket e de cada role ainda visíveis depois da
   remoção (5 sondagens por recurso). Pior caso medido: trabalho 157 chamadas e 346,1 s (x1,2 =
   415,3 s); cleanup 366 chamadas e 511,8 s (x1,2 = 614,2 s). Típico: trabalho 96 chamadas e
-  144,8 s (x1,2 = 173,8 s); cleanup 330 chamadas e 429,0 s (x1,2 = 514,8 s). O boundary precisa cobrir `s3:GetObject`, `PutObject`, `PutObjectRetention`,
+  144,8 s (x1,2 = 173,8 s); cleanup 330 chamadas e 429,0 s (x1,2 = 514,8 s). O boundary precisa
+  cobrir `s3:GetObject`, `PutObject`, `PutObjectRetention`,
   `GetObjectRetention` e `ListBucket` no bucket do run.
 - **Bucket policy A/B (dentro do `iam-s3`, depois da matriz do api):** (A) o api lê
   `serving/blocked/x` e recebe 200, sem bucket policy (`blocked_before`, controle obrigatório).
