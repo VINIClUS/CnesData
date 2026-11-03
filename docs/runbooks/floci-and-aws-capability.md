@@ -313,8 +313,8 @@ uv run python -m tests.integration.aws_capability.lifecycle run \
 ## Matriz de divergências
 
 Floci 2.2.0 observado pela suíte (cada linha tem teste). A coluna AWS traz o resultado dos
-perfis de `tests/integration/aws_capability` em `us-east-2` (rodadas de 2026-11-01 e
-2026-11-02), com o perfil entre crases. Toda rodada terminou sem recurso `cnesdata-cap-*` além
+perfis de `tests/integration/aws_capability` em `us-east-2` (rodadas de 2026-11-01 a
+2026-11-03), com o perfil entre crases. Toda rodada terminou sem recurso `cnesdata-cap-*` além
 da própria identidade temporária; resíduos de reboot ou de cleanup incompleto saíram antes do run
 seguinte, pelo janitor ou pelo operador escopado. A identidade temporária durou no máximo 1 h e
 foi apagada, Object Lock ficou só em GOVERNANCE e não houve `apply`. Texto entre parênteses em
@@ -372,7 +372,7 @@ comportamento documentado da AWS, não por execução, por decisão do dono em 2
 | `sts:AssumeRole` na identidade | exige Allow com `Resource: "*"`; sem política ou com o ARN da role, nega | `iam-trust`: Allow de identidade com prefixo de ARN dos roles do run (`role/cnesdata-cap/<nome>*`), sem `Resource: "*"`, basta para R assumir R2; sem política de identidade não exercitado (mesma conta: ARN exato no trust basta) | políticas reais não validáveis | check real |
 | `DurationSeconds` > `MaxSessionDuration` | 3601 e 43200 aceitos com máximo 3600 | `iam-trust` (operador → R, encadeado) e ensaio avulso (usuário IAM → operador, sem encadeamento): 3601 com máximo 3600 dá `ValidationError` (`max_session_duration`) | limite de 3600 s não testável | check real |
 | session tags e `SourceIdentity` | aceitos sem `sts:TagSession`/`sts:SetSourceIdentity` no trust | `iam-trust`: `AccessDenied` sem `sts:TagSession` e sem `sts:SetSourceIdentity` no trust; ok depois de ampliar (tags em 10,5 s, `SourceIdentity` em 1,1 s) | médio | check real |
-| propagação IAM | imediata | eventual: 1ª chamada liberada em 7,7 a 11,5 s no S3 (`s3-retention`, `iam-s3`) e em 11,2 a 11,3 s no DynamoDB (`iam-leadingkeys`); trust ampliado em 10,5 s (`iam-trust`); Deny de bucket policy efetivo em 1,3 s (`iam-s3`) | corrida de propagação não reproduz | esperar/retentar na 13b |
+| propagação IAM | imediata | eventual: 1ª chamada liberada em 7,6 a 11,5 s no S3 (`s3-retention`, `iam-s3`) e em 11,2 a 11,3 s no DynamoDB (`iam-leadingkeys`); trust ampliado em 10,5 s (`iam-trust`); Deny de bucket policy efetivo em 1,3 s (`iam-s3`) | corrida de propagação não reproduz | esperar/retentar na 13b |
 | chave `test` | ignora enforcement e bucket policy | — (só emulador) | por design | operador dos testes |
 | chave desconhecida | rejeitada por DynamoDB, S3 e IAM; `GetCallerIdentity` responde root | não exercitado (`InvalidClientTokenId`) | baixo | — |
 | assinatura SigV4 | verificada só no S3; segredo errado aceito em DynamoDB e STS | não executado; coberto pela documentação AWS (decisão do dono): assinatura que não confere é recusada com 403 `SignatureDoesNotMatch` ([SigV4](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_sigv-troubleshooting.html)) | alto: posse do segredo não é testável fora do S3 | check real |
@@ -383,7 +383,7 @@ comportamento documentado da AWS, não por execução, por decisão do dono em 2
 | Query no GSI exato (ARN `…/index/gsi6`) | negada: o Floci avalia o ARN da tabela | `iam-leadingkeys`: permitida com `OUTBOX#PENDING`; outra chave no `gsi6` `AccessDeniedException` | política "exact-GSI" não validável | check real |
 | Query de índice pelo ARN da tabela | permitida; `LeadingKeys` = partição do índice; `gsi1` também liberado | `iam-leadingkeys`: a mesma chave no `gsi1` e na tabela base `AccessDeniedException`; role api: `USER#1` no `gsi1` ok, `ADMIN#1` e `gsi6` negados | alto: over-permit no emulador | check real |
 | transações | `TransactWriteItems` avaliada como ação única, sem `LeadingKeys`: dispatch não transaciona nem na partição permitida; Deny por `LeadingKeys` não bloqueia | `iam-leadingkeys`: só com Updates permitidos ok; um Update em `OTHER#1` nega a transação inteira (`AccessDeniedException`, `not_authorized`), porque `LeadingKeys` é avaliado por item | alto: guardrail contornável no emulador | check real |
-| S3 por prefixo | dispatch grava, lê e estende retenção só em `audit/*`, sem delete, bypass, list, `raw/` ou `serving/`; API lê só `serving/*`, sem escrita; URL assinada 200 em `serving/`, 403 em `raw/` | `iam-s3`: audit grava com GOVERNANCE, faz HEAD, lê a retenção e a estende em `audit/*` (`GetObject` só por HEAD); HEAD `raw/x` 403; chave ausente em `audit/` 403 (sem `ListBucket`); delete de versão e ListObjectsV2 `AccessDenied`. Api: HEAD `serving/x` ok; chave ausente em `serving/` 404 (`ListBucket` com `s3:prefix`); `raw/x` 403; list em `serving/` ok e em `raw/` `AccessDenied`; PutObject `AccessDenied`. URL assinada não exercitada; unit e recovery (critério 3 da #441): execução real pendente | nenhum | — |
+| S3 por prefixo | dispatch grava, lê e estende retenção só em `audit/*`, sem delete, bypass, list, `raw/` ou `serving/`; API lê só `serving/*`, sem escrita; URL assinada 200 em `serving/`, 403 em `raw/` | `iam-s3`: audit grava com GOVERNANCE, faz HEAD, lê a retenção e a estende em `audit/*` (`GetObject` só por HEAD); HEAD `raw/x` 403; chave ausente em `audit/` 403 (sem `ListBucket`); delete de versão e ListObjectsV2 `AccessDenied`. Api: HEAD `serving/x` ok; chave ausente em `serving/` 404 (`ListBucket` com `s3:prefix`); `raw/x` 403; list em `serving/` ok e em `raw/` `AccessDenied`; PutObject `AccessDenied`. Unit (Data5) e recovery (Publish4): chave ausente 404 em cada prefixo de `GetObject` da role, depois de um HEAD ok no mesmo prefixo; recovery em `raw/` 403 (fora do `ListBucket`); api em `reconciliation/` 404 (critério 3 da #441). URL assinada não exercitada | nenhum | — |
 | bucket policy | avaliada: Deny explícito vence Allow de identidade; Allow só na bucket policy concede | `iam-s3`: Deny de `s3:GetObject` em `serving/blocked/*` para o ARN exato do role api vence o Allow de identidade e vira 403 em 1,3 s; `serving/x` segue ok; Allow só na bucket policy não exercitado | a doc do Floci dizia "não suportado"; não se confirma | — |
 
 ### Linhas sem execução na AWS
@@ -399,4 +399,3 @@ comportamento documentado da AWS, não por execução, por decisão do dono em 2
     bucket policy;
   - IAM/STS: `sts:AssumeRole` sem política de identidade; chave desconhecida; chaves de fence,
     semáforo e run do dispatch.
-- **Pendente de execução:** espelhos unit e recovery no `iam-s3` (critério 3 da #441).
