@@ -6,6 +6,10 @@ AUDIT_DDB = "cap-audit-ddb"
 API_DDB = "cap-api-ddb"
 AUDIT_S3 = "cap-audit-s3"
 API_S3 = "cap-api-s3"
+UNIT_S3 = "cap-unit-s3"
+RECOVERY_S3 = "cap-recovery-s3"
+DATA_PREFIXES = ("raw/*", "tmp/*", "normalized/*", "reconciliation/*", "serving/*")
+PUBLISH_PREFIXES = ("tmp/*", "normalized/*", "reconciliation/*", "serving/*")
 LEADING_KEYS = "dynamodb:LeadingKeys"
 PRESENT = {"Null": {LEADING_KEYS: "false"}}
 
@@ -88,4 +92,40 @@ def api_s3(bucket: str) -> list[dict[str, Any]]:
             "Resource": bucket,
             "Condition": {"StringLike": {"s3:prefix": prefixes}},
         },
+    ]
+
+
+def _objects(bucket: str, prefixes: tuple[str, ...]) -> list[str]:
+    return [f"{bucket}/{prefix}" for prefix in prefixes]
+
+
+def _listing(bucket: str, prefixes: tuple[str, ...]) -> dict[str, Any]:
+    return {
+        "Effect": "Allow",
+        "Action": "s3:ListBucket",
+        "Resource": bucket,
+        "Condition": {"StringLike": {"s3:prefix": list(prefixes)}},
+    }
+
+
+def unit_s3(bucket: str) -> list[dict[str, Any]]:
+    return [
+        {"Effect": "Allow", "Action": "s3:GetObject", "Resource": _objects(bucket, DATA_PREFIXES)},
+        {
+            "Effect": "Allow",
+            "Action": "s3:PutObject",
+            "Resource": _objects(bucket, PUBLISH_PREFIXES),
+        },
+        _listing(bucket, DATA_PREFIXES),
+    ]
+
+
+def recovery_s3(bucket: str) -> list[dict[str, Any]]:
+    return [
+        {
+            "Effect": "Allow",
+            "Action": ["s3:GetObject", "s3:PutObject"],
+            "Resource": _objects(bucket, PUBLISH_PREFIXES),
+        },
+        _listing(bucket, PUBLISH_PREFIXES),
     ]
