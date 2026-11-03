@@ -314,13 +314,13 @@ uv run python -m tests.integration.aws_capability.lifecycle run \
 
 Floci 2.2.0 observado pela suíte (cada linha tem teste). A coluna AWS traz o resultado dos
 perfis de `tests/integration/aws_capability` em `us-east-2` (rodadas de 2026-11-01 e
-2026-11-02), com o perfil entre crases. Toda rodada terminou com o inventário `cnesdata-cap-*`
-vazio; resíduos de reboot ou de cleanup incompleto saíram antes do run seguinte, pelo janitor
-ou pelo operador escopado. A identidade temporária durou no máximo 1 h e foi apagada, Object
-Lock ficou só em GOVERNANCE e não houve `apply`. Texto entre parênteses em linha não
-exercitada é a expectativa pela documentação AWS. As três linhas SigV4 do IAM/STS (assinatura,
-sessão sem token ou com token forjado e chave inativa) ficam cobertas pelo comportamento
-documentado da AWS, não por execução, por decisão do dono em 2026-11-02.
+2026-11-02), com o perfil entre crases. Toda rodada terminou sem recurso `cnesdata-cap-*` além
+da própria identidade temporária; resíduos de reboot ou de cleanup incompleto saíram antes do run
+seguinte, pelo janitor ou pelo operador escopado. A identidade temporária durou no máximo 1 h e
+foi apagada, Object Lock ficou só em GOVERNANCE e não houve `apply`. Texto entre parênteses em
+linha não exercitada é a expectativa pela documentação AWS. As três linhas SigV4 do IAM/STS
+(assinatura, sessão sem token ou com token forjado e chave inativa) ficam cobertas pelo
+comportamento documentado da AWS, não por execução, por decisão do dono em 2026-11-02.
 
 ### Cognito (`test_cognito_jwt.py`)
 
@@ -331,7 +331,7 @@ documentado da AWS, não por execução, por decisão do dono em 2026-11-02.
 | issuer e `jwks_uri` | `http://127.0.0.1:4577/<pool>` | `cognito-login`: discovery 200, issuer confere, `jwks_uri` HTTPS | `OidcVerifier` recusa `jwks_uri` http | teste reescreve só o esquema via `MockTransport` |
 | domínio de prefixo | `ACTIVE`, não roteado; discovery segue em `/cognito-idp/oauth2/*` | `cognito-login`: `/oauth2/*` servido no domínio de prefixo; publicado em 17,3 s e pronto em 19,0 s, com o gate DNS nos NS autoritativos antes do primeiro lookup | URL do login gerenciado difere | `HostedUi(base_url, path_prefix)` |
 | login gerenciado | form HTML com `_csrf` + cookie `XSRF-TOKEN`; senha errada = 400 | `cognito-login`: managed login v2 no navegador, login humano feito pelo dono (75,9 s); senha errada não exercitada | helper HTML não espelha produção | navegador descartável se houver JS |
-| PKCE e callback | só S256; verifier errado consome o código; código não reutilizável; callback exato | `cognito-login` (só S256 exercitado): verifier errado 400 `invalid_request` e consome o código (o certo logo depois dá 400 `invalid_grant`); reuso do código 400 `invalid_grant`; redirect divergente 400 `unauthorized_client`; `USER_PASSWORD_AUTH` `InvalidParameterException` | nenhum | — |
+| PKCE e callback | só S256; verifier errado consome o código; código não reutilizável; callback exato | `cognito-login` (só S256 exercitado): verifier errado 400 `invalid_request` e consome o código (o certo logo depois dá 400 `invalid_grant`); reuso do código 400 `invalid_grant`; redirect divergente 400 `unauthorized_client`; fora do PKCE, `USER_PASSWORD_AUTH` (flow não habilitado) dá `InvalidParameterException` | nenhum | — |
 
 ### DynamoDB (`test_dynamodb_semantics.py`)
 
@@ -339,13 +339,13 @@ documentado da AWS, não por execução, por decisão do dono em 2026-11-02.
 |---|---|---|---|---|
 | transações | 100 aceitas; 101 `ValidationException`; chave duplicada rejeitada; `CancellationReasons` por item; `ClientRequestToken` idempotente e `IdempotentParameterMismatch` | `ddb-transactions` e `ddb-conditions`: 100 aceitas (readback 100); 101 `ValidationException`; chave duplicada `ValidationException` sem `CancellationReasons` (readback 0); cancelamento por condição com motivos por item (`ConditionalCheckFailed` só no item que falhou); replay de `ClientRequestToken` não reaplica; mesmo token com outros parâmetros `IdempotentParameterMismatchException` | nenhum | — |
 | condição e CAS | `ConditionalCheckFailed`; `ALL_OLD` devolve o item | `ddb-conditions`: CAS com versão velha `ConditionalCheckFailedException` (versões 1 e 2); `ALL_OLD` não exercitado | nenhum | — |
-| TTL na leitura | expirado some de GetItem consistente, Query, GSI e Scan antes da varredura de 60 s | `ddb-ttl-gsi`: item expirado segue visível em GetItem consistente, Query e Scan | teste que lê expirado diverge | filtrar `expires_at` na leitura; TTL só coleta lixo |
+| TTL na leitura | expirado some de GetItem consistente, Query, GSI e Scan antes da varredura de 60 s | `ddb-ttl-gsi`: item expirado segue visível em GetItem consistente, Query e Scan; leitura no GSI não exercitada | teste que lê expirado diverge | filtrar `expires_at` na leitura; TTL só coleta lixo |
 | TTL nas condições | expirado oculto ainda conta para `attribute_(not_)exists` | não exercitado (leitura e condição veem o item) | ler e depois gravar condicional discorda no Floci | condicionar sobre `expires_at` |
 | consistência de GSI | imediata | `ddb-ttl-gsi`: inclusão e remoção do item esparso vistas na 1ª consulta; sem atraso observado, mas a garantia documentada segue eventual | atraso de GSI não reproduz | dublê `StaleQueryClient` da AWS-014 |
 | GSI `ConsistentRead` | `ValidationException` | `ddb-ttl-gsi`: `ValidationException` | nenhum | — |
 | PITR | habilita e descreve 35 dias; restore não testado | não exercitado | nenhum | — |
 | `DeletionProtection` | bloqueia `DeleteTable` (`ValidationException`) | não exercitado como negação; os perfis `ddb-*` criam a tabela protegida e o teardown desliga a proteção antes de apagar | nenhum | — |
-| `OnDemandThroughput` | aceito e descrito; teto 5/5 não segura 100 escritas | `ddb-throughput`: teto 100/25 aceito e lido de volta na tabela e nos seis GSIs; `TransactWriteItems` de 100 puts ok e 4 `BatchWriteItem` de 25 sem `UnprocessedItems` (22,1 itens/s), sem retry; o burst absorve a rajada curta, sem throttling | teto 100/25 (PROD-INFRA-002) não testável | check real |
+| `OnDemandThroughput` | aceito e descrito; teto 5/5 não segura 100 escritas | `ddb-throughput`: teto 100/25 aceito e lido de volta na tabela e nos seis GSIs; `TransactWriteItems` de 100 puts ok e 4 `BatchWriteItem` de 25 sem `UnprocessedItems` (22,1 itens/s), sem retry; sem throttling observado | teto 100/25 (PROD-INFRA-002) não testável | check real |
 | item > 400 KB | `ValidationException` | não exercitado (igual) | nenhum | — |
 
 ### S3 Object Lock (`test_s3_object_lock.py`)
@@ -368,9 +368,9 @@ documentado da AWS, não por execução, por decisão do dono em 2026-11-02.
 
 | Cenário | Floci | AWS (us-east-2) | Impacto | Mitigação |
 |---|---|---|---|---|
-| trust exato | principal nomeado assume; outro é negado | `iam-trust`: operador assume R e R assume R2 (trust só em R); R não assume R (`AccessDenied`) | nenhum | — |
-| `sts:AssumeRole` na identidade | exige Allow com `Resource: "*"`; sem política ou com o ARN da role, nega | `iam-trust`: Allow de identidade no ARN dos roles do run, sem `Resource: "*"`, basta para R assumir R2; sem política de identidade não exercitado (mesma conta: ARN exato no trust basta) | políticas reais não validáveis | check real |
-| `DurationSeconds` > `MaxSessionDuration` | 3601 e 43200 aceitos com máximo 3600 | `iam-trust`: 3601 com máximo 3600 dá `ValidationError` (`max_session_duration`), com e sem encadeamento | limite de 3600 s não testável | check real |
+| trust exato | principal nomeado assume; outro é negado | `iam-trust`: operador assume R e R assume R2 (trust só em R); R não assume R (`AccessDenied`, mesmo com esse Allow de identidade) | nenhum | — |
+| `sts:AssumeRole` na identidade | exige Allow com `Resource: "*"`; sem política ou com o ARN da role, nega | `iam-trust`: Allow de identidade com prefixo de ARN dos roles do run (`role/cnesdata-cap/<nome>*`), sem `Resource: "*"`, basta para R assumir R2; sem política de identidade não exercitado (mesma conta: ARN exato no trust basta) | políticas reais não validáveis | check real |
+| `DurationSeconds` > `MaxSessionDuration` | 3601 e 43200 aceitos com máximo 3600 | `iam-trust` (operador → R, encadeado) e ensaio avulso (usuário IAM → operador, sem encadeamento): 3601 com máximo 3600 dá `ValidationError` (`max_session_duration`) | limite de 3600 s não testável | check real |
 | session tags e `SourceIdentity` | aceitos sem `sts:TagSession`/`sts:SetSourceIdentity` no trust | `iam-trust`: `AccessDenied` sem `sts:TagSession` e sem `sts:SetSourceIdentity` no trust; ok depois de ampliar (tags em 10,5 s, `SourceIdentity` em 1,1 s) | médio | check real |
 | propagação IAM | imediata | eventual: 1ª chamada liberada em 7,7 a 11,5 s no S3 (`s3-retention`, `iam-s3`) e em 11,2 a 11,3 s no DynamoDB (`iam-leadingkeys`); trust ampliado em 10,5 s (`iam-trust`); Deny de bucket policy efetivo em 1,3 s (`iam-s3`) | corrida de propagação não reproduz | esperar/retentar na 13b |
 | chave `test` | ignora enforcement e bucket policy | — (só emulador) | por design | operador dos testes |
@@ -379,11 +379,11 @@ documentado da AWS, não por execução, por decisão do dono em 2026-11-02.
 | sessão sem token ou com token forjado | aceita fora do S3 | não executado; coberto pela documentação AWS (decisão do dono): credencial temporária exige o session token em `X-Amz-Security-Token` ([STS](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_temp_use-resources.html)) e token inválido dá `InvalidClientTokenId` ([CLI](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-troubleshooting.html)) | alto | check real |
 | chave inativa | aceita fora do S3 | não executado; coberto pela documentação AWS (decisão do dono): chave `Inactive` não serve para chamadas de API ([IAM](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html)) | alto: revogação e fail-closed (spec ops §6) não testáveis | check real |
 | dispatch: GetItem/UpdateItem por `LeadingKeys` | outbox e cursor permitidos; fence, semáforo e run negados | `iam-leadingkeys`, role audit (espelho de `task-roles.tf`, mesma policy): GetItem `TENANT#_GLOBAL` e UpdateItem `OUTBOX#CURSOR` ok; GetItem `OTHER#1` e UpdateItem `TENANT#x` e `ENV#prod#ATTEMPTS` `AccessDeniedException`; chaves de fence, semáforo e run não exercitadas | nenhum | — |
-| dispatch: PutItem, DeleteItem, Scan, Query na base | negados | `iam-leadingkeys`: PutItem, DeleteItem e Scan `AccessDeniedException` logo depois de um GetItem ok; Query na tabela base `AccessDeniedException` | nenhum | — |
+| dispatch: PutItem, DeleteItem, Scan, Query na base | negados | `iam-leadingkeys`: PutItem, DeleteItem e Scan `AccessDeniedException` logo depois de um GetItem ok; Query na tabela base com `OUTBOX#PENDING` `AccessDeniedException` | nenhum | — |
 | Query no GSI exato (ARN `…/index/gsi6`) | negada: o Floci avalia o ARN da tabela | `iam-leadingkeys`: permitida com `OUTBOX#PENDING`; outra chave no `gsi6` `AccessDeniedException` | política "exact-GSI" não validável | check real |
 | Query de índice pelo ARN da tabela | permitida; `LeadingKeys` = partição do índice; `gsi1` também liberado | `iam-leadingkeys`: a mesma chave no `gsi1` e na tabela base `AccessDeniedException`; role api: `USER#1` no `gsi1` ok, `ADMIN#1` e `gsi6` negados | alto: over-permit no emulador | check real |
 | transações | `TransactWriteItems` avaliada como ação única, sem `LeadingKeys`: dispatch não transaciona nem na partição permitida; Deny por `LeadingKeys` não bloqueia | `iam-leadingkeys`: só com Updates permitidos ok; um Update em `OTHER#1` nega a transação inteira (`AccessDeniedException`, `not_authorized`), porque `LeadingKeys` é avaliado por item | alto: guardrail contornável no emulador | check real |
-| S3 por prefixo | dispatch grava, lê e estende retenção só em `audit/*`, sem delete, bypass, list, `raw/` ou `serving/`; API lê só `serving/*`, sem escrita; URL assinada 200 em `serving/`, 403 em `raw/` | `iam-s3`: audit grava com GOVERNANCE, lê e estende retenção em `audit/*`; HEAD `raw/x` 403; chave ausente em `audit/` 403 (sem `ListBucket`); delete de versão e ListObjectsV2 `AccessDenied`. Api: HEAD `serving/x` ok; chave ausente em `serving/` 404 (`ListBucket` com `s3:prefix`); `raw/x` 403; list em `serving/` ok e em `raw/` `AccessDenied`; PutObject `AccessDenied`. URL assinada não exercitada; unit e recovery (critério 3 da #441): execução real pendente | nenhum | — |
+| S3 por prefixo | dispatch grava, lê e estende retenção só em `audit/*`, sem delete, bypass, list, `raw/` ou `serving/`; API lê só `serving/*`, sem escrita; URL assinada 200 em `serving/`, 403 em `raw/` | `iam-s3`: audit grava com GOVERNANCE, faz HEAD, lê a retenção e a estende em `audit/*` (`GetObject` só por HEAD); HEAD `raw/x` 403; chave ausente em `audit/` 403 (sem `ListBucket`); delete de versão e ListObjectsV2 `AccessDenied`. Api: HEAD `serving/x` ok; chave ausente em `serving/` 404 (`ListBucket` com `s3:prefix`); `raw/x` 403; list em `serving/` ok e em `raw/` `AccessDenied`; PutObject `AccessDenied`. URL assinada não exercitada; unit e recovery (critério 3 da #441): execução real pendente | nenhum | — |
 | bucket policy | avaliada: Deny explícito vence Allow de identidade; Allow só na bucket policy concede | `iam-s3`: Deny de `s3:GetObject` em `serving/blocked/*` para o ARN exato do role api vence o Allow de identidade e vira 403 em 1,3 s; `serving/x` segue ok; Allow só na bucket policy não exercitado | a doc do Floci dizia "não suportado"; não se confirma | — |
 
 ### Linhas sem execução na AWS
@@ -393,8 +393,8 @@ documentado da AWS, não por execução, por decisão do dono em 2026-11-02.
 - **Não testáveis por D6:** COMPLIANCE e `S3ObjectLockAuditSink`.
 - **Não exercitadas:**
   - Cognito: login gerenciado com senha errada; PKCE `plain`;
-  - DynamoDB: TTL nas condições; `ALL_OLD`; PITR; `DeleteTable` com `DeletionProtection` ativa;
-    item > 400 KB;
+  - DynamoDB: TTL nas condições; leitura de item expirado no GSI; `ALL_OLD`; PITR; `DeleteTable`
+    com `DeletionProtection` ativa; item > 400 KB;
   - S3: retenção padrão do bucket; lock em bucket sem Object Lock; URL assinada; Allow só na
     bucket policy;
   - IAM/STS: `sts:AssumeRole` sem política de identidade; chave desconhecida; chaves de fence,
