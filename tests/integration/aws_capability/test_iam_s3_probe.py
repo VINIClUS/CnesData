@@ -260,6 +260,14 @@ def test_prefixos_de_get_saem_do_espelho_em_ordem() -> None:
     assert policies.get_prefixes(policies.unit_s3(BUCKET_ARN), BUCKET_ARN + "2") == ()
 
 
+def test_prefixos_de_get_ignoram_chave_exata_sem_wildcard() -> None:
+    statements = [
+        {"Effect": "Allow", "Action": "s3:GetObject", "Resource": f"{BUCKET_ARN}/audit/a"},
+        {"Effect": "Allow", "Action": ["s3:GetObject"], "Resource": [f"{BUCKET_ARN}/serving/*"]},
+    ]
+    assert policies.get_prefixes(statements, BUCKET_ARN) == ("serving/",)
+
+
 def test_cada_prefixo_de_get_de_cada_espelho_recebe_head_de_chave_ausente_apos_controle(
     lab: ProbeLab,
 ) -> None:
