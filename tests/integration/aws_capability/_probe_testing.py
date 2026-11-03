@@ -41,6 +41,8 @@ INDEXES = tuple(f"gsi{index}" for index in range(1, 7))
 ROLE2 = Resource("iam", f"{NAME}-r2", f"{NAME}-r2")
 ROLE_AUDIT = Resource("iam", f"{NAME}-audit", f"{NAME}-audit")
 ROLE_API = Resource("iam", f"{NAME}-api", f"{NAME}-api")
+ROLE_UNIT = Resource("iam", f"{NAME}-unit", f"{NAME}-unit")
+ROLE_RECOVERY = Resource("iam", f"{NAME}-recovery", f"{NAME}-recovery")
 MATRIX_PROFILES = frozenset({"iam-leadingkeys", "iam-s3"})
 START = 1000.0
 DEADLINE = 1180.0
@@ -69,7 +71,7 @@ class ProbeLab:
         if self.spec.probe == "iam-leadingkeys":
             return [TABLE, ROLE_AUDIT, ROLE_API]
         if self.spec.probe == "iam-s3":
-            return [BUCKET, ROLE_AUDIT, ROLE_API]
+            return [BUCKET, ROLE_AUDIT, ROLE_UNIT, ROLE_RECOVERY, ROLE_API]
         return [BUCKET, ROLE] if self.spec.probe == "s3-retention" else [BUCKET]
 
 
@@ -111,7 +113,8 @@ def seed_remote(aws: FakeAws, spec: RunSpec, probe: str) -> None:
     if probe == "iam-trust":
         aws.roles[ROLE2.name] = FakeRole(dict(TAGS), TRUST2)
     if probe in MATRIX_PROFILES:
-        for role in (ROLE_AUDIT, ROLE_API):
+        mirrors = (ROLE_UNIT, ROLE_RECOVERY) if probe == "iam-s3" else ()
+        for role in (ROLE_AUDIT, *mirrors, ROLE_API):
             aws.roles[role.name] = FakeRole(dict(TAGS), TRUST)
     if probe == "ddb-throughput":
         aws.tables[NAME] = seeded_table(spec)

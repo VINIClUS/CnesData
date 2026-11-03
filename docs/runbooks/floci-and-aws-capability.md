@@ -95,7 +95,8 @@ uv run python -m tests.integration.aws_capability.lifecycle run \
   `cognito-pkce-negatives` e `cognito-sdk` deixaram de existir: seus checks usam códigos e refresh
   token do mesmo login do `cognito-login`.
 - **Deadline:** no máximo a janela de trabalho do perfil à frente (180 s por padrão; `ddb-throughput`
-  usa 140 s, `iam-leadingkeys` 330 s, `iam-s3` 275 s e `cognito-login` 1100 s); `<uuid8>` são 8 hex minúsculos novos a cada execução.
+  usa 140 s, `iam-leadingkeys` 330 s, `iam-s3` 425 s e `cognito-login` 1100 s); `<uuid8>` são
+  8 hex minúsculos novos a cada execução.
 - **Credenciais:** somente sessão temporária de role assumida em `AWS_ACCESS_KEY_ID`,
   `AWS_SECRET_ACCESS_KEY` e `AWS_SESSION_TOKEN`. Nunca root, nunca CI. O comando recusa
   (`profile_credentials_forbidden`, `session_credentials_required`) se `AWS_PROFILE` ou
@@ -171,13 +172,26 @@ uv run python -m tests.integration.aws_capability.lifecycle run \
   roles; o boundary precisa cobrir `dynamodb:Query` nos ARNs `.../index/*` e `GetItem`/`UpdateItem`
   na tabela, além do `AssumeRole`.
 - **`iam-s3` (prefixos e retenção com sessões de role):** bucket Object Lock (B1, só GOVERNANCE,
-  toda retenção até 10 min) e os roles `-audit` e `-api` (boundary, trust exato no operador,
-  `MaxSessionDuration` 3600), cada um com a inline que espelha o S3 de `task-roles.tf`
-  (`audit`: `GetBucketObjectLockConfiguration` no bucket e `PutObject`, `PutObjectRetention`,
-  `GetObject`, `GetObjectRetention` em `audit/*`; `api`: `GetObject` em `reconciliation/*` e
-  `serving/*` e `ListBucket` com `s3:prefix` desses dois prefixos). O operador semeia `serving/x`,
-  `serving/blocked/x`, `raw/x` e `reconciliation/x`. `GetObject` é checado com `head-object`
-  (negação chega como `403`). Mesma regra de evidência do `iam-leadingkeys`: toda negação fica
+  toda retenção até 10 min) e os roles `-audit`, `-unit`, `-recovery` e `-api` (boundary, trust
+  exato no operador, `MaxSessionDuration` 3600), cada um com a inline que espelha o S3 de
+  `task-roles.tf`, só com o ARN do bucket trocado:
+  - `audit`: `GetBucketObjectLockConfiguration` no bucket e `PutObject`, `PutObjectRetention`,
+    `GetObject`, `GetObjectRetention` em `audit/*`;
+  - `unit`: `GetObject` em Data5 (`raw/*`, `tmp/*`, `normalized/*`, `reconciliation/*`,
+    `serving/*`), `PutObject` em Publish4 (Data5 sem `raw/*`) e `ListBucket` com `s3:prefix` Data5;
+  - `recovery`: `GetObject` e `PutObject` em Publish4 e `ListBucket` com `s3:prefix` Publish4;
+  - `api`: `GetObject` em `reconciliation/*` e `serving/*` e `ListBucket` com `s3:prefix` desses
+    dois prefixos.
+
+  `tests/production/infra/test_s3_capability_mirrors.py` prende os espelhos de unit, recovery e api
+  às policies renderizadas pelo plano (statements do data bucket, em ordem, ARN trocado); qualquer
+  statement nova do data bucket em `task-roles.tf` quebra o teste. O operador semeia `serving/x`,
+  `serving/blocked/x`, `raw/x`, `reconciliation/x`, `tmp/x` e `normalized/x`. `GetObject` é
+  checado com `head-object` (negação chega como `403`); `get-object` exige arquivo de saída e o
+  transporte não persiste respostas. A decisão 404/403 para chave ausente é a mesma nas duas
+  chamadas (amendment #441). Ordem: audit, unit, recovery, api; o A/B de bucket policy fica no fim
+  do api, então nenhuma bucket policy existe durante as leituras de chave ausente. Mesma regra de
+  evidência do `iam-leadingkeys`: toda negação fica
   depois de um sucesso retentado da mesma ação, pela mesma sessão, com uma única troca (a chave, o
   prefixo ou a data da retenção); ações nunca concedidas ganham `_ungranted` e vêm logo depois de
   um `head-object` verde da mesma sessão. O delete ungranted do audit mira `audit/a`, sem
@@ -187,17 +201,23 @@ uv run python -m tests.integration.aws_capability.lifecycle run \
   `audit_retention_shorten` (encurta a 360 s sem bypass), `audit_get_ready_seconds`,
   `audit_get_raw`, `audit_get_missing` (observação: sem `ListBucket` o ausente é `403`),
   `audit_get_retention`, `audit_delete_version_ungranted`, `audit_list_ungranted`,
-  `assume_api_seconds`, `api_get_ready_seconds`, `api_get_missing` (observação: `404` por causa do
-  `ListBucket` no prefixo, cruza o #441), `api_get_raw`, `api_list_ready_seconds`, `api_list_raw`,
+  `assume_unit_seconds`, `unit_get_ready_seconds`, `unit_get_missing_<prefixo>` para cada prefixo
+  Data5, `assume_recovery_seconds`, `recovery_get_ready_seconds`, `recovery_get_missing_<prefixo>`
+  para cada prefixo Publish4, `recovery_get_missing_raw` (contraste: `raw/` fora do `ListBucket`
+  do recovery, esperado `403`), `assume_api_seconds`, `api_get_ready_seconds`, `api_get_missing`
+  (`serving/`), `api_get_missing_reconciliation`, `api_get_raw`, `api_list_ready_seconds`,
+  `api_list_raw`,
   `api_put_object_ungranted`, `blocked_before`, `policy_put_attempts`, `blocked_after`,
   `blocked_flip_seconds`, `serving_after_flip`. Se o `PutObject` com lock for negado, as três
   chaves de retenção valem `skipped`. Cleanup: versões retidas saem com bypass; depois a bucket
   policy (`delete-bucket-policy`, só neste perfil, `NoSuchBucketPolicy` conta como ok) e o bucket;
-  os roles saem com suas policies. Janela 275 s; limites 350 chamadas, reserva 240,
-  `cleanup_seconds` 390, do ciclo simulado do pior caso (1,3 s por chamada mais pausas, vezes
+  os roles saem com suas policies. Janela 425 s; limites 550 chamadas, reserva 380,
+  `cleanup_seconds` 630, do ciclo simulado do pior caso (1,3 s por chamada mais pausas, vezes
   1,2) com lag de cleanup: até 4 leituras do bucket e de cada role ainda visíveis depois da
-  remoção (5 sondagens por recurso). Pior caso medido: cleanup 232 chamadas e 321,6 s (x1,2 =
-  385,9 s); típico 212 chamadas e 275,6 s (x1,2 = 330,7 s). O boundary precisa cobrir `s3:GetObject`, `PutObject`, `PutObjectRetention`,
+  remoção (5 sondagens por recurso). Pior caso medido: trabalho 157 chamadas e 346,1 s (x1,2 =
+  415,3 s); cleanup 366 chamadas e 511,8 s (x1,2 = 614,2 s). Típico: trabalho 96 chamadas e
+  144,8 s (x1,2 = 173,8 s); cleanup 330 chamadas e 429,0 s (x1,2 = 514,8 s). O boundary precisa
+  cobrir `s3:GetObject`, `PutObject`, `PutObjectRetention`,
   `GetObjectRetention` e `ListBucket` no bucket do run.
 - **Bucket policy A/B (dentro do `iam-s3`, depois da matriz do api):** (A) o api lê
   `serving/blocked/x` e recebe 200, sem bucket policy (`blocked_before`, controle obrigatório).

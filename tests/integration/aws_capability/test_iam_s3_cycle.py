@@ -20,6 +20,8 @@ from tests.integration.aws_capability._probe_testing import (
     LATENCY,
     ROLE_API,
     ROLE_AUDIT,
+    ROLE_RECOVERY,
+    ROLE_UNIT,
     ProbeLab,
     cleanup_calls,
     cleanup_seconds,
@@ -46,7 +48,7 @@ SCENARIOS = {
         "bucket_absent_polls": 4, "role_absent_polls": 4,
     },
 }
-LIMITS = (350, 240, 390, 275.0)
+LIMITS = (550, 380, 630, 425.0)
 
 
 def cycle(tmp_path: Path, scenario: str, **options: object) -> ProbeLab:
@@ -65,16 +67,19 @@ def probe_of(outcome: Outcome) -> dict[str, object]:
     return value
 
 
-def test_perfil_declara_bucket_e_dois_roles_com_limites_dimensionados() -> None:
+def test_perfil_declara_bucket_e_quatro_roles_com_limites_dimensionados() -> None:
     assert PROFILE.services == ("s3", "iam")
-    assert PROFILE.planned_roots() == (Root("s3"), Root("iam", "audit"), Root("iam", "api"))
+    assert PROFILE.planned_roots() == (
+        Root("s3"), Root("iam", "audit"), Root("iam", "unit"), Root("iam", "recovery"),
+        Root("iam", "api"),
+    )
     limits = PROFILE.limits
     assert (limits.calls, limits.cleanup_reserve, limits.cleanup_seconds, PROFILE.window) == LIMITS
     assert limits.cleanup_seconds >= 240
 
 
 @pytest.mark.parametrize("scenario", list(SCENARIOS))
-def test_run_completo_remove_bucket_e_os_dois_roles_dentro_do_orcamento_e_da_janela(
+def test_run_completo_remove_bucket_e_os_quatro_roles_dentro_do_orcamento_e_da_janela(
     tmp_path: Path, scenario: str
 ) -> None:
     lab = cycle(tmp_path, scenario)
@@ -102,9 +107,9 @@ def test_versoes_retidas_sao_removidas_com_bypass_e_roles_depois_das_policies(
         r for r, lane in zip(lab.aws.requests, lab.aws.lanes, strict=True)
         if r.operation == "delete-object" and lane == "cleanup"
     ]
-    assert len(deletes) == 6
+    assert len(deletes) == 8
     assert all(r.payload["BypassGovernanceRetention"] is True for r in deletes)
-    for name in (f"{NAME}-audit", f"{NAME}-api"):
+    for name in (f"{NAME}-{role}" for role in ("audit", "unit", "recovery", "api")):
         removals = {"delete-role-policy", "delete-role"}
         order = [
             r.operation for r in lab.aws.requests
@@ -144,13 +149,13 @@ def test_crash_com_journal_incerto_no_meio_da_criacao_remove_todas_as_raizes(
         FakeVersion("serving/x", "V2", None, 0.0),
     ]
     lab.aws.buckets[NAME] = bucket
-    for role in (ROLE_AUDIT, ROLE_API):
+    for role in (ROLE_AUDIT, ROLE_UNIT, ROLE_RECOVERY, ROLE_API):
         lab.aws.roles[role.name] = FakeRole(tags(lab.spec), TRUST)
     lab.aws.roles[ROLE_AUDIT.name].policies = {
         "cap-audit-s3": (frozenset({"s3:GetObject"}), 0, {"Version": "x"})
     }
     journal = Journal(lab.spec)
-    journal.created = [BUCKET, ROLE_AUDIT]
+    journal.created = [BUCKET, ROLE_AUDIT, ROLE_UNIT, ROLE_RECOVERY]
     journal.phase = "creating"
     journal.pending_service = "iam"
     journal.pending_name = ROLE_API.name
