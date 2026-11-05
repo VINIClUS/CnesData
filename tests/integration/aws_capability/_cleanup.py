@@ -5,7 +5,12 @@ from dataclasses import dataclass, field
 from tests.integration.aws_capability._inventory import dependents, inventory, service_counts
 from tests.integration.aws_capability._journal import Journal
 from tests.integration.aws_capability._login_handoff import remove_handoff
-from tests.integration.aws_capability._safety import SafetyFailure, matches_name, owned
+from tests.integration.aws_capability._safety import (
+    SafetyFailure,
+    matches_name,
+    owned,
+    services_for,
+)
 from tests.integration.aws_capability.contracts import (
     BudgetExhausted,
     Outcome,
@@ -30,7 +35,8 @@ class Cleanup:
 
     def inventory(self) -> list[tuple[Resource, Ownership]]:
         known = frozenset((ref.service, ref.resource_id) for ref in self.journal.created)
-        return inventory(self.ports, self.context, known)
+        services = services_for(self.journal.spec.probe)
+        return inventory(self.ports, self.context, known, services)
 
     def relevant(self, rows: list[tuple[Resource, Ownership]]) -> list[tuple[Resource, Ownership]]:
         references = {(ref.service, ref.resource_id) for ref in self.journal.created}
@@ -310,6 +316,14 @@ class Cleanup:
         if resource in self.journal.created:
             raise SafetyFailure("inventory_incomplete")
 
+    def revision_residue(self) -> dict[str, int] | None:
+        if self.journal.spec.probe != "fargate-write":
+            return None
+        try:
+            return self.ports.services.revision_counts(self.context)  # type: ignore[attr-defined]
+        except ServiceFailure:
+            raise SafetyFailure("inventory_incomplete") from None
+
     def execute(self) -> Outcome:
         try:
             remove_handoff(self.journal.spec)
@@ -331,12 +345,16 @@ class Cleanup:
         final = self.relevant(rows)
         self.retire_confirmed(final)
         remaining = tuple(ref for ref, _ in final)
-        evidence = {
+        services = services_for(self.journal.spec.probe)
+        evidence: dict[str, object] = {
             "inventory_complete": True,
-            "counts": service_counts(remaining),
-            "final_counts_all_cap": service_counts(ref for ref, _ in rows),
+            "counts": service_counts(remaining, services),
+            "final_counts_all_cap": service_counts((ref for ref, _ in rows), services),
         }
-        if remaining or reason or self.journal.created:
+        residue = self.revision_residue()
+        if residue is not None:
+            evidence["task_definition_revisions"] = residue
+        if remaining or reason or self.journal.created or any((residue or {}).values()):
             return Outcome("incomplete", reason or "cleanup_failed", remaining, evidence)
         self.journal.phase = "complete"
         self.journal.pending_service = None

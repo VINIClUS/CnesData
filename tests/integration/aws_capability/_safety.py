@@ -7,7 +7,7 @@ from tests.integration.aws_capability._profiles import PROFILES
 from tests.integration.aws_capability.contracts import Ownership, Ports, Resource, RunSpec
 
 SERVICES = ("cognito", "dynamodb", "s3", "iam")
-FARGATE_SERVICES = ("ecs", "ec2", "logs", "ecr", "iam", "cognito", "dynamodb", "s3")
+FARGATE_SERVICES = ("ecs", "logs", "ecr", "iam", "ec2", "cognito", "dynamodb", "s3")
 CAP_PREFIX = "cnesdata-cap-"
 
 
@@ -56,7 +56,7 @@ def validate_profile(spec: RunSpec, ports: Ports, *, recovery: bool) -> None:
 
 def services_for(probe: str) -> tuple[str, ...]:
     """Returns: serviços inventariados pelo perfil; o padrão é SERVICES."""
-    return SERVICES
+    return FARGATE_SERVICES if probe == "fargate-write" else SERVICES
 
 
 def run_name(spec: RunSpec) -> str:
@@ -88,7 +88,7 @@ def matches_name(resource: Resource, spec: RunSpec) -> bool:
 
 def owned(resource: Resource, owner: Ownership, spec: RunSpec) -> bool:
     return (
-        resource.service in SERVICES
+        resource.service in services_for(spec.probe)
         and matches_name(resource, spec)
         and owner.account == spec.account
         and getattr(owner, "region", None)

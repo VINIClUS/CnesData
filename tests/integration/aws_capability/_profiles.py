@@ -70,11 +70,11 @@ PROFILES = {
     ),
     "fargate-write": Profile(
         ("iam", "ecr", "ecs", "logs", "ec2"),
-        Limits(300, 8, 2, 480, 160),
+        Limits(300, 8, 2, 300, 150),
         roots=(
             Root("ecr"), Root("logs"), Root("iam", "exec"), Root("iam", "task"),
             Root("ec2"), Root("ecs"),
         ),
-        window=480.0,
+        window=540.0,
     ),
 }

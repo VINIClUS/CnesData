@@ -176,7 +176,9 @@ def test_prova_final_le_revisoes_do_run_ativas_e_inativas_e_tolera_nomes_de_fami
     inert = lab.aws._ecs_list_task_definition_families(
         {"familyPrefix": "cnesdata-cap-a1b2c3d4", "status": "INACTIVE"}, "operator"
     )
-    assert len(inert.data["families"]) == 2
+    families = inert.data["families"]
+    assert isinstance(families, list)
+    assert len(families) == 2
     cleanup = operations(lab, "cleanup")
     last_delete = max(i for i, op in enumerate(cleanup) if op == "ecs.delete-task-definitions")
     cleanup_requests = [

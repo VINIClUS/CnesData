@@ -14,7 +14,12 @@ from tests.integration.aws_capability._cleanup import Cleanup
 from tests.integration.aws_capability._inventory import inventory, service_counts
 from tests.integration.aws_capability._journal import Journal, lease, prepare_directory
 from tests.integration.aws_capability._login_handoff import remove_handoff
-from tests.integration.aws_capability._safety import SafetyFailure, matches_name, validate
+from tests.integration.aws_capability._safety import (
+    SafetyFailure,
+    matches_name,
+    services_for,
+    validate,
+)
 from tests.integration.aws_capability._worker import Worker, acknowledgement, start_supervisor
 from tests.integration.aws_capability.contracts import (
     BudgetExhausted,
@@ -39,11 +44,12 @@ def run_locked(journal: Journal, ports: Ports) -> Outcome:
     if journal.path.exists() or journal.path.is_symlink():
         return refusal("journal_exists")
     confirm_identity(journal.spec, ports, "work")
-    baseline = inventory(ports, RequestContext(ports.budget, "work"))
+    services = services_for(journal.spec.probe)
+    baseline = inventory(ports, RequestContext(ports.budget, "work"), services=services)
     if any(matches_name(ref, journal.spec) for ref, _ in baseline):
         return refusal("run_collision")
     journal.baseline = [ref for ref, _ in baseline]
-    initial_counts = service_counts(journal.baseline)
+    initial_counts = service_counts(journal.baseline, services)
     journal.save()
     supervisor_pid = start_supervisor(journal.spec, ports)
     worker = Worker(journal, ports, supervisor_pid)

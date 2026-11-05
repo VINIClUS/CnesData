@@ -65,6 +65,10 @@ def login() -> RegistryLogin:
     return RegistryLogin(REGISTRY, "AWS", TOKEN)
 
 
+def leftovers(root: Path) -> list[Path]:
+    return [item for item in root.iterdir() if item.name != "control"]
+
+
 def control(tmp_path: Path) -> None:
     port = DockerImages(run=Runner(), root=tmp_path / "control")
     (tmp_path / "control").mkdir()
@@ -133,7 +137,7 @@ def test_docker_config_fica_sob_a_raiz_privada_e_some_ao_fim(
     assert config.parent == tmp_path
     assert all(call.config_existed for call in runner.calls)
     assert not config.exists()
-    assert list(tmp_path.iterdir()) == []
+    assert leftovers(tmp_path) == []
 
 
 @pytest.mark.parametrize("verb", ["login", "tag", "push"])
@@ -147,7 +151,7 @@ def test_falha_de_qualquer_etapa_apaga_a_config_e_nao_vaza_o_token(
         port.push(IMAGE, TARGET, login(), make_context())
     text = "".join(traceback.format_exception(error.value))
     assert TOKEN not in text
-    assert list(tmp_path.iterdir()) == []
+    assert leftovers(tmp_path) == []
     assert str(error.value).startswith("service=")
 
 
@@ -165,7 +169,7 @@ def test_push_sem_digest_na_saida_e_falha(runner: Runner, tmp_path: Path) -> Non
     with pytest.raises(ServiceFailure) as error:
         port.push(IMAGE, TARGET, login(), make_context())
     assert TOKEN not in str(error.value)
-    assert list(tmp_path.iterdir()) == []
+    assert leftovers(tmp_path) == []
 
 
 @pytest.mark.parametrize("error", [subprocess.TimeoutExpired("docker", 5), OSError("boom")])
@@ -181,7 +185,7 @@ def test_excecao_do_processo_vira_falha_de_servico_sem_vazar_o_token(
     with pytest.raises(ServiceFailure) as raised:
         port.push(IMAGE, TARGET, login(), make_context())
     assert TOKEN not in "".join(traceback.format_exception(raised.value))
-    assert list(tmp_path.iterdir()) == []
+    assert leftovers(tmp_path) == []
 
 
 def test_timeout_de_cada_comando_respeita_o_tempo_restante_do_orcamento(

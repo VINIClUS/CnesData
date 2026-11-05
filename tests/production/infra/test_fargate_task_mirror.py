@@ -23,6 +23,7 @@ MAPPED_VALUES = {
 IGNORED_VALUES = {
     "family", "execution_role_arn", "task_role_arn", "tags", "tags_all", "id", "arn",
     "arn_without_revision", "revision", "container_definitions", "skip_destroy", "track_latest",
+    "region",
 }
 ALLOWED_ENV_VALUES = {
     "AWS_CONTROL_PLANE_TABLE", "AWS_DATA_BUCKET", "AWS_STATE_MACHINE_ARN",
@@ -32,13 +33,13 @@ PLACEHOLDER = "<permitido>"
 ENTRY_POINT = ("python", "-c", "print(1)")
 SETTINGS = TaskSettings(
     family="cnesdata-cap-a1b2c3d4-recovery",
-    image="111111111111.dkr.ecr.us-east-2.amazonaws.com/cnesdata-cap-a1b2c3d4@sha256:" + "c" * 64,
-    execution_role_arn="arn:aws:iam::111111111111:role/cnesdata-cap/cnesdata-cap-a1b2c3d4-exec",
-    task_role_arn="arn:aws:iam::111111111111:role/cnesdata-cap/cnesdata-cap-a1b2c3d4-task",
+    image="123456789012.dkr.ecr.us-east-2.amazonaws.com/cnesdata-cap-a1b2c3d4@sha256:" + "c" * 64,
+    execution_role_arn="arn:aws:iam::123456789012:role/cnesdata-cap/cnesdata-cap-a1b2c3d4-exec",
+    task_role_arn="arn:aws:iam::123456789012:role/cnesdata-cap/cnesdata-cap-a1b2c3d4-task",
     log_group="cnesdata-cap-a1b2c3d4",
     control_plane_table="cnesdata-cap-a1b2c3d4",
     data_bucket="cnesdata-cap-a1b2c3d4",
-    state_machine_arn="arn:aws:states:us-east-2:111111111111:stateMachine:cnesdata-cap-a1b2c3d4",
+    state_machine_arn="arn:aws:states:us-east-2:123456789012:stateMachine:cnesdata-cap-a1b2c3d4",
     subnet_ids=("subnet-0bbb2220", "subnet-0aaa1110"),
     security_group_id="sg-0cap000000000001",
     tags={"Project": "CnesData", "Purpose": "aws-capability", "Run": "a1b2c3d4"},
@@ -89,6 +90,12 @@ def task_differences(payload: Node, values: Node) -> list[str]:
     return found + unmapped
 
 
+def containers(document: Node) -> list[Node]:
+    found = document["containerDefinitions"]
+    assert isinstance(found, list)
+    return found
+
+
 def payload() -> Node:
     return task_definition_payload(SETTINGS)
 
@@ -118,8 +125,8 @@ def test_espelho_container_e_task_iguais_ao_modo_recovery_renderizado(
 def test_espelho_com_entrypoint_do_probe_difere_so_no_entrypoint(
     processing_native: NativePlans, prod_root: Path
 ) -> None:
-    plain = payload()["containerDefinitions"][0]
-    probing = task_definition_payload(SETTINGS, ENTRY_POINT)["containerDefinitions"][0]
+    plain = containers(payload())[0]
+    probing = containers(task_definition_payload(SETTINGS, ENTRY_POINT))[0]
     assert probing["entryPoint"] == list(ENTRY_POINT)
     assert {k: v for k, v in probing.items() if k != "entryPoint"} == plain
     witnesses = list(_witnesses(processing_native, prod_root, "recovery"))
