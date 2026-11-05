@@ -47,11 +47,13 @@ class DockerImages:
         self, image: str, target: str, environment: dict[str, str], context: RequestContext
     ) -> str:
         self._execute(["docker", "tag", image, target], environment, context)
-        output = self._execute(["docker", "push", target], environment, context)
+        try:
+            output = self._execute(["docker", "push", target], environment, context)
+        finally:
+            self._best_effort(["docker", "rmi", target], environment, context)
         digest = DIGEST.findall(output)
         if not digest:
             raise ServiceFailure("service=docker_push_digest_missing")
-        self._best_effort(["docker", "rmi", target], environment, context)
         return digest[-1]
 
     @contextmanager

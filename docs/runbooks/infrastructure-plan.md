@@ -66,6 +66,16 @@ sobre plan real (ARN do schedule entre os ARNs de task definition do processing 
 2. Confirmar que as duas variáveis são exatamente as revisões `recovery` e `audit` dessa saída.
 3. Registrar a conferência (sem ARN completo) na evidência do apply.
 
+O CloudFront recusa certificado ACM que não esteja `ISSUED`, e `aws_acm_certificate.static_web` só
+emite depois da validação por DNS. O primeiro apply tem duas fases:
+
+1. Aplicar só o certificado e publicar os registros da saída `acm_dns_validation_records`.
+2. Confirmar o status `ISSUED`, e só então aplicar a distribuição que usa o ARN.
+
+`certificate_domain_validated` segue `false` até a validação do domínio. Ligar depois dela aplica o
+HSTS, que o navegador memoriza: reverter não tem efeito imediato. A ordem do apply é da Task 3 do
+plano delivery, e o HSTS é da Task 11.
+
 ## Capability checks em AWS real
 
 Cada check exige aprovação explícita do dono, retenção mínima, evidência redigida e limpeza com
