@@ -335,8 +335,7 @@ uv run python -m tests.integration.aws_capability.lifecycle run \
 
 Prova se `user=app` escreve em `/tmp`, `/logs` e `/data` numa task Fargate com a definição espelhada
 de `infra/opentofu/modules/processing/ecs.tf` (`tests/production/infra/test_fargate_task_mirror.py`
-compara o payload com o plano). Sem a prova, o fix é só o teste do Dockerfile; com ela, o resultado
-decide se o `VOLUME ["/tmp", "/logs", "/data"]` de `apps/data_processor/Dockerfile` basta.
+compara o payload com o plano).
 
 - **Rodar:** o mesmo comando de "Rodar um perfil" com `--probe fargate-write`, mais as duas
   entradas do operador e `CAP_FARGATE_IMAGE` (referência local da imagem, ex.:
@@ -346,6 +345,9 @@ decide se o `VOLUME ["/tmp", "/logs", "/data"]` de `apps/data_processor/Dockerfi
   `monitor` não leem a variável. Docker local precisa estar disponível; o push usa
   `docker login --password-stdin` com `DOCKER_CONFIG` temporário em `/dev/shm`, sem `AWS_*` no
   ambiente, e o token do ECR nunca aparece em argv, journal, evidência, repr nem traceback.
+  `SIGKILL` entre o login e o `finally` deixa o token (validade de 12 h) em
+  `/dev/shm/cnesdata-cap-docker-*`: apague à mão. O `docker rmi` final tira a tag do ECR; imagem
+  passada por ID, sem outra tag, sai do Docker local.
 - **Raízes e ordem de criação:** ECR (`IMMUTABLE`), log group (retenção 1 dia), roles `-exec` e
   `-task`, security group na VPC default (egress só TCP 443, sem ingress) e cluster ECS. Remoção
   na ordem do inventário: ECS (para tasks, desregistra e apaga as revisões do run, apaga o
@@ -355,13 +357,15 @@ decide se o `VOLUME ["/tmp", "/logs", "/data"]` de `apps/data_processor/Dockerfi
 - **Prova de vazio:** além das contagens por serviço, `evidence.task_definition_revisions` lê as
   revisões `ACTIVE` e `INACTIVE` do run depois do último `delete-task-definitions`. Contar nomes de
   família não serve: após o delete a família segue listada como `INACTIVE` sem nenhuma revisão.
-  Revisão remanescente dá `incomplete/cleanup_failed`. "Vazio" vale para o run;
-  `final_counts_all_cap` pode incluir recursos de outro run.
+  Se a contagem não zera, a prova final desregistra e apaga as revisões do run e reconta, mesmo
+  sem cluster. Revisão remanescente dá `incomplete/cleanup_failed`, e o `janitor` tenta de novo.
+  `DELETE_IN_PROGRESS` fica fora da contagem: a exclusão é assíncrona e não tem custo. "Vazio"
+  vale para o run; `final_counts_all_cap` pode incluir recursos de outro run.
 - **Janela e limites:** janela 540 s; `Limits(300 chamadas, reserva de cleanup 150, 8 páginas, 2
-  tentativas, 300 s de cleanup)`. Medido em dois ensaios reais: push 79 a 88 s, task do probe 52 s,
-  `recover-once` 62 a 73 s e ciclo inteiro com cleanup 288 s. O modelo com 1,3 s por chamada dá,
-  no pior cenário, 85 chamadas e 414 s de trabalho e 133 chamadas e 221 s de cleanup; o teste exige
-  vezes 1,2 dentro da janela e tetos absolutos derivados de 288 s.
+  tentativas, 300 s de cleanup)`. Pelo harness real, o `run` inteiro levou 465 s. Nos protótipos:
+  push 79 a 88 s, task do probe 52 s, `recover-once` 62 a 73 s e ciclo de 288 s. O modelo com 1,3 s
+  por chamada dá, no pior cenário, 85 chamadas e 414 s de trabalho e 133 chamadas e 221 s de
+  cleanup; o teste exige vezes 1,2 dentro da janela e tetos absolutos derivados de 288 s.
 - **Ler RED e GREEN:** `evidence.probe.all_writable` é `false` (RED) quando algum mount falha ou o
   `tempfile` não resolve em `/tmp`, e `true` (GREEN) quando os três aceitam escrita. Sem `VOLUME`:
   `/tmp`, `/logs` e `/data` vêm `uid=0 gid=0 modo 0o755` com `EACCES` e `tempfile` dá
@@ -371,8 +375,9 @@ decide se o `VOLUME ["/tmp", "/logs", "/data"]` de `apps/data_processor/Dockerfi
   `succeeded`; só falha de infraestrutura reprova. `recovery_exit_code=1` com
   `processor_entrypoint_failed` e `ProcessorExecutionUnavailable` ocorre nas duas imagens, então o
   `recover-once` não separa RED de GREEN; quem separa são os campos de escrita do probe.
-- **Fato da plataforma:** bind mounts do Fargate nascem `root:root 0755` a menos que o Dockerfile
-  declare `VOLUME` no `containerPath` depois do `chown`. Sem isso, `user=app` não escreve.
+  `recovery_disk_denials` não prova escrita: a leitura para no primeiro lote de log, e o RED, sem
+  escrita em nenhum mount, também dá 0.
+- **Fato da plataforma:** bind mount do Fargate nasce `root:root 0755` sem `VOLUME` no caminho.
 - **Permissões do operador (além das de IAM dos outros perfis):** ECR `Create/DeleteRepository`,
   `DescribeRepositories`, `DescribeImages`, `ListImages`, `BatchDeleteImage`, `TagResource`,
   `ListTagsForResource`, `PutImage`, `InitiateLayerUpload`, `UploadLayerPart`,
@@ -391,8 +396,8 @@ decide se o `VOLUME ["/tmp", "/logs", "/data"]` de `apps/data_processor/Dockerfi
   `-task`. O boundary precisa permitir `ecr:BatchGetImage`, `ecr:GetDownloadUrlForLayer`,
   `ecr:BatchCheckLayerAvailability` em `repository/cnesdata-cap-*`, `ecr:GetAuthorizationToken`
   sem escopo e `logs:CreateLogStream`/`logs:PutLogEvents` em `log-group:cnesdata-cap-*:log-stream:*`;
-  o fake só avalia a política inline, então a falta de qualquer uma aparece no ensaio real como
-  `probe=task_not_started` (task parada sem `exitCode`).
+  o fake só avalia a política inline, então a falta de qualquer uma só aparece no ensaio real, como
+  `failed/operation_failed` com `probe` vazio: o worker não repassa o motivo fechado do probe.
 - **Root recusado:** a identidade do `run` e do `janitor` exige sessão assumida do role do operador;
   qualquer outro chamador, inclusive root, termina em `operator_mismatch` depois de uma única
   chamada `sts get-caller-identity` e antes de criar ou ler qualquer recurso.
@@ -401,8 +406,8 @@ decide se o `VOLUME ["/tmp", "/logs", "/data"]` de `apps/data_processor/Dockerfi
   do inventário vazio. O profile `local` do compose cria volumes anônimos por causa do `VOLUME`;
   `docker compose down -v` os remove.
 - **Operações com saída vazia:** `logs create-log-group` e `logs put-retention-policy` respondem
-  vazio com sucesso (conferido com `aws <serviço> <operação> help`, que é offline e não precisa de
-  credencial); `delete-*` já contava como sucesso vazio, inclusive `ec2 delete-security-group`.
+  vazio com sucesso (conferido offline com `aws <serviço> <operação> help`); `delete-*` já contava
+  como sucesso vazio, inclusive `ec2 delete-security-group`.
 
 ## Matriz de divergências
 
