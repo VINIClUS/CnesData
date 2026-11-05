@@ -1,9 +1,9 @@
 """ecs run-task da fronteira com estado: pull, execução do container e logs com atraso."""
 
 from collections.abc import Callable
+from fnmatch import fnmatchcase
 
 from tests.integration.aws_capability._aws_fake_ecs_testing import (
-    PULL_ACTIONS,
     SERVICE_PRINCIPAL,
     probe_line,
     recovery_lines,
@@ -16,6 +16,8 @@ from tests.integration.aws_capability._aws_fake_fargate_testing import (
     FakeRevision,
     FakeTask,
     FargateState,
+    group_arn,
+    repo_arn,
     repo_uri,
 )
 from tests.integration.aws_capability._aws_fake_types_testing import FakeRole, denied, good
@@ -33,6 +35,10 @@ class RunTaskHandlers:
         cluster = self.fargate.clusters.get(name)
         if cluster is None or cluster.status != "ACTIVE":
             return denied("ClusterNotFoundException")
+        if self.fargate.run_failures > 0:
+            self.fargate.run_failures -= 1
+            failure = {"reason": "RESOURCE:FARGATE", "detail": "Capacity is unavailable"}
+            return good({"tasks": [], "failures": [failure]})
         revision = self._by_arn(payload["taskDefinition"])  # type: ignore[attr-defined]
         if revision is None or revision.status != "ACTIVE":
             return denied("InvalidParameterException")
@@ -110,13 +116,43 @@ class RunTaskHandlers:
         task = self.roles.get(definition["taskRoleArn"].rsplit("/", 1)[-1])
         if execution is None or task is None:
             return False
-        actions = {a for acts, effective, _ in execution.policies.values()
-                   if self.counter >= effective for a in acts}
+        container = definition["containerDefinitions"][0]
+        needs = self._pull_needs(container)
         return (
             _trusts_ecs(execution, ACCOUNT)
             and _trusts_ecs(task, ACCOUNT)
-            and actions >= PULL_ACTIONS
+            and all(self._grants(execution, action, resource) for action, resource in needs)
         )
+
+    def _pull_needs(self, container: dict) -> list[tuple[str, str]]:
+        repo = container["image"].partition("@")[0].rsplit("/", 1)[-1]
+        group = container["logConfiguration"]["options"]["awslogs-group"]
+        prefix = container["logConfiguration"]["options"]["awslogs-stream-prefix"]
+        stream = f"{group_arn(group)}:log-stream:{prefix}/processor/0"
+        pulls = ("BatchGetImage", "GetDownloadUrlForLayer", "BatchCheckLayerAvailability")
+        return [
+            *[(f"ecr:{name}", repo_arn(repo)) for name in pulls],
+            ("ecr:GetAuthorizationToken", "*"),
+            ("logs:CreateLogStream", stream),
+            ("logs:PutLogEvents", stream),
+        ]
+
+    def _grants(self, role: FakeRole, action: str, resource: str) -> bool:
+        for _, effective, document in role.policies.values():
+            if self.counter < effective:
+                continue
+            for statement in document["Statement"]:  # type: ignore[index]
+                actions = _listed(statement["Action"])
+                targets = _listed(statement["Resource"])
+                if statement["Effect"] == "Allow" and action in actions and any(
+                    fnmatchcase(resource, target) for target in targets
+                ):
+                    return True
+        return False
+
+
+def _listed(value: object) -> list[str]:
+    return [value] if isinstance(value, str) else [str(item) for item in value]  # type: ignore[attr-defined]
 
 
 def _trusts_ecs(role: FakeRole, account: str) -> bool:

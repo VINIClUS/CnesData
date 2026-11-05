@@ -30,20 +30,25 @@ from tests.integration.aws_capability.contracts import Outcome
 
 PROFILE = PROFILES["fargate-write"]
 ZERO = dict.fromkeys(FARGATE_SERVICES, 0)
+MEASURED_PUSH, MEASURED_PROBE, MEASURED_RECOVERY, MEASURED_CYCLE = 88, 52, 73, 288
+AVERAGE_TASK = (MEASURED_PROBE + MEASURED_RECOVERY) / 2
 SCENARIOS = {
-    "tipico": {"push": 85.0, "state": {"task_seconds": 55.0}},
+    "tipico": {
+        "push": float(MEASURED_PUSH),
+        "state": {"task_seconds": AVERAGE_TASK - 6, "provision_seconds": 6.0},
+    },
     "lento": {
-        "push": 120.0,
+        "push": 1.2 * MEASURED_PUSH,
         "state": {
-            "task_seconds": 75.0, "provision_seconds": 15.0, "log_lag": 20.0,
-            "stop_seconds": 15.0, "sg_violations": 8,
+            "task_seconds": 1.1 * AVERAGE_TASK, "provision_seconds": 8.0, "log_lag": 12.0,
+            "stop_seconds": 10.0, "sg_violations": 8,
         },
     },
     "pior_caso_limitado": {
-        "push": 150.0,
+        "push": 1.4 * MEASURED_PUSH,
         "state": {
-            "task_seconds": 90.0, "provision_seconds": 20.0, "log_lag": 30.0,
-            "stop_seconds": 20.0, "sg_violations": 16, "log_page_size": 5,
+            "task_seconds": 1.2 * AVERAGE_TASK, "provision_seconds": 10.0, "log_lag": 20.0,
+            "stop_seconds": 12.0, "sg_violations": 12, "log_page_size": 5,
             "recovery_denials": 7,
         },
     },
@@ -258,14 +263,14 @@ def test_cada_cenario_cabe_nos_limites_e_na_janela_com_margem_de_20_por_cento(
     assert cleanup_seconds(lab) * 1.2 <= limits.cleanup_seconds
 
 
-def test_limites_nao_estao_inflados_alem_do_dobro_do_caso_tipico(tmp_path: Path) -> None:
-    lab = cycle(tmp_path, "tipico")
-    assert execute(lab).status == "succeeded"
+def test_limites_ficam_abaixo_de_tetos_absolutos_derivados_dos_ensaios_reais(
+    tmp_path: Path,
+) -> None:
     limits = PROFILE.limits
-    assert PROFILE.window <= 2 * work_seconds(lab) * 1.2
-    assert limits.cleanup_seconds <= 3 * cleanup_seconds(lab) * 1.2
-    assert limits.cleanup_reserve <= 3 * cleanup_calls(lab)
-    assert limits.calls - limits.cleanup_reserve <= 2 * work_calls(lab)
+    assert PROFILE.window <= 2 * MEASURED_CYCLE
+    assert limits.cleanup_seconds <= MEASURED_CYCLE + 60
+    assert limits.calls <= 2 * MEASURED_CYCLE / 1.3
+    assert limits.cleanup_reserve <= limits.calls / 2
 
 
 def test_evidencia_do_ciclo_nao_carrega_conta_arn_nem_ids(tmp_path: Path) -> None:

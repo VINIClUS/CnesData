@@ -32,6 +32,7 @@ from tests.integration.aws_capability._fargate_testing import (
     requests_of,
 )
 from tests.integration.aws_capability._probe_testing import payload_text
+from tests.integration.aws_capability._safety import tags
 from tests.integration.aws_capability.contracts import RequestContext, Resource, ServiceFailure
 
 DIGEST = "sha256:" + hashlib.sha256(IMAGE.encode()).hexdigest()
@@ -39,13 +40,13 @@ KEYS = {
     "image_digest", "platform_version", "user", "uid", "root_write", "tempfile", "all_writable",
     "tmp_uid", "tmp_gid", "tmp_mode", "tmp_write", "logs_uid", "logs_gid", "logs_mode",
     "logs_write", "data_uid", "data_gid", "data_mode", "data_write", "write_exit_code",
-    "recovery_exit_code", "recovery_permission_denials", "network_ingress_rules",
+    "recovery_exit_code", "recovery_disk_denials", "network_ingress_rules",
     "network_egress_rules", "network_subnets",
 }
 COMMON = {
     "image_digest": DIGEST, "platform_version": "1.4.0", "user": "app", "uid": 999,
     "root_write": "EROFS", "write_exit_code": 0, "recovery_exit_code": 1,
-    "recovery_permission_denials": 0, "network_ingress_rules": 0, "network_egress_rules": 1,
+    "recovery_disk_denials": 0, "network_ingress_rules": 0, "network_egress_rules": 1,
     "network_subnets": 3,
 }
 RED = {
@@ -104,11 +105,11 @@ def test_esquema_da_evidencia_e_fechado_em_chaves_e_formatos(
         assert type(observed[f"{path}_uid"]) is int
         assert type(observed[f"{path}_gid"]) is int
     assert re.fullmatch(r"ok:/tmp|[A-Za-z]+Error", str(observed["tempfile"]))
-    for key in ("write_exit_code", "recovery_exit_code", "recovery_permission_denials"):
+    for key in ("write_exit_code", "recovery_exit_code", "recovery_disk_denials"):
         assert type(observed[key]) is int
 
 
-def test_conta_linhas_com_negacao_de_disco_sem_contar_duas_vezes_a_mesma_linha(
+def test_conta_linhas_com_negacao_de_disco_incluindo_erofs_e_tmp_inutilizavel(
     lab: FargateLab,
 ) -> None:
     lab.state.recovery_lines = [
@@ -121,13 +122,13 @@ def test_conta_linhas_com_negacao_de_disco_sem_contar_duas_vezes_a_mesma_linha(
         "linha comum sem relacao com disco",
         f"nota sem erro {LOG_CANARY}",
     ]
-    assert run(lab)["recovery_permission_denials"] == 5
+    assert run(lab)["recovery_disk_denials"] == 5
 
 
 def test_le_todas_as_paginas_de_log_antes_de_contar_as_negacoes(lab: FargateLab) -> None:
     lab.state.recovery_denials = 7
     lab.state.log_page_size = 2
-    assert run(lab)["recovery_permission_denials"] == 7
+    assert run(lab)["recovery_disk_denials"] == 7
 
 
 def test_saida_do_probe_de_escrita_nao_zero_e_registrada(lab: FargateLab) -> None:
@@ -137,6 +138,31 @@ def test_saida_do_probe_de_escrita_nao_zero_e_registrada(lab: FargateLab) -> Non
 
 def test_espera_o_atraso_dos_logs_depois_de_stopped(lab: FargateLab) -> None:
     lab.state.log_lag = 25.0
+    assert run(lab) == RED
+
+
+def test_tolera_missing_nas_primeiras_leituras_da_task(lab: FargateLab) -> None:
+    lab.state.describe_missing = 3
+    assert run(lab) == RED
+
+
+def test_repete_run_task_que_voltou_failures_ate_o_limite(lab: FargateLab) -> None:
+    lab.state.run_failures = 2
+    assert run(lab) == RED
+
+
+def test_run_task_que_so_devolve_failures_reprova_com_tentativas_limitadas(
+    lab: FargateLab,
+) -> None:
+    lab.state.run_failures = 10**6
+    error = fails(lab)
+    assert str(error).startswith("probe=")
+    assert "RESOURCE:FARGATE" not in str(error)
+    assert operations(lab).count("ecs.run-task") <= 8
+
+
+def test_primeira_pagina_vazia_de_log_nao_encerra_a_leitura(lab: FargateLab) -> None:
+    lab.state.empty_first_log_page = True
     assert run(lab) == RED
 
 
@@ -270,7 +296,7 @@ def test_politica_de_execucao_espelha_pull_do_repo_e_logs_do_grupo_e_a_task_role
     assert [p["RoleName"] for p in puts] == [EXEC.name]
     document = json.loads(puts[0]["PolicyDocument"])
     group = f"arn:aws:logs:us-east-2:{ACCOUNT}:log-group:{NAME}:log-stream:*"
-    assert document["Statement"] == [
+    assert normalized(document) == normalized({"Statement": [
         {"Effect": "Allow",
          "Action": ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer",
                     "ecr:BatchCheckLayerAvailability"],
@@ -278,7 +304,18 @@ def test_politica_de_execucao_espelha_pull_do_repo_e_logs_do_grupo_e_a_task_role
         {"Effect": "Allow", "Action": "ecr:GetAuthorizationToken", "Resource": "*"},
         {"Effect": "Allow", "Action": ["logs:CreateLogStream", "logs:PutLogEvents"],
          "Resource": group},
-    ]
+    ]})
+
+
+def normalized(document: dict) -> list:
+    rows = []
+    for statement in document["Statement"]:
+        actions = statement["Action"]
+        actions = [actions] if isinstance(actions, str) else actions
+        resources = statement["Resource"]
+        resources = [resources] if isinstance(resources, str) else resources
+        rows.append((statement["Effect"], tuple(sorted(actions)), tuple(sorted(resources))))
+    return sorted(rows)
 
 
 def test_duas_tasks_rodam_na_rede_default_com_ip_publico_e_so_o_probe_troca_o_entrypoint(
@@ -335,7 +372,7 @@ def test_task_definitions_registradas_sao_exatamente_o_payload_do_espelho(
         assert settings.execution_role_arn.endswith(f"role/cnesdata-cap/{EXEC.name}")
         assert settings.task_role_arn.endswith(f"role/cnesdata-cap/{TASK.name}")
         assert settings.family.startswith(NAME)
-        assert settings.tags["Run"] == "a1b2c3d4"
+        assert settings.tags == tags(lab.spec)
     assert len({p["family"] for p in registered}) == 2
 
 

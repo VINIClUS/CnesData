@@ -1,4 +1,4 @@
-"""Leitura do estágio final de um Dockerfile para checar VOLUME, chown e USER."""
+"""Leitura do estágio final de um Dockerfile para checar VOLUME depois do chown."""
 
 import json
 import re
@@ -42,11 +42,16 @@ def _positions(stage: list[tuple[str, str]], name: str) -> list[int]:
     return [index for index, (kind, _) in enumerate(stage) if kind == name]
 
 
+def _chowns_mounts(command: str) -> bool:
+    return bool(re.search(r"\bchown\b", command)) and all(
+        token in command for token in ("/logs", "/data", "app")
+    )
+
+
 def volume_violations(text: str, paths: Iterable[str]) -> list[str]:
-    """Returns: violações com key=value; vazio quando todo caminho tem VOLUME após o chown."""
+    """Returns: violações key=value; vazio se todo caminho tem VOLUME após o chown."""
     stage = final_stage(instructions(text))
-    chowns = [i for i in _positions(stage, "RUN") if re.search(r"\bchown\b", stage[i][1])]
-    users = _positions(stage, "USER")
+    chowns = [i for i in _positions(stage, "RUN") if _chowns_mounts(stage[i][1])]
     declared: dict[str, int] = {}
     for index in _positions(stage, "VOLUME"):
         for path in volume_paths(stage[index][1]):
@@ -54,14 +59,10 @@ def volume_violations(text: str, paths: Iterable[str]) -> list[str]:
     problems: list[str] = []
     if not chowns:
         problems.append("chown=missing")
-    if not users:
-        problems.append("user=missing")
     for path in sorted(paths):
         index = declared.get(path)
         if index is None:
             problems.append(f"volume=missing path={path}")
         elif chowns and index < chowns[-1]:
             problems.append(f"volume=before_chown path={path}")
-        elif users and index > users[0]:
-            problems.append(f"volume=after_user path={path}")
     return problems

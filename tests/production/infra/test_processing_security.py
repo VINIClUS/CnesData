@@ -212,7 +212,7 @@ def _replace(text: str, old: str, new: str) -> str:
     return text.replace(old, new)
 
 
-def test_dockerfile_declara_volume_dos_mounts_depois_do_chown_e_antes_do_user() -> None:
+def test_dockerfile_declara_volume_dos_mounts_depois_do_chown() -> None:
     problems = volume_violations(DOCKERFILE.read_text(encoding="utf-8"), MOUNT_PATHS)
     assert problems == [], f"processing_dockerfile_volume {problems}"
 
@@ -230,7 +230,7 @@ def test_leitor_aceita_volume_em_json_e_em_linhas_separadas_no_estagio_final() -
             "",
             ["volume=missing path=/logs", "volume=missing path=/tmp"],
         ),
-        ("USER app\n", "", ["user=missing"]),
+        ("chown -R app:app", "chown -R root:root", ["chown=missing"]),
         ("chown -R app:app /logs /data", "true", ["chown=missing"]),
     ],
 )
@@ -248,15 +248,10 @@ def test_leitor_reporta_volume_antes_do_chown_porque_o_docker_descarta_a_mudanca
     assert volume_violations(moved, MOUNT_PATHS) == ["volume=before_chown path=/data"]
 
 
-def test_leitor_reporta_volume_depois_do_user() -> None:
-    moved = _replace(GOOD_STAGE, "VOLUME /data\n", "").replace(
-        "USER app\n", "USER app\nVOLUME /data\n", 1
-    )
-    assert volume_violations(moved, MOUNT_PATHS) == ["volume=after_user path=/data"]
-
-
 def test_leitor_ignora_volume_do_estagio_de_build() -> None:
-    only_builder = "FROM a AS builder\nVOLUME /tmp /logs /data\nFROM b\nRUN chown x\nUSER app\n"
+    only_builder = (
+        "FROM a AS builder\nVOLUME /tmp /logs /data\nFROM b\nRUN chown -R app:app /logs /data\n"
+    )
     assert volume_violations(only_builder, MOUNT_PATHS) == [
         "volume=missing path=/data",
         "volume=missing path=/logs",

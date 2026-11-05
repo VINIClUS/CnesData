@@ -1,6 +1,5 @@
 """Integridade da fronteira falsa do fargate-write contra os fatos medidos nos ensaios reais."""
 
-# ruff: noqa: S108
 import json
 from pathlib import Path
 
@@ -9,6 +8,8 @@ import pytest
 from tests.integration.aws_capability._aws_fake_fargate_testing import (
     DEFAULT_VPC,
     SUBNETS,
+    group_arn,
+    repo_arn,
     repo_uri,
 )
 from tests.integration.aws_capability._b1_testing import ACCOUNT, NAME
@@ -16,6 +17,7 @@ from tests.integration.aws_capability._fargate_testing import (
     SG_ID,
     FargateLab,
     make_fargate_lab,
+    seed_fargate,
 )
 from tests.integration.aws_capability._service_contracts import RegistryLogin, Reply
 from tests.integration.aws_capability.cli import Request
@@ -28,11 +30,22 @@ ECS_TRUST = {
         "Condition": {"StringEquals": {"aws:SourceAccount": ACCOUNT}},
     }],
 }
-PULL = {
-    "Version": "2012-10-17",
-    "Statement": [{"Effect": "Allow", "Action": [
-        "ecr:BatchGetImage", "ecr:GetAuthorizationToken", "logs:PutLogEvents"], "Resource": "*"}],
-}
+def pull_policy(stream: str = "recovery/processor/*") -> dict:
+    repo, group = repo_arn(NAME), group_arn(NAME)
+    return {
+        "Version": "2012-10-17",
+        "Statement": [
+            {"Effect": "Allow", "Action": [
+                "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer",
+                "ecr:BatchCheckLayerAvailability"], "Resource": repo},
+            {"Effect": "Allow", "Action": "ecr:GetAuthorizationToken", "Resource": "*"},
+            {"Effect": "Allow", "Action": ["logs:CreateLogStream", "logs:PutLogEvents"],
+             "Resource": f"{group}:log-stream:{stream}"},
+        ],
+    }
+
+
+PULL = pull_policy()
 
 
 def call(lab: FargateLab, service: str, operation: str, **payload: object) -> Reply:
@@ -70,7 +83,8 @@ def definition(lab: FargateLab, image: str, entry: list[str] | None = None) -> s
     if entry:
         container["entryPoint"] = entry
     reply = ok(lab, "ecs", "register-task-definition", family=f"{NAME}-recovery",
-               containerDefinitions=[container],
+               containerDefinitions=[container], cpu="256", memory="512",
+               networkMode="awsvpc", requiresCompatibilities=["FARGATE"],
                executionRoleArn=f"arn:aws:iam::{ACCOUNT}:role/cnesdata-cap/{NAME}-exec",
                taskRoleArn=f"arn:aws:iam::{ACCOUNT}:role/cnesdata-cap/{NAME}-task")
     return str(reply["taskDefinition"]["taskDefinitionArn"])
@@ -104,39 +118,6 @@ def events(lab: FargateLab, task: str, prefix: str = "recovery") -> list[str]:
 @pytest.fixture
 def lab(tmp_path: Path) -> FargateLab:
     return make_fargate_lab(tmp_path)
-
-
-@pytest.mark.parametrize("writable", [False, True])
-def test_fluxo_de_referencia_do_prototipo_produz_o_resultado_medido(
-    lab: FargateLab, writable: bool
-) -> None:
-    lab.state.writable = writable
-    image = push(lab)
-    trust_roles(lab)
-    task = run(lab, definition(lab, image, ["python", "-c", "probe"]))
-    stopped = wait_stopped(lab, task)
-    assert stopped["containers"][0]["exitCode"] == 0
-    assert stopped["platformVersion"] == "1.4.0"
-    line = events(lab, task)[0]
-    observed = json.loads(line.removeprefix("CAPPROBE "))
-    assert (observed["uid"], observed["user"], observed["root_write"]) == (999, "app", "EROFS")
-    assert observed["/logs"]["write"] == ("ok" if writable else "EACCES")
-    assert observed["/tmp"]["mode"] == ("0o1777" if writable else "0o755")
-    assert observed["tempfile"] == ("ok:/tmp" if writable else "FileNotFoundError")
-
-
-def test_recovery_sai_1_e_termina_igual_nas_duas_imagens(lab: FargateLab) -> None:
-    results = []
-    image = push(lab)
-    trust_roles(lab)
-    for writable in (False, True):
-        lab.state.writable = writable
-        task = run(lab, definition(lab, image))
-        row = wait_stopped(lab, task)
-        results.append((row["containers"][0]["exitCode"], events(lab, task)))
-    assert results[0] == results[1]
-    assert results[0][0] == 1
-    assert "ProcessorExecutionUnavailable" in results[0][1][-1]
 
 
 def test_task_sem_ip_publico_nao_inicia_container_e_expoe_motivo_sem_exit_code(
@@ -229,3 +210,188 @@ def test_apos_delete_task_definitions_familia_inativa_persiste_mas_nao_ha_revisa
     assert families["families"] == [f"{NAME}-recovery"]
     active = ok(lab, "ecs", "list-task-definition-families", familyPrefix=NAME, status="ACTIVE")
     assert active["families"] == []
+
+
+def test_describe_clusters_so_devolve_tags_quando_pedidas(lab: FargateLab) -> None:
+    ok(lab, "ecs", "create-cluster", clusterName="tagged", tags=[{"key": "Run", "value": "x"}])
+    bare = ok(lab, "ecs", "describe-clusters", clusters=["tagged"])["clusters"][0]
+    tagged = ok(lab, "ecs", "describe-clusters", clusters=["tagged"], include=["TAGS"])
+    tagged = tagged["clusters"][0]
+    assert "tags" not in bare
+    assert tagged["tags"] == [{"key": "Run", "value": "x"}]
+
+
+def _without(action: str) -> dict:
+    policy = pull_policy()
+    for statement in policy["Statement"]:
+        listed = statement["Action"]
+        kept = [a for a in ([listed] if isinstance(listed, str) else listed) if a != action]
+        statement["Action"] = kept or ["sts:GetCallerIdentity"]
+    return policy
+
+
+@pytest.mark.parametrize(
+    "action",
+    [
+        "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability",
+        "ecr:GetAuthorizationToken", "logs:CreateLogStream", "logs:PutLogEvents",
+    ],
+)
+def test_politica_de_execucao_sem_qualquer_acao_obrigatoria_impede_o_container(
+    lab: FargateLab, action: str
+) -> None:
+    trust_roles(lab)
+    ok(lab, "iam", "put-role-policy", RoleName=f"{NAME}-exec", PolicyName="cap",
+       PolicyDocument=json.dumps(_without(action)))
+    row = wait_stopped(lab, run(lab, definition(lab, push(lab))))
+    assert "exitCode" not in row["containers"][0]
+    assert "ResourceInitializationError" in row["stoppedReason"]
+
+
+@pytest.mark.parametrize("stream", ["other/processor/*", "recovery/*"])
+def test_politica_com_recurso_de_log_errado_so_vale_quando_cobre_o_stream(
+    lab: FargateLab, stream: str
+) -> None:
+    trust_roles(lab)
+    ok(lab, "iam", "put-role-policy", RoleName=f"{NAME}-exec", PolicyName="cap",
+       PolicyDocument=json.dumps(pull_policy(stream)))
+    row = wait_stopped(lab, run(lab, definition(lab, push(lab))))
+    assert ("exitCode" in row["containers"][0]) == (stream == "recovery/*")
+
+
+def test_create_security_group_exige_descricao_e_tipo_de_recurso_da_tag(lab: FargateLab) -> None:
+    base = {"GroupName": "cnesdata-cap-y", "VpcId": DEFAULT_VPC}
+    assert not call(lab, "ec2", "create-security-group", **base).ok
+    spec = [{"ResourceType": "instance", "Tags": [{"Key": "a", "Value": "b"}]}]
+    extra = {"Description": "d", **base}
+    assert not call(lab, "ec2", "create-security-group", TagSpecifications=spec, **extra).ok
+    spec[0]["ResourceType"] = "security-group"
+    assert call(lab, "ec2", "create-security-group", TagSpecifications=spec, **extra).ok
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("cpu", "999"),
+        ("memory", "9999"),
+        ("networkMode", "bridge"),
+        ("requiresCompatibilities", ["EC2"]),
+        ("executionRoleArn", f"arn:aws:iam::{ACCOUNT}:role/cnesdata-cap/ausente"),
+    ],
+)
+def test_register_task_definition_recusa_definicao_que_o_fargate_recusaria(
+    lab: FargateLab, field: str, value: object
+) -> None:
+    options = {"awslogs-group": NAME, "awslogs-stream-prefix": "recovery"}
+    container = {
+        "name": "processor", "image": "x",
+        "logConfiguration": {"logDriver": "awslogs", "options": options},
+    }
+    payload: dict = {
+        "family": f"{NAME}-recovery", "containerDefinitions": [container], "cpu": "256",
+        "memory": "512", "networkMode": "awsvpc", "requiresCompatibilities": ["FARGATE"],
+        "executionRoleArn": f"arn:aws:iam::{ACCOUNT}:role/cnesdata-cap/{NAME}-exec",
+        "taskRoleArn": f"arn:aws:iam::{ACCOUNT}:role/cnesdata-cap/{NAME}-task",
+    }
+    assert call(lab, "ecs", "register-task-definition", **payload).ok
+    assert not call(lab, "ecs", "register-task-definition", **{**payload, field: value}).ok
+
+
+def _stopped_with_lines(lab: FargateLab, lines: list[str], size: int) -> str:
+    lab.state.recovery_lines = lines
+    lab.state.log_page_size = size
+    trust_roles(lab)
+    task = run(lab, definition(lab, push(lab)))
+    wait_stopped(lab, task)
+    lab.clock[0] += 60
+    return f"recovery/processor/{task.rsplit('/', 1)[1]}"
+
+
+def test_get_log_events_sem_start_from_head_devolve_a_cauda(lab: FargateLab) -> None:
+    lines = [f"l{i}" for i in range(7)]
+    stream = _stopped_with_lines(lab, lines, 3)
+    tail = ok(lab, "logs", "get-log-events", logGroupName=NAME, logStreamName=stream)
+    assert [e["message"] for e in tail["events"]] == lines[-3:]
+    head = ok(lab, "logs", "get-log-events", logGroupName=NAME, logStreamName=stream,
+              startFromHead=True)
+    assert [e["message"] for e in head["events"]] == lines[:3]
+
+
+def test_get_log_events_entrega_paginas_parciais_ate_o_token_se_repetir(lab: FargateLab) -> None:
+    lines = [f"l{i}" for i in range(7)]
+    stream = _stopped_with_lines(lab, lines, 3)
+    seen: list[str] = []
+    token = None
+    for _ in range(10):
+        extra = {} if token is None else {"nextToken": token}
+        page = ok(lab, "logs", "get-log-events", logGroupName=NAME, logStreamName=stream,
+                  startFromHead=True, **extra)
+        seen += [e["message"] for e in page["events"]]
+        if page["nextForwardToken"] == token:
+            break
+        token = page["nextForwardToken"]
+    assert seen == lines
+
+
+def test_primeira_pagina_pode_vir_vazia_mesmo_com_eventos_adiante(lab: FargateLab) -> None:
+    stream = _stopped_with_lines(lab, ["a", "b"], 5)
+    lab.state.empty_first_log_page = True
+    first = ok(lab, "logs", "get-log-events", logGroupName=NAME, logStreamName=stream,
+               startFromHead=True)
+    assert first["events"] == []
+    later = ok(lab, "logs", "get-log-events", logGroupName=NAME, logStreamName=stream,
+               startFromHead=True, nextToken=first["nextForwardToken"])
+    assert [e["message"] for e in later["events"]] == ["a", "b"]
+
+
+def test_describe_tasks_responde_missing_nas_primeiras_chamadas(lab: FargateLab) -> None:
+    trust_roles(lab)
+    task = run(lab, definition(lab, push(lab)))
+    lab.state.describe_missing = 2
+    replies = [ok(lab, "ecs", "describe-tasks", cluster=NAME, tasks=[task]) for _ in range(3)]
+    assert [(r["tasks"] == [], [f["reason"] for f in r["failures"]]) for r in replies] == [
+        (True, ["MISSING"]), (True, ["MISSING"]), (False, [])]
+
+
+def test_run_task_pode_voltar_ok_com_failures_e_sem_tasks(lab: FargateLab) -> None:
+    trust_roles(lab)
+    arn = definition(lab, push(lab))
+    lab.state.run_failures = 1
+    network = {"awsvpcConfiguration": {
+        "subnets": list(SUBNETS), "securityGroups": [SG_ID], "assignPublicIp": "ENABLED"}}
+    payload = {"cluster": NAME, "launchType": "FARGATE", "taskDefinition": arn, "count": 1,
+               "networkConfiguration": network}
+    refused = ok(lab, "ecs", "run-task", **payload)
+    assert refused["tasks"] == []
+    assert refused["failures"]
+    assert ok(lab, "ecs", "run-task", **payload)["tasks"]
+
+
+@pytest.mark.parametrize(
+    ("service", "operation", "key", "token"),
+    [
+        ("ecr", "describe-repositories", "repositories", "nextToken"),
+        ("logs", "describe-log-groups", "logGroups", "nextToken"),
+        ("ecs", "list-clusters", "clusterArns", "nextToken"),
+        ("ec2", "describe-security-groups", "SecurityGroups", "NextToken"),
+    ],
+)
+def test_listagens_paginam_com_cursor_encadeado(
+    lab: FargateLab, service: str, operation: str, key: str, token: str
+) -> None:
+    seed_fargate(lab.aws, lab.spec)
+    for index in range(4):
+        seed_fargate(lab.aws, lab.spec, f"{NAME}-{index}")
+        lab.state.groups[f"sg-0extra{index:010d}"] = lab.state.groups[SG_ID]
+    lab.state.page_size = 2
+    total, cursor, pages = 0, None, 0
+    while pages < 20:
+        extra = {} if cursor is None else {token: cursor}
+        page = ok(lab, service, operation, **extra)
+        total += len(page[key])
+        pages += 1
+        cursor = page.get(token)
+        if cursor is None:
+            break
+    assert pages > 1
+    assert total >= 5

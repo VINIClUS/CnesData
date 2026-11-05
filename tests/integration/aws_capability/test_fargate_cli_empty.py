@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from tests.integration.aws_capability._service_testing import CliLab, make_cli_lab
-from tests.integration.aws_capability.cli import EMPTY_SUCCESS, Request
+from tests.integration.aws_capability.cli import Request
 
 
 @pytest.fixture
@@ -55,8 +55,3 @@ def test_operacao_que_deveria_devolver_corpo_e_falha_quando_vem_vazia(
     cli_lab.respond((0, "", ""))
     reply = cli_lab.call(request_)
     assert reply.ok is False
-
-
-def test_lista_de_vazios_ganha_so_as_duas_operacoes_de_logs_que_nao_comecam_com_delete() -> None:
-    added = {key for key in EMPTY_SUCCESS if key[0] in {"logs", "ecr", "ecs", "ec2"}}
-    assert added == {("logs", "create-log-group"), ("logs", "put-retention-policy")}

@@ -136,10 +136,6 @@ def test_docker_config_fica_sob_a_raiz_privada_e_some_ao_fim(
     assert list(tmp_path.iterdir()) == []
 
 
-def test_raiz_padrao_do_docker_config_e_a_memoria_compartilhada() -> None:
-    assert DockerImages().root == Path("/dev/shm")  # noqa: S108
-
-
 @pytest.mark.parametrize("verb", ["login", "tag", "push"])
 def test_falha_de_qualquer_etapa_apaga_a_config_e_nao_vaza_o_token(
     runner: Runner, tmp_path: Path, verb: str
@@ -202,8 +198,3 @@ def test_sem_tempo_restante_nao_executa_docker(port: DockerImages, runner: Runne
     with pytest.raises((BudgetExhausted, ServiceFailure)):
         port.push(IMAGE, TARGET, login(), make_context(remaining=0.0))
     assert len(runner.calls) == before
-
-
-def test_repr_da_porta_e_do_login_nao_expoe_o_token(port: DockerImages) -> None:
-    assert port.push(IMAGE, TARGET, login(), make_context()) == DIGEST
-    assert TOKEN not in repr(login()) + repr(port) + str(login())

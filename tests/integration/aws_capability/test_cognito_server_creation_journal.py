@@ -395,11 +395,12 @@ def test_j02_preserva_perfis(server_lab: RootLab) -> None:
     actual = {
         name: [list(p.services), p.version, list(asdict(p.limits).values())]
         for name, p in PROFILES.items()
-        if name != "cognito-resource-server"
+        if name not in {"cognito-resource-server", "fargate-write"}
     }
     assert actual == c.DATA["profiles"]
     assert {
-        name: p.snapshot(name) for name, p in PROFILES.items() if name != "cognito-resource-server"
+        name: p.snapshot(name) for name, p in PROFILES.items()
+        if name not in {"cognito-resource-server", "fargate-write"}
     } == c.DATA["snapshots"]
 
 

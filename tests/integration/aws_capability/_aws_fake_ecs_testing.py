@@ -18,7 +18,7 @@ from tests.integration.aws_capability._aws_fake_types_testing import FakeRole, d
 from tests.integration.aws_capability._service_contracts import Reply
 
 SERVICE_PRINCIPAL = {"Service": "ecs-tasks.amazonaws.com"}
-PULL_ACTIONS = {"ecr:BatchGetImage", "ecr:GetAuthorizationToken", "logs:PutLogEvents"}
+FARGATE_MEMORY = {"256": ("512", "1024", "2048"), "512": ("1024", "2048", "3072", "4096")}
 
 
 def probe_line(writable: bool) -> str:
@@ -69,7 +69,9 @@ class EcsHandlers:
                 continue
             row = self._cluster_row(name)
             tags = self.fargate.clusters[name].tags
-            found.append({**row, "tags": [{"key": k, "value": v} for k, v in tags.items()]})
+            if "TAGS" in payload.get("include", []):
+                row["tags"] = [{"key": k, "value": v} for k, v in tags.items()]
+            found.append(row)
         return good({"clusters": found, "failures": failures})
 
     def _ecs_list_clusters(self, payload: dict, who: str) -> Reply:
@@ -78,7 +80,8 @@ class EcsHandlers:
             for name, cluster in self.fargate.clusters.items()
             if cluster.status == "ACTIVE"
         ]
-        return good({"clusterArns": arns})
+        arns, token = self.fargate.paged(arns, payload.get("nextToken"))
+        return good({"clusterArns": arns, **({"nextToken": token} if token else {})})
 
     def _ecs_list_tags_for_resource(self, payload: dict, who: str) -> Reply:
         name = payload["resourceArn"].rsplit("/", 1)[-1]
@@ -88,12 +91,27 @@ class EcsHandlers:
         return good({"tags": [{"key": k, "value": v} for k, v in cluster.tags.items()]})
 
     def _ecs_register_task_definition(self, payload: dict, who: str) -> Reply:
+        problem = self._invalid_definition(payload)
+        if problem is not None:
+            return denied("ClientException", problem)
         family = payload["family"]
         number = 1 + sum(r.family == family for r in self.fargate.revisions)
         revision = FakeRevision(family, number, json.loads(json.dumps(payload)))
         self.fargate.revisions.append(revision)
         row = {"taskDefinitionArn": revision.arn, "family": family, "revision": number}
         return good({"taskDefinition": {**row, "status": "ACTIVE"}})
+
+    def _invalid_definition(self, payload: dict) -> str | None:
+        if "FARGATE" not in payload.get("requiresCompatibilities", []):
+            return "requiresCompatibilities"
+        if payload.get("networkMode") != "awsvpc":
+            return "networkMode"
+        if payload.get("memory") not in FARGATE_MEMORY.get(str(payload.get("cpu")), ()):
+            return "cpu_memory"
+        role = str(payload.get("executionRoleArn", "")).rsplit("/", 1)[-1]
+        if role not in self.roles:
+            return "executionRoleArn"
+        return None
 
     def _by_arn(self, arn: str) -> FakeRevision | None:
         return next((r for r in self.fargate.revisions if r.arn == arn), None)
@@ -165,6 +183,10 @@ class EcsHandlers:
 
     def _ecs_describe_tasks(self, payload: dict, who: str) -> Reply:
         rows, failures = [], []
+        if self.fargate.describe_missing > 0:
+            self.fargate.describe_missing -= 1
+            missing = [{"arn": arn, "reason": "MISSING"} for arn in payload["tasks"]]
+            return good({"tasks": [], "failures": missing})
         for arn in payload["tasks"]:
             task = self.fargate.tasks.get(arn)
             if task is None:

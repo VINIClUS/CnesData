@@ -17,7 +17,13 @@ TASK_KEYS = {
     "family", "requiresCompatibilities", "networkMode", "cpu", "memory", "executionRoleArn",
     "taskRoleArn", "runtimePlatform", "volumes", "containerDefinitions", "tags",
 }
-ALLOWED_TASK_VALUES = {"family", "executionRoleArn", "taskRoleArn", "tags"}
+MAPPED_VALUES = {
+    "requires_compatibilities", "network_mode", "cpu", "memory", "runtime_platform", "volume",
+}
+IGNORED_VALUES = {
+    "family", "execution_role_arn", "task_role_arn", "tags", "tags_all", "id", "arn",
+    "arn_without_revision", "revision", "container_definitions", "skip_destroy", "track_latest",
+}
 ALLOWED_ENV_VALUES = {
     "AWS_CONTROL_PLANE_TABLE", "AWS_DATA_BUCKET", "AWS_STATE_MACHINE_ARN",
     "AWS_PUBLIC_SUBNET_IDS", "AWS_SECURITY_GROUP_ID",
@@ -74,7 +80,13 @@ def task_differences(payload: Node, values: Node) -> list[str]:
     }
     actual = {key: payload.get(key) for key in expected}
     actual["volumes"] = sorted(actual["volumes"] or [], key=str)
-    return [key for key in expected if actual[key] != expected[key]]
+    found = [key for key in expected if actual[key] != expected[key]]
+    unmapped = [
+        f"unmapped:{key}"
+        for key, value in values.items()
+        if key not in MAPPED_VALUES | IGNORED_VALUES and value not in (None, "", [], {}, False)
+    ]
+    return found + unmapped
 
 
 def payload() -> Node:
@@ -86,7 +98,6 @@ def test_payload_tem_exatamente_as_chaves_de_task_do_modulo_e_so_o_permitido_var
     assert payload()["family"] == SETTINGS.family
     assert payload()["executionRoleArn"] == SETTINGS.execution_role_arn
     assert payload()["taskRoleArn"] == SETTINGS.task_role_arn
-    assert ALLOWED_TASK_VALUES <= TASK_KEYS
 
 
 def test_espelho_container_e_task_iguais_ao_modo_recovery_renderizado(
@@ -111,7 +122,9 @@ def test_espelho_com_entrypoint_do_probe_difere_so_no_entrypoint(
     probing = task_definition_payload(SETTINGS, ENTRY_POINT)["containerDefinitions"][0]
     assert probing["entryPoint"] == list(ENTRY_POINT)
     assert {k: v for k, v in probing.items() if k != "entryPoint"} == plain
-    for _, _, rendered in _witnesses(processing_native, prod_root, "recovery"):
+    witnesses = list(_witnesses(processing_native, prod_root, "recovery"))
+    assert witnesses, "mirror witnesses=empty"
+    for _, _, rendered in witnesses:
         assert container_differences(plain, rendered) == []
         assert "command" in rendered
         assert plain["command"] == rendered["command"] == ["recover-once"]
@@ -174,3 +187,52 @@ def test_comparador_ignora_valor_de_variavel_permitida_e_imagem_e_grupo_de_log()
         if item["name"] in ALLOWED_ENV_VALUES:
             item["value"] = "x"
     assert container_differences(container, changed) == []
+
+
+def values_of(built: Node) -> Node:
+    runtime = built["runtimePlatform"]
+    return {
+        "requires_compatibilities": built["requiresCompatibilities"],
+        "network_mode": built["networkMode"],
+        "cpu": built["cpu"],
+        "memory": built["memory"],
+        "runtime_platform": [{
+            "cpu_architecture": runtime["cpuArchitecture"],
+            "operating_system_family": runtime["operatingSystemFamily"],
+        }],
+        "volume": [{"name": item["name"]} for item in built["volumes"]],
+        "family": built["family"],
+        "ephemeral_storage": [],
+    }
+
+
+TASK_MUTANTS = {
+    "cpu": ("cpu", "512"),
+    "memory": ("memory", "1024"),
+    "rede": ("networkMode", "bridge"),
+    "compatibilidade": ("requiresCompatibilities", ["EC2"]),
+    "plataforma": (
+        "runtimePlatform", {"cpuArchitecture": "ARM64", "operatingSystemFamily": "LINUX"}
+    ),
+    "volume_a_menos": ("volumes", [{"name": "tmp"}, {"name": "logs"}]),
+    "volume_a_mais": ("volumes", [{"name": n} for n in ("tmp", "logs", "data", "extra")]),
+    "volume_renomeado": ("volumes", [{"name": n} for n in ("tmp", "logs", "dados")]),
+}
+
+
+@pytest.mark.parametrize("case", sorted(TASK_MUTANTS))
+def test_comparador_de_task_acusa_mutante_de_cada_atributo_mapeado(case: str) -> None:
+    built = payload()
+    values = values_of(built)
+    assert task_differences(built, values) == []
+    key, value = TASK_MUTANTS[case]
+    assert task_differences({**built, key: value}, values) != []
+
+
+def test_comparador_de_task_falha_com_atributo_nao_vazio_do_plano_fora_do_mapeado() -> None:
+    built = payload()
+    values = values_of(built)
+    extra = {**values, "ephemeral_storage": [{"size_in_gib": 30}]}
+    assert task_differences(built, extra) == ["unmapped:ephemeral_storage"]
+    ignored = {**values, "family": "x", "tags_all": {"a": "b"}, "skip_destroy": True}
+    assert task_differences(built, ignored) == []

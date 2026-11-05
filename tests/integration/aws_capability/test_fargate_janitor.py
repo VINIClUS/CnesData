@@ -99,6 +99,7 @@ def test_janitor_apos_queda_com_task_rodando_remove_so_o_que_e_do_run_sem_a_imag
     write_journal(lab, [ECR, LOGS, EXEC], pending=("iam", f"{NAME}-task"))
     outcome = lifecycle.janitor(lab.spec, janitor_ports(lab))
     assert (outcome.status, outcome.reason) == ("succeeded", "complete")
+    assert outcome.evidence["task_definition_revisions"] == {"ACTIVE": 0, "INACTIVE": 0}
     assert own_gone(lab)
     assert foreign_intact(lab)
     assert lab.state.tasks[f"arn:aws:ecs:us-east-2:{ACCOUNT}:task/{NAME}/t1"].stopped_by_request
@@ -113,10 +114,12 @@ def test_janitor_apos_queda_com_task_rodando_remove_so_o_que_e_do_run_sem_a_imag
 def test_janitor_com_journal_minimo_remove_recursos_achados_so_pelo_nome_do_run(
     tmp_path: Path,
 ) -> None:
+    """Vazio vale para o run: final_counts_all_cap conta também recursos de outros runs."""
     lab = crashed_lab(tmp_path)
     write_journal(lab, [])
     outcome = lifecycle.janitor(lab.spec, janitor_ports(lab))
     assert (outcome.status, outcome.reason) == ("succeeded", "complete")
+    assert outcome.evidence["task_definition_revisions"] == {"ACTIVE": 0, "INACTIVE": 0}
     assert own_gone(lab)
     assert foreign_intact(lab)
     assert outcome.evidence["counts"] == dict.fromkeys(FARGATE_SERVICES, 0)
@@ -124,6 +127,21 @@ def test_janitor_com_journal_minimo_remove_recursos_achados_so_pelo_nome_do_run(
         **dict.fromkeys(FARGATE_SERVICES, 0),
         "ecr": 1, "ecs": 1, "logs": 1, "ec2": 1, "iam": 1,
     }
+
+
+def test_janitor_acha_e_remove_recurso_do_run_que_esta_em_pagina_posterior(
+    tmp_path: Path,
+) -> None:
+    lab = crashed_lab(tmp_path)
+    for index in range(3):
+        seed_foreign(lab.aws, lab.spec, f"cnesdata-cap-0000000{index}")
+        lab.state.groups[f"sg-0crowd{index:011d}"] = lab.state.groups["sg-0foreign0000001"]
+    lab.state.page_size = 1
+    write_journal(lab, [])
+    outcome = lifecycle.janitor(lab.spec, janitor_ports(lab))
+    assert (outcome.status, outcome.reason) == ("succeeded", "complete")
+    assert own_gone(lab)
+    assert foreign_intact(lab)
 
 
 def test_janitor_nao_apaga_recurso_com_o_nome_do_run_e_tag_divergente_e_reporta(
@@ -164,7 +182,9 @@ def test_janitor_recarrega_journal_com_servicos_fargate_via_save(tmp_path: Path)
     assert reloaded.created == [ECR, LOGS, GROUP, CLUSTER]
 
 
-def test_run_com_chamador_root_nao_cria_nada_e_o_chamador_correto_cria(tmp_path: Path) -> None:
+def test_run_com_chamador_root_para_na_identidade_sem_criar_nem_ler_nada(
+    tmp_path: Path,
+) -> None:
     good = make_fargate_lab(tmp_path / "ok", seeded=False)
     lifecycle.run(good.spec, janitor_ports(good, supervised=True))
     assert "ecr.create-repository" in operations(good)
@@ -172,10 +192,8 @@ def test_run_com_chamador_root_nao_cria_nada_e_o_chamador_correto_cria(tmp_path:
         tmp_path / "root", seeded=False, caller_arn=f"arn:aws:iam::{ACCOUNT}:root"
     )
     outcome = lifecycle.run(root.spec, janitor_ports(root, supervised=True))
-    creating = [op for op in operations(root) if ".create-" in op]
-    assert creating == []
-    assert outcome.status in {"refused", "failed", "incomplete"}
-    assert outcome.status != "succeeded"
+    assert (outcome.status, outcome.reason) == ("refused", "operator_mismatch")
+    assert root.aws.calls == [("sts", "get-caller-identity", "operator")]
     assert empty_state(root) == dict.fromkeys(empty_state(root), 0)
 
 

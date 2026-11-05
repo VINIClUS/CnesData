@@ -51,9 +51,8 @@ def _shape(name: str) -> tuple[object, ...]:
     return (profile.services, (*numbers, limits.cleanup_reserve), profile.window, roots)
 
 
-@pytest.mark.parametrize("name", sorted(FROZEN))
-def test_perfis_existentes_mantem_servicos_limites_janela_e_raizes(name: str) -> None:
-    assert _shape(name) == FROZEN[name]
+def test_perfis_existentes_mantem_servicos_limites_janela_e_raizes() -> None:
+    assert {name: _shape(name) for name in FROZEN} == FROZEN
 
 
 def test_registro_de_perfis_so_ganha_o_fargate_write() -> None:
@@ -82,9 +81,8 @@ def test_ordem_do_inventario_fargate_poe_ecs_antes_de_ec2_logs_ecr_e_iam() -> No
     assert all(order["ecs"] < order[other] for other in ("logs", "ecr", "iam"))
 
 
-@pytest.mark.parametrize("name", sorted(FROZEN))
-def test_services_for_devolve_o_conjunto_atual_para_todo_perfil_existente(name: str) -> None:
-    assert services_for(name) == SERVICES
+def test_services_for_devolve_o_conjunto_atual_para_todo_perfil_existente() -> None:
+    assert {name: services_for(name) for name in FROZEN} == dict.fromkeys(FROZEN, SERVICES)
 
 
 def test_services_for_do_fargate_write_devolve_o_conjunto_ampliado() -> None:

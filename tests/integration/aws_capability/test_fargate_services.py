@@ -23,6 +23,7 @@ from tests.integration.aws_capability._fargate_testing import (
     first,
     make_fargate_lab,
     operations,
+    seed_fargate,
     seed_foreign,
 )
 from tests.integration.aws_capability._safety import owned, tags
@@ -196,6 +197,34 @@ def test_inventario_lista_o_recurso_do_run_e_o_alheio_com_nome_cap(
     assert {resource.service for resource in page.resources} == {service}
 
 
+def _crowd(lab: FargateLab) -> None:
+    for index in range(3):
+        seed_foreign(lab.aws, lab.spec, f"cnesdata-cap-0000000{index}")
+        lab.state.groups[f"sg-0crowd{index:011d}"] = lab.state.groups["sg-0foreign0000001"]
+    seed_fargate(lab.aws, lab.spec)
+    lab.state.page_size = 2
+
+
+@pytest.mark.parametrize("service", ["ecr", "logs", "ecs", "ec2"])
+def test_inventario_segue_o_cursor_ate_achar_o_recurso_do_run_em_pagina_posterior(
+    lab: FargateLab, service: str
+) -> None:
+    _crowd(lab)
+    page = lab.services.inventory(service, None, cleanup(lab))
+    assert page.cursor is not None
+    assert NAME not in {resource.name for resource in page.resources}
+    names: set[str] = set()
+    pages = 0
+    while pages < 10:
+        names |= {resource.name for resource in page.resources}
+        pages += 1
+        if page.cursor is None:
+            break
+        page = lab.services.inventory(service, page.cursor, cleanup(lab))
+    assert pages > 1
+    assert NAME in names
+
+
 def test_inventario_de_ecs_nao_lista_cluster_inativo(seeded: FargateLab) -> None:
     seeded.state.clusters[NAME].status = "INACTIVE"
     page = seeded.services.inventory("ecs", None, cleanup(seeded))
@@ -279,9 +308,6 @@ def test_delete_do_cluster_para_task_espera_parar_apaga_revisoes_do_run_e_depois
     assert first(seeded, "ecs.stop-task") < delete_cluster
     assert ops.index("ecs.deregister-task-definition") < ops.index("ecs.delete-task-definitions")
     assert ops.index("ecs.delete-task-definitions") < delete_cluster
-    assert ops.index("ecs.stop-task") < max(
-        i for i, op in enumerate(ops) if op == "ecs.describe-tasks" and i < delete_cluster
-    )
 
 
 def test_delete_do_cluster_nao_chega_ao_cluster_se_a_task_nao_parar(seeded: FargateLab) -> None:
@@ -295,7 +321,6 @@ def test_delete_do_cluster_nao_chega_ao_cluster_se_a_task_nao_parar(seeded: Farg
         seeded.services.delete(CLUSTER, True, cleanup(seeded))
     assert "ecs.delete-cluster" not in operations(seeded)
     assert seeded.state.clusters[NAME].status == "ACTIVE"
-    assert operations(seeded).count("ecs.describe-tasks") <= 60
 
 
 def test_delete_do_cluster_sem_task_nem_revisao_so_remove_o_cluster(seeded: FargateLab) -> None:

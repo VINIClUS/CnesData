@@ -2,6 +2,7 @@
 
 import base64
 from dataclasses import dataclass, field
+from fnmatch import fnmatchcase
 
 from tests.integration.aws_capability._aws_fake_types_testing import denied, good
 from tests.integration.aws_capability._b1_testing import ACCOUNT
@@ -115,9 +116,20 @@ class FargateState:
     probe_exit: int = 0
     log_page_size: int = 100
     no_logs: set[str] = field(default_factory=set)
+    page_size: int = 0
+    describe_missing: int = 0
+    run_failures: int = 0
+    empty_first_log_page: bool = False
     force_pull_failure: bool = False
     counter: int = 0
     task_counter: int = 0
+
+    def paged(self, rows: list, token: str | None) -> tuple[list, str | None]:
+        if self.page_size <= 0:
+            return rows, None
+        start = int(token or 0)
+        end = start + self.page_size
+        return rows[start:end], (str(end) if end < len(rows) else None)
 
     def next_group_id(self) -> str:
         self.counter += 1
@@ -149,10 +161,16 @@ class FargateHandlers:
         }
 
     def _ecr_describe_repositories(self, payload: dict, who: str) -> Reply:
-        names = payload.get("repositoryNames") or list(self.fargate.repos)
-        if any(name not in self.fargate.repos for name in names):
+        names = payload.get("repositoryNames")
+        if names and any(name not in self.fargate.repos for name in names):
             return denied("RepositoryNotFoundException")
-        return good({"repositories": [self._repo_row(name) for name in names]})
+        token = None
+        if not names:
+            names, token = self.fargate.paged(list(self.fargate.repos), payload.get("nextToken"))
+        data: dict = {"repositories": [self._repo_row(name) for name in names]}
+        if token:
+            data["nextToken"] = token
+        return good(data)
 
     def _ecr_list_tags_for_resource(self, payload: dict, who: str) -> Reply:
         name = payload["resourceArn"].rsplit("/", 1)[1]
@@ -206,7 +224,8 @@ class FargateHandlers:
             for name, g in self.fargate.log_groups.items()
             if name.startswith(prefix)
         ]
-        return good({"logGroups": rows})
+        rows, token = self.fargate.paged(rows, payload.get("nextToken"))
+        return good({"logGroups": rows, **({"nextToken": token} if token else {})})
 
     def _logs_list_tags_log_group(self, payload: dict, who: str) -> Reply:
         group = self.fargate.log_groups.get(payload["logGroupName"])
@@ -240,10 +259,19 @@ class FargateHandlers:
         if entry is None or self.clock() < entry[0]:  # type: ignore[attr-defined]
             return denied("ResourceNotFoundException")
         lines = entry[1]
-        start = int(payload.get("nextToken", "f/0").split("/")[1])
-        end = min(start + self.fargate.log_page_size, len(lines))
+        token = payload.get("nextToken")
+        size = min(payload.get("limit", 10000), self.fargate.log_page_size)
+        if token is None and not payload.get("startFromHead", False):
+            start = max(len(lines) - size, 0)
+            return good(self._events(lines, start, len(lines)))
+        if token is None and self.fargate.empty_first_log_page:
+            return good({"events": [], "nextForwardToken": "f/0"})
+        start = int(str(token or "f/0").split("/")[1])
+        return good(self._events(lines, start, min(start + size, len(lines))))
+
+    def _events(self, lines: list[str], start: int, end: int) -> dict:
         events = [{"message": line, "timestamp": 1} for line in lines[start:end]]
-        return good({"events": events, "nextForwardToken": f"f/{end}"})
+        return {"events": events, "nextForwardToken": f"f/{end}", "nextBackwardToken": f"b/{start}"}
 
     def _ec2_describe_vpcs(self, payload: dict, who: str) -> Reply:
         rows = [
@@ -264,9 +292,13 @@ class FargateHandlers:
         return good({"Subnets": rows})
 
     def _ec2_create_security_group(self, payload: dict, who: str) -> Reply:
+        if not payload.get("Description"):
+            return denied("MissingParameter")
+        specs = payload.get("TagSpecifications", [])
+        if any(spec.get("ResourceType") != "security-group" for spec in specs):
+            return denied("InvalidParameterValue")
         if any(g.name == payload["GroupName"] for g in self.fargate.groups.values()):
             return denied("InvalidGroup.Duplicate")
-        specs = payload.get("TagSpecifications", [])
         tags = pairs(specs[0]["Tags"]) if specs else {}
         identifier = self.fargate.next_group_id()
         self.fargate.groups[identifier] = FakeGroup(payload["GroupName"], payload["VpcId"], tags)
@@ -295,9 +327,10 @@ class FargateHandlers:
         rows = [
             self._group_row(identifier)
             for identifier, group in self.fargate.groups.items()
-            if not names or group.name in names
+            if not names or any(fnmatchcase(group.name, n) for n in names)
         ]
-        return good({"SecurityGroups": rows})
+        rows, token = self.fargate.paged(rows, payload.get("NextToken"))
+        return good({"SecurityGroups": rows, **({"NextToken": token} if token else {})})
 
     def _ec2_revoke_security_group_egress(self, payload: dict, who: str) -> Reply:
         if self.fargate.revoke_error is not None:
