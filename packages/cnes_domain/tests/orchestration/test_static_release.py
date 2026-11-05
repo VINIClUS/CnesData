@@ -218,9 +218,7 @@ def test_marca_segredo_no_conteudo(conteudo: bytes, marcador: str) -> None:
 
 def test_marca_cada_tipo_de_segredo_presente() -> None:
     conteudo = SEGREDO + b" whsec_" + b"abc123"
-    assert _objeto(ASSET, conteudo).secret_markers == frozenset(
-        {"aws_access_key", "stripe_secret"}
-    )
+    assert _objeto(ASSET, conteudo).secret_markers == frozenset({"aws_access_key", "stripe_secret"})
 
 
 def test_build_publico_nao_tem_marcador_de_segredo() -> None:

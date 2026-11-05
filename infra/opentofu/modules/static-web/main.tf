@@ -12,14 +12,13 @@ locals {
   public_domain        = "cnesdata.com.br"
   api_origin           = "https://api.cnesdata.com.br"
   rollback_window_days = 7
-  issuer_origin        = regex("^https://[^/]+", var.cognito.issuer_url)
   hosted_login_origin  = trimsuffix(var.cognito.hosted_login_origin, "/")
   serving_origin       = trimsuffix(var.serving_origin, "/")
   csp = join("", [
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; ",
-    "img-src 'self' data:; connect-src 'self' ${local.issuer_origin} ",
+    "img-src 'self'; connect-src 'self' ",
     "${local.hosted_login_origin} ${local.api_origin} ${local.serving_origin}; ",
-    "frame-ancestors 'none'",
+    "object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
   ])
 }
 
@@ -116,6 +115,17 @@ resource "aws_s3_bucket_lifecycle_configuration" "this" {
     noncurrent_version_expiration {
       noncurrent_days           = local.rollback_window_days
       newer_noncurrent_versions = 1
+    }
+  }
+
+  rule {
+    id     = "static-web-abort-multipart"
+    status = "Enabled"
+
+    filter {}
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 1
     }
   }
 }
