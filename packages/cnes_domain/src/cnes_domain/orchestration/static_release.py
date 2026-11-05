@@ -260,6 +260,8 @@ def _is_published(item: ReleaseObject, latest: dict[str, StoredVersion]) -> bool
 
 
 def _retire(snapshot: StaticBucketSnapshot, now: datetime) -> tuple[VersionRef, ...]:
+    if not snapshot.current:
+        return ()
     protected = snapshot.current | snapshot.prior
     return tuple(
         sorted(

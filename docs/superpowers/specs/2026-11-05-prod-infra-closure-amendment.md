@@ -78,7 +78,8 @@ Runs são identificadores do ensaio, não commits. As duas imagens saíram da á
 ## Limites do ensaio real
 
 - Root da AWS só localmente, para criar e remover a identidade temporária `/cnesdata-cap/` com
-  permissions boundary. O harness continua recusando root e perfis.
+  permissions boundary e para remover o `AWSServiceRoleForECS` descrito abaixo. O harness continua
+  recusando root e perfis.
 - Recursos só com nome `cnesdata-cap-*` e tags `Project`, `Purpose`, `Run` e `ExpiresAt`. Exceção:
   o `AWSServiceRoleForECS`, que a própria AWS cria na primeira task ECS da conta, com nome fixo. Foi
   removido com root ao final dos ensaios, e a AWS o recria na próxima task.
@@ -90,6 +91,9 @@ Runs são identificadores do ensaio, não commits. As duas imagens saíram da á
   do último ensaio.
 - Evidência redigida: sem conta, ARN, credencial ou URL assinada.
 - A imagem é build local do repositório. A prova com o digest promovido é a transferência da Task 4.
+- Se o prazo de trabalho acaba durante o `docker push`, a tag local com a conta fica para trás e
+  precisa de `docker rmi` manual. O `rmi` não usa a faixa `cleanup` porque o relógio dela é único, e
+  gastá-lo com uma tag local tiraria tempo da remoção dos recursos reais.
 
 ## Paths autorizados
 
@@ -114,7 +118,8 @@ PR da #382:
 PR de correção da auditoria independente:
 
 - `.github/workflows/infra-native.yml` e `.github/workflows/ci.yml`;
-- `tests/production/infra/test_gate_triggers.py`, `test_acceptance.py` e `_acceptance_gate.py`;
+- `tests/production/infra/test_gate_triggers.py`, `test_acceptance.py`,
+  `test_athena_delivery_contracts.py` e `_acceptance_gate.py`;
 - `tests/scripts/test_ci_opentofu_runner.py`;
 - `tests/integration/aws_capability/_fargate_images.py` e `test_fargate_images.py`;
 - `packages/cnes_domain/src/cnes_domain/orchestration/static_release.py`, `test_static_release.py` e
@@ -158,9 +163,12 @@ localmente com a CSP em enforce e exercitado com Playwright. O domínio real só
   um bucket cheio de itens já elegíveis nunca voltaria a aceitar release. `projected_bytes` não
   desconta esses itens, porque os bytes só saem depois da retirada real.
 - **Delete marker.** Só em `assets/`, e nunca em chave referenciada por atual ou anterior, mesmo em
-  outra versão: o CloudFront lê a versão mais recente da chave. Sem `current` não há marker: um
-  inventário sem referência atual não prova que um asset saiu de uso. A release segue `PLANNED`,
-  para não travar a primeira publicação nem a retomada depois de publicação interrompida.
+  outra versão: o CloudFront lê a versão mais recente da chave.
+- **Sem `current`.** Nem `retire` nem `retire_latest`: um inventário sem referência atual não prova
+  que um objeto saiu de uso, e o alvo real de rollback poderia ser removido. A release segue
+  `PLANNED`, para não travar a primeira publicação nem a retomada depois de publicação interrompida.
+  Com o bucket cheio e sem `current`, a recusa por capacidade não devolve o que retirar, e a saída
+  é manual.
 - **Segredos.** Chaves `sk_test_` e `rk_test_` também recusam a release.
 - **Publicação idempotente.** Objeto com SHA256 igual ao da versão mais recente vai para
   `already_published`, seja asset ou entrypoint.
@@ -203,16 +211,21 @@ do merge; o do primeiro, depois do merge e do fechamento das issues.
 ## Gatilho do gate
 
 A auditoria independente achou o gate PROD-INFRA-012 fora dos filtros do `infra-native` quando mudam
-arquivos que ele lê. Os filtros passam a cobrir o que ele lê de forma pontual: Dockerfile e código do
-`data_processor`, os três pacotes, os dois arquivos do dashboard, os dois módulos do harness, os
-documentos citados por nome, `conftest.py`, `pytest.ini`, `.gitignore`, `CODEOWNERS` e
-`deploy-main.yml`. `test_gate_triggers.py` falha se o gate passar a ler outro arquivo fora dos
-filtros.
+arquivos que ele lê. Os filtros passam a cobrir: Dockerfile e código do `data_processor`, os três
+pacotes, `production_values.py`, os dois arquivos do dashboard, os dois módulos do harness, os dois
+scripts que o próprio workflow executa, os documentos citados por nome, `conftest.py`, `pytest.ini`,
+`.gitignore`, `CODEOWNERS` e `deploy-main.yml`.
 
-Duas varreduras gerais ficam de fora, de propósito: segredos em `docs/runbooks` e rótulo de runner em
-todos os workflows. Mudança só nesses arquivos não dispara o gate, e um problema neles aparece no
-próximo gate que rodar. PRs nos paths novos passam a esperar o gate, cerca de 10 minutos; o repositório
-é público, sem custo de Actions.
+`test_gate_triggers.py` protege essa lista por leitura estática. Ele enxerga `REPO_ROOT / ...`,
+`parents[3] / ...`, literais `apps/` e `packages/`, imports de `apps`, `packages` e `tests`, e scripts
+citados no workflow. Não enxerga `joinpath`, caminho relativo, f-string, outro nome de raiz, nem o que
+`tofu`, `conftest`, `trivy` e processos filhos do pytest leem. Um arquivo lido dessas formas pode
+ficar fora dos filtros sem o teste avisar.
+
+Varreduras gerais ficam de fora, de propósito: segredos em `docs/runbooks`, `tests/production` e
+`.github/workflows`, e rótulo de runner em todos os workflows. Mudança só nesses arquivos não dispara
+o gate, e um problema neles aparece no próximo gate que rodar. PRs nos paths novos passam a esperar o
+gate, cerca de 10 minutos; o repositório é público, sem custo de Actions.
 
 A suíte offline de `tests/integration/aws_capability` não rodava em nenhum workflow. Agora roda no
 `ci.yml`.
@@ -231,6 +244,9 @@ A suíte offline de `tests/integration/aws_capability` não rodava em nenhum wor
 | Rollback restaura também `theme-init.js`; o contrato só devolve `index.html` | #382 | Task 8 |
 | Apply do ACM em duas fases: `ISSUED` antes de a distribuição usar o ARN | #382 | Task 3 |
 | `certificate_domain_validated = true` (HSTS) depois da validação do domínio | #382 | Task 11 |
+
+Ordem de execução: a Task 3 entrega o apply em duas fases, e a Task 11 emite o certificado. A
+publicação real da Task 8 depende da distribuição, então só roda depois do certificado `ISSUED`.
 
 ## Nomes de teste das issues
 

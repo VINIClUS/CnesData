@@ -31,7 +31,9 @@ from packages.cnes_domain.tests.orchestration.test_static_release import (
 def test_retirada_exige_mais_de_sete_dias_desde_a_substituicao() -> None:
     no_limite = _versao("index.html", "limite", AGORA - timedelta(days=7))
     passou = _versao("index.html", "passou", AGORA - timedelta(days=7, seconds=1))
-    decision = plan_static_release(_snapshot((no_limite, passou)), _candidato(), AGORA)
+    atual = _versao("index.html", "atual")
+    snapshot = _snapshot((no_limite, passou, atual), frozenset({atual.ref}))
+    decision = plan_static_release(snapshot, _candidato(), AGORA)
     assert decision.retire == (VersionRef("index.html", "passou"),)
 
 
@@ -41,7 +43,9 @@ def test_retirada_ordenada_por_chave_e_versao() -> None:
         _versao("index.html", "b", VELHO),
         _versao("index.html", "a", VELHO),
     )
-    decision = plan_static_release(_snapshot(versoes), _candidato(), AGORA)
+    atual = _versao("index.html", "atual")
+    snapshot = _snapshot((*versoes, atual), frozenset({atual.ref}))
+    decision = plan_static_release(snapshot, _candidato(), AGORA)
     assert decision.retire == (
         VersionRef("index.html", "a"),
         VersionRef("index.html", "b"),
@@ -226,7 +230,9 @@ def test_janela_usa_instante_e_nao_fuso() -> None:
     limite = (AGORA - timedelta(days=7)).astimezone(fuso)
     passou = (AGORA - timedelta(days=7, seconds=1)).astimezone(fuso)
     versoes = (_versao("index.html", "limite", limite), _versao("index.html", "passou", passou))
-    decision = plan_static_release(_snapshot(versoes), _candidato(), AGORA)
+    atual = _versao("index.html", "atual")
+    snapshot = _snapshot((*versoes, atual), frozenset({atual.ref}))
+    decision = plan_static_release(snapshot, _candidato(), AGORA)
     assert decision.retire == (VersionRef("index.html", "passou"),)
 
 
@@ -284,3 +290,10 @@ def test_sem_referencia_atual_nao_propoe_delete_marker() -> None:
     decision = plan_static_release(_snapshot((vivo,)), _candidato(), AGORA)
     assert decision.outcome is ReleaseOutcome.PLANNED
     assert decision.retire_latest == ()
+
+
+def test_sem_referencia_atual_nao_propoe_retirada() -> None:
+    antiga = _versao("index.html", "v0", AGORA - timedelta(days=30))
+    decision = plan_static_release(_snapshot((antiga,)), _candidato(), AGORA)
+    assert decision.outcome is ReleaseOutcome.PLANNED
+    assert decision.retire == ()
