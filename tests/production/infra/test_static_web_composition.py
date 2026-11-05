@@ -24,7 +24,6 @@ type Tofu = tuple[str, dict[str, str]]
 
 APEX = "cnesdata.com.br"
 API_URL = "https://api.cnesdata.com.br/api/v1"
-ISSUER_ORIGIN = "https://cognito-idp.us-east-2.amazonaws.com"
 LOGIN_ORIGIN = "https://cnesdata-prod54qgag.auth.us-east-2.amazoncognito.com"
 STATIC_BUCKET_DEFAULTS = {
     "id": "cnesdata-fixture", "arn": "arn:aws:s3:::cnesdata-fixture",
@@ -329,9 +328,9 @@ def test_composicao_consume_cognito_serving_e_certificado(
     )
     assert _report_only_csp(composition) == (
         "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
-        f"img-src 'self' data:; connect-src 'self' {ISSUER_ORIGIN} "
+        "img-src 'self'; connect-src 'self' "
         f"{LOGIN_ORIGIN} https://api.cnesdata.com.br https://{boundary['serving_host']}; "
-        "frame-ancestors 'none'"
+        "object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
     )
     _cognito_references(composition)
 
@@ -342,7 +341,12 @@ def test_composicao_permanece_em_validacao_sem_hsts(static_web_composition: Comp
     lifecycle = _resource(
         composition, "module.static_web.aws_s3_bucket_lifecycle_configuration.this"
     )
-    assert [rule["status"] for rule in lifecycle["rule"]] == ["Disabled"]
+    rules = {rule["id"]: rule for rule in lifecycle["rule"]}
+    assert rules["static-web-gc"]["status"] == "Disabled"
+    abort = rules["static-web-abort-multipart"]
+    assert abort["status"] == "Enabled"
+    assert abort["abort_incomplete_multipart_upload"][0]["days_after_initiation"] == 1
+    assert len(rules) == 2, f"lifecycle_rules={sorted(rules)}"
     waf = _resource(composition, "module.static_web.aws_wafv2_web_acl.this")
     groups = [rule["statement"][0]["managed_rule_group_statement"][0] for rule in waf["rule"]]
     assert sorted((group["name"], group["vendor_name"]) for group in groups) == [

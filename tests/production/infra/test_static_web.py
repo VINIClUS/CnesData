@@ -45,13 +45,17 @@ LIFECYCLE = """bucket = aws_s3_bucket.this.id depends_on = [aws_s3_bucket_versio
       noncurrent_days = local.rollback_window_days newer_noncurrent_versions = 1
     }
   }
+  rule { id = "static-web-abort-multipart" status = "Enabled"
+    filter {}
+    abort_incomplete_multipart_upload { days_after_initiation = 1 }
+  }
 """
 CSP = (
     'join("", ['
     "\"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; \","
-    "\"img-src 'self' data:; connect-src 'self' ${local.issuer_origin} \","
+    "\"img-src 'self'; connect-src 'self' \","
     '"${local.hosted_login_origin} ${local.api_origin} ${local.serving_origin}; ",'
-    "\"frame-ancestors 'none'\","
+    "\"object-src 'none'; base-uri 'self'; frame-ancestors 'none'\","
     "])"
 )
 VALIDATIONS = {
@@ -300,7 +304,6 @@ def assert_headers_cache_lifecycle(sources: dict[str, str]) -> None:
         ("public_domain", '"cnesdata.com.br"'),
         ("api_origin", '"https://api.cnesdata.com.br"'),
         ("rollback_window_days", "7"),
-        ("issuer_origin", 'regex("^https://[^/]+", var.cognito.issuer_url)'),
         ("hosted_login_origin", 'trimsuffix(var.cognito.hosted_login_origin, "/")'),
         ("serving_origin", 'trimsuffix(var.serving_origin, "/")'),
         ("csp", CSP),
@@ -386,6 +389,7 @@ ACM_SAMPLE = '"arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000
 ADD_RESOURCE = 'resource "aws_s3_bucket_acl" "extra" {\n}\n'
 CSP_REPORT = 'var.csp_mode == "report_only"'
 HSTS_GATE = "var.certificate_domain_validated ? [1] : []"
+ISSUER_CONNECT = "connect-src 'self' https://cognito-idp.us-east-2.amazonaws.com "
 CONTROLS = (
     ("C01_waf_no_provider_padrao", MAIN, "wafv2_web_acl", "provider", "aws", 0),
     ("C02_recurso_fora_do_slice", MAIN, "", "append", ADD_RESOURCE, 0),
@@ -413,6 +417,13 @@ CONTROLS = (
     ("C24_cognito_com_default", "variables.tf", "cognito", "default", "", 5),
     ("C25_serving_sem_validation", "variables.tf", "serving_origin", "validation", "", 5),
     ("C26_arquivo_da_funcao_errado", MAIN, "cloudfront_function", "/function.js", "/missing.js", 2),
+    ("C27_multipart_desligado", MAIN, GC, '"Enabled"', '"Disabled"', 4),
+    ("C28_multipart_longo", MAIN, GC, "days_after_initiation = 1", "days_after_initiation = 30", 4),
+    ("C29_csp_sem_object_src", MAIN, "locals", "object-src 'none'; ", "", 4),
+    ("C30_csp_sem_base_uri", MAIN, "locals", "base-uri 'self'; ", "", 4),
+    ("C31_csp_com_data_uri", MAIN, "locals", "img-src 'self'", "img-src 'self' data:", 4),
+    ("C32_csp_com_eval", MAIN, "locals", "script-src 'self'", "script-src 'self' 'unsafe-eval'", 4),
+    ("C33_csp_com_issuer", MAIN, "locals", "connect-src 'self' ", ISSUER_CONNECT, 4),
 )
 GROUPS = (assert_ownership, assert_private_origin, assert_distribution) + (
     assert_waf,
@@ -433,7 +444,8 @@ def _structural_mutation(body: str, old: str, new: str) -> str:
             body + "\n  rule {\n" + _waf_rule("AWSManagedRulesKnownBadInputsRuleSet", 2) + "\n  }\n"
         )
     if old == "expiration":
-        return _replace_once(body, "    status", "    expiration { days = 7 }\n    status")
+        status = '    status = "Disabled"'
+        return _replace_once(body, status, "    expiration { days = 7 }\n" + status)
     if old == "default":
         return body + '  default={issuer_url="",hosted_login_origin="",client_id="synthetic"}\n'
     if old == "validation":

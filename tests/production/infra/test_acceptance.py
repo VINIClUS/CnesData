@@ -63,7 +63,8 @@ GATE: dict[str, dict[str, tuple[str, ...]]] = {
     "PROD-INFRA-005": {
         "test_static_web.py": (
             "test_origem_privada_separa_allow_oac_e_deny_tls",
-            "test_distribuicao_liga_s3_oac_waf_acm_e_funcao",),
+            "test_distribuicao_liga_s3_oac_waf_acm_e_funcao",
+            "test_headers_cache_e_lifecycle_respeitam_ruling",),
         "test_static_web_composition.py": (
             "test_raiz_agenda_static_web_e_acm_do_produto",
             "test_outputs_cloudfront_e_runtime_sao_utilizaveis")},
