@@ -309,6 +309,7 @@ def assert_headers_cache_lifecycle(sources: dict[str, str]) -> None:
         ("csp", CSP),
     ):
         _field(local, key, value)
+    assert "issuer_origin" not in local, "issuer_origin_morto"
     _headers(sources)
     cache = _resource(sources, "cloudfront_cache_policy")
     for key, value in (("min_ttl", "0"), ("default_ttl", "0"), ("max_ttl", "31536000")):
@@ -424,6 +425,24 @@ CONTROLS = (
     ("C31_csp_com_data_uri", MAIN, "locals", "img-src 'self'", "img-src 'self' data:", 4),
     ("C32_csp_com_eval", MAIN, "locals", "script-src 'self'", "script-src 'self' 'unsafe-eval'", 4),
     ("C33_csp_com_issuer", MAIN, "locals", "connect-src 'self' ", ISSUER_CONNECT, 4),
+    ("C34_csp_sem_unsafe_inline", MAIN, "locals", " 'unsafe-inline'", "", 4),
+    ("C35_abort_com_prefixo", MAIN, GC, "filter {}", 'filter {\n      prefix = "x"\n    }', 4),
+    (
+        "C36_abort_com_expiracao",
+        MAIN,
+        GC,
+        "abort_incomplete_multipart_upload {",
+        "expiration {\n      days = 1\n    }\n    abort_incomplete_multipart_upload {",
+        4,
+    ),
+    (
+        "C37_issuer_local_morto",
+        MAIN,
+        "locals",
+        "rollback_window_days = 7",
+        'rollback_window_days = 7\n  issuer_origin = "https://x"',
+        4,
+    ),
 )
 GROUPS = (assert_ownership, assert_private_origin, assert_distribution) + (
     assert_waf,
