@@ -147,9 +147,9 @@ subscription resource: outside OpenTofu state; signed deploy evidence/drift chec
 From 2026-10-29: retain SSE-S3 AES256 for deterministic dashboard/public config (§6.2); no secrets
 is binding; published content/inventory unproven pending release evidence. Avoid CMK policy/cost
 dependency within the existing envelope. Real AWS-0132 HIGH exception; owner repository account
-VINIClUS; expires 2026-11-29 00:00 UTC; only this file/resource:
+VINIClUS; expires 2027-02-03 00:00 UTC; only this file/resource:
 infra/opentofu/modules/static-web/main.tf; aws_s3_bucket_server_side_encryption_configuration.this.
-main.tf SHA256: 6f63e9e21e1ada18871afeb366c8f3073d0be94e21284109e6d97f57000f21d1. Original raw:
+main.tf SHA256: b94212cb1c9d65c04e02f7cb6550b108f8b3ced71613c28ace7c3eaec3ce8e17; D11. Original raw:
 task-9-static-web-provider-gates-ready/trivy-raw.json SHA256:
 d147bfe272c2a4a7c05b89cb20a69777e9202e49af2c0b52a3978fdec4cfef06; report SHA256:
 49bbdc5e8188dab1fd6408b718213a0d1917c3e7a8ffe59ef67bfe544731dafa. No customer-controlled key policy,
