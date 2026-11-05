@@ -60,7 +60,9 @@ está integrado; infraestrutura parcial em código não significa promoção AWS
 
 [^bworkers]: Cursor/CAS antes de separar unit/recovery/audit; gate de runtime #377
 
-[^binfra]: #382, #384–#389; custos até USD 8/produto e freeze na previsão agregada USD 15
+[^binfra]: Código em `develop`; o que depende de produção passa às Tasks 4, 8, 10 e 11 do plano
+    delivery, com gate fechado (closure amendment de 2026-11-05). Custos até USD 8/produto e freeze
+    na previsão agregada USD 15
 
 [^bcutover]: Promoção AWS, equivalentes das features vivas e evidências atuais antes de remover
     PostgreSQL/MinIO/BigQuery/Keycloak

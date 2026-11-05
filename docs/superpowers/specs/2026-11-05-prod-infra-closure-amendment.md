@@ -61,14 +61,14 @@ Regra de decisão:
 
 ## Paths autorizados
 
-PR 1 (#384):
+PR da #384:
 
 - `apps/data_processor/Dockerfile`, só pela regra de decisão acima;
 - `tests/integration/aws_capability/**` e `docs/runbooks/floci-and-aws-capability.md`;
 - `tests/production/infra/test_processing_security.py`, `tests/production/infra/test_acceptance.py`
   e um teste novo de espelho da task em `tests/production/infra/`.
 
-PR 2 (#382):
+PR da #382:
 
 - `infra/opentofu/modules/static-web/main.tf`;
 - `tests/production/infra/test_static_web.py`, `test_static_web_composition.py` e
@@ -89,6 +89,43 @@ PR 2 (#382):
   que o publicador da Task 8 consome: cabeçalhos por objeto, inventário sem segredos, referências
   atual e anterior, retirada após 7 dias, teto estrito de 5.000.000.000 bytes e alvo de rollback.
 
+### Prova da CSP contra o `dist/` de produção
+
+Build com env de produção (14 arquivos, 1.200.315 bytes), servido localmente com a CSP em enforce e
+exercitado com Playwright:
+
+- o login completo gera só `document authorize`, `fetch token` e `fetch API`. O browser não chama
+  `cognito-idp`, porque os metadados são estáticos e `getSigningKeys` não é chamado. A origem sai do
+  `connect-src`;
+- nenhum asset usa `data:`, que sai do `img-src`;
+- `style-src 'self'` bloqueia o `<style>` injetado pelo Radix Select em `/login`, então
+  `'unsafe-inline'` fica provado;
+- a única violação restante é `script-src eval`, do `new Function("")` do zod dentro de `try/catch`.
+  É benigna, e `script-src 'self'` fica.
+
+### Regras do contrato fixadas na revisão dos testes
+
+- **Entrypoints.** Só os do build atual: `index.html` e `theme-init.js`. O manifest e o service worker
+  citados na design §6.2 não existem no app, e entram no contrato quando existirem.
+- **Referências.** Só as do `index.html` são exigidas no candidato. O restante, como fontes referidas
+  pelo CSS, fica para o readback da Task 8.
+- **Capacidade.** A recusa ainda devolve `retire` e `retire_latest`, sem upload nem rollback. Sem isso,
+  um bucket cheio de itens já elegíveis nunca voltaria a aceitar release. `projected_bytes` não
+  desconta esses itens, porque os bytes só saem depois da retirada real.
+- **Delete marker.** Só em `assets/`, e nunca em chave referenciada por atual ou anterior, mesmo em
+  outra versão: o CloudFront lê a versão mais recente da chave.
+- **Segredos.** Chaves `sk_test_` e `rk_test_` também recusam a release.
+- **Publicação idempotente.** Objeto com SHA256 igual ao da versão mais recente vai para
+  `already_published`, seja asset ou entrypoint.
+
+### Renovação da AWS-0132 (D11)
+
+- `main.tf` revisado: SHA256 `b94212cb1c9d65c04e02f7cb6550b108f8b3ced71613c28ace7c3eaec3ce8e17`;
+- Trivy 0.74.0, sem ignores, em `modules/static-web`, severidade CRITICAL e HIGH: um único achado,
+  AWS-0132 em `aws_s3_bucket_server_side_encryption_configuration.this`. SHA256 do JSON bruto:
+  `1b0b9b80f68f080f82bb18b76f3f031377fac8d8154ce47faa4b46279a551c16`;
+- com `.trivyignore.yaml`, na raiz do repositório como no CI: 0 achados.
+
 ## Transferências para o plano delivery
 
 | Obrigação | Origem | Destino |
@@ -108,8 +145,8 @@ Os nomes pedidos nas issues divergiram na implementação. Mapeamento vigente:
 |---|---|---|
 | #382 | `test_bucket_lido_so_pela_distribuicao` | `test_origem_privada_separa_allow_oac_e_deny_tls` |
 | #382 | `test_csp_lista_cognito_e_origem_s3_exatas` | `test_raiz_agenda_static_web_e_acm_do_produto` |
-| #382 | `test_assets_imutaveis_e_index_sem_cache` | teste novo do contrato `static_release` |
-| #382 | `test_lifecycle_retem_atual_e_anterior` | teste novo do contrato `static_release` |
+| #382 | `test_assets_imutaveis_e_index_sem_cache` | mesmo nome, em `test_static_release.py` |
+| #382 | `test_lifecycle_retem_atual_e_anterior` | mesmo nome, em `test_static_release.py` |
 | #384 | `test_task_definitions_fargate_read_only_sem_root` | `test_container_exige_raiz_somente_leitura_usuario_app_e_sem_privilegios` |
 | #384 | `test_task_role_nasce_sem_politica` | `test_root_anexa_inventario_exato_de_policies_as_roles` (a #385 estendeu a role) |
 | #384 | `test_plan_agenda_roles_e_task_definitions` | `test_outro_digest_altera_imagem_dos_tres_modos` |
