@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.production.infra._athena_contracts import REPO_ROOT
+from tests.production.infra._dockerfile_volumes import volume_violations
 from tests.production.infra._processing_native import (
     A_RUN,
     B_RUN,
@@ -188,3 +190,75 @@ def test_storage_preserva_omissao_e_vinte_gib_incluidos(
             }
         )
     _record(tofu_context, f"storage-{mode}", observations)
+
+
+DOCKERFILE = REPO_ROOT / "apps" / "data_processor" / "Dockerfile"
+GOOD_STAGE = """\
+FROM python:3.13-slim AS builder
+VOLUME /decoy
+FROM python:3.13-slim
+RUN groupadd -r app && useradd -r -g app app
+RUN mkdir -p /logs /data && \\
+    chown -R app:app /logs /data
+VOLUME ["/tmp", "/logs"]
+VOLUME /data
+USER app
+ENTRYPOINT ["python"]
+"""
+
+
+def _replace(text: str, old: str, new: str) -> str:
+    assert old in text, "setup_error dockerfile_fixture"
+    return text.replace(old, new)
+
+
+def test_dockerfile_declara_volume_dos_mounts_depois_do_chown_e_antes_do_user() -> None:
+    problems = volume_violations(DOCKERFILE.read_text(encoding="utf-8"), MOUNT_PATHS)
+    assert problems == [], f"processing_dockerfile_volume {problems}"
+
+
+def test_leitor_aceita_volume_em_json_e_em_linhas_separadas_no_estagio_final() -> None:
+    assert volume_violations(GOOD_STAGE, MOUNT_PATHS) == []
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "expected"),
+    [
+        ("VOLUME /data\n", "", ["volume=missing path=/data"]),
+        (
+            'VOLUME ["/tmp", "/logs"]\n',
+            "",
+            ["volume=missing path=/logs", "volume=missing path=/tmp"],
+        ),
+        ("USER app\n", "", ["user=missing"]),
+        ("chown -R app:app /logs /data", "true", ["chown=missing"]),
+    ],
+)
+def test_leitor_reporta_instrucao_ou_caminho_ausente(
+    old: str, new: str, expected: list[str]
+) -> None:
+    assert volume_violations(GOOD_STAGE, MOUNT_PATHS) == []
+    assert volume_violations(_replace(GOOD_STAGE, old, new), MOUNT_PATHS) == expected
+
+
+def test_leitor_reporta_volume_antes_do_chown_porque_o_docker_descarta_a_mudanca() -> None:
+    moved = _replace(GOOD_STAGE, "VOLUME /data\n", "").replace(
+        "RUN mkdir", "VOLUME /data\nRUN mkdir", 1
+    )
+    assert volume_violations(moved, MOUNT_PATHS) == ["volume=before_chown path=/data"]
+
+
+def test_leitor_reporta_volume_depois_do_user() -> None:
+    moved = _replace(GOOD_STAGE, "VOLUME /data\n", "").replace(
+        "USER app\n", "USER app\nVOLUME /data\n", 1
+    )
+    assert volume_violations(moved, MOUNT_PATHS) == ["volume=after_user path=/data"]
+
+
+def test_leitor_ignora_volume_do_estagio_de_build() -> None:
+    only_builder = "FROM a AS builder\nVOLUME /tmp /logs /data\nFROM b\nRUN chown x\nUSER app\n"
+    assert volume_violations(only_builder, MOUNT_PATHS) == [
+        "volume=missing path=/data",
+        "volume=missing path=/logs",
+        "volume=missing path=/tmp",
+    ]

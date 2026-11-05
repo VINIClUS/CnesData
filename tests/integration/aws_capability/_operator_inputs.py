@@ -42,3 +42,14 @@ def _valid(pattern: str, spec: RunSpec, value: str | None) -> str | None:
     if isinstance(value, str) and re.fullmatch(expression, value) is not None:
         return value
     return None
+
+
+FARGATE_IMAGE_KEY = "CAP_FARGATE_IMAGE"
+
+
+def read_fargate_image(spec: RunSpec, environment: Mapping[str, str]) -> str:
+    """Returns: referência local da imagem do perfil fargate-write.
+
+    Raises: SafetyFailure para valor ausente ou fora do formato fechado.
+    """
+    raise SafetyFailure("not_implemented")

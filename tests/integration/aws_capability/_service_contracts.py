@@ -40,6 +40,19 @@ SessionFactory = Callable[[Mapping[str, str]], CommandPort]
 
 
 @dataclass(frozen=True)
+class RegistryLogin:
+    registry: str
+    username: str = field(repr=False)
+    token: str = field(repr=False)
+
+
+class ImagePort(Protocol):
+    def push(
+        self, image: str, target: str, login: RegistryLogin, context: "RequestContext"
+    ) -> str: ...
+
+
+@dataclass(frozen=True)
 class ServicePorts:
     commands: CommandPort = field(repr=False)
     now: Callable[[], float]
@@ -49,3 +62,5 @@ class ServicePorts:
     http: httpx.Client | None = field(default=None, repr=False)
     listener: Callable[[], ListenerPort] | None = field(default=None, repr=False)
     dns: DnsPort | None = field(default=None, repr=False)
+    images: ImagePort | None = field(default=None, repr=False)
+    image: str | None = None

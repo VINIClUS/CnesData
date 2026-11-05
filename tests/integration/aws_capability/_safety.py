@@ -7,6 +7,7 @@ from tests.integration.aws_capability._profiles import PROFILES
 from tests.integration.aws_capability.contracts import Ownership, Ports, Resource, RunSpec
 
 SERVICES = ("cognito", "dynamodb", "s3", "iam")
+FARGATE_SERVICES = ("ecs", "ec2", "logs", "ecr", "iam", "cognito", "dynamodb", "s3")
 CAP_PREFIX = "cnesdata-cap-"
 
 
@@ -51,6 +52,11 @@ def validate_profile(spec: RunSpec, ports: Ports, *, recovery: bool) -> None:
         raise SafetyFailure("invalid_deadline")
     if not recovery and spec.deadline - ports.now() > profile.window:
         raise SafetyFailure("invalid_deadline")
+
+
+def services_for(probe: str) -> tuple[str, ...]:
+    """Returns: serviços inventariados pelo perfil; o padrão é SERVICES."""
+    return SERVICES
 
 
 def run_name(spec: RunSpec) -> str:

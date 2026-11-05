@@ -42,7 +42,11 @@ GATE: dict[str, dict[str, tuple[str, ...]]] = {
         "test_processing_ecs.py": (
             "test_outro_digest_altera_imagem_dos_tres_modos", "test_image_uri_exige_digest"),
         "test_processing_security.py": (
-            "test_container_exige_raiz_somente_leitura_usuario_app_e_sem_privilegios",)},
+            "test_container_exige_raiz_somente_leitura_usuario_app_e_sem_privilegios",
+            "test_dockerfile_declara_volume_dos_mounts_depois_do_chown_e_antes_do_user"),
+        "test_fargate_task_mirror.py": (
+            "test_espelho_container_e_task_iguais_ao_modo_recovery_renderizado",
+            "test_espelho_com_entrypoint_do_probe_difere_so_no_entrypoint")},
     "PROD-INFRA-008": {
         "test_step_functions_iam.py": (
             "test_role_step_functions_tem_trust_e_grants_common_exatos_no_bootstrap",),
