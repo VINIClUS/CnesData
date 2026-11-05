@@ -36,7 +36,7 @@ está integrado; infraestrutura parcial em código não significa promoção AWS
 | Evidências MIG-012/013 (#278/#279, concluídas) | Aceitas | [^bmig] |
 | Identidade e descoberta AWS (#398/#381/#410) | Alta | [^bidentidade] |
 | Outbox e workers isolados (#374/#375) | Alta | [^bworkers] |
-| Infraestrutura AWS e gates (#365) | Alta | [^binfra] |
+| Promoção AWS (#365 fechada; Tasks 4, 8, 10 e 11 do delivery) | Alta | [^binfra] |
 | Cutover final (#280/#281) | Alta | [^bcutover] |
 | PEN IANA dos certificados (#60) | Pré-produção | [^bpen] |
 | Rules service externo | Média | Repo separado; consome Gold/landing via SQL JOINs |
@@ -60,8 +60,9 @@ está integrado; infraestrutura parcial em código não significa promoção AWS
 
 [^bworkers]: Cursor/CAS antes de separar unit/recovery/audit; gate de runtime #377
 
-[^binfra]: Código em `develop`; o que depende de produção passa às Tasks 4, 8, 10 e 11 do plano
-    delivery, com gate fechado (closure amendment de 2026-11-05). Custos até USD 8/produto e freeze
+[^binfra]: #365 fechada em 2026-11-05 com código e gates em `develop`, sem `apply`. O que depende de
+    produção passou às Tasks 4, 8, 10 e 11 do plano delivery, com gate fechado (closure amendment de
+    2026-11-05), e o MIG-014 continua bloqueado. Custos até USD 8/produto e freeze
     na previsão agregada USD 15
 
 [^bcutover]: Promoção AWS, equivalentes das features vivas e evidências atuais antes de remover
@@ -72,7 +73,7 @@ está integrado; infraestrutura parcial em código não significa promoção AWS
 [^bbilling]: Manter `BILLING_MODE=disabled` neste rollout; ativação comercial exige seus próprios
     pré-requisitos
 
-[^baws]: Runtime/gate integrados; promoção de produção pertence ao backlog #365; ver
+[^baws]: Runtime/gate integrados; promoção de produção pertence ao plano delivery; ver
     [readiness](production-readiness.md).
 
 [^brebase]: Base `develop`; reaproveitar branches antigas somente quando ligadas a issues/PRs

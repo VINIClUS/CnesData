@@ -253,3 +253,18 @@ def test_precedencia_entre_recusas(
 ) -> None:
     decision = plan_static_release(snapshot, candidato, AGORA)
     _recusado(decision, ReleaseOutcome(esperado))
+
+
+def test_asset_com_delete_marker_fica_sem_versao_recente_e_pode_voltar() -> None:
+    """Delete marker não é versão: só define o superseded_at da versão anterior."""
+    anterior = _versao(ASSET, "v1", AGORA - timedelta(days=3))
+    decision = plan_static_release(_snapshot((anterior,)), _candidato(), AGORA)
+    assert decision.outcome is ReleaseOutcome.PLANNED
+    assert ASSET in decision.upload_order
+    assert decision.retire_latest == ()
+
+
+def test_asset_com_hash_desconhecido_na_versao_recente_recusa_sobrescrita() -> None:
+    desconhecido = _versao(ASSET, "v1", sha256=None)
+    decision = plan_static_release(_snapshot((desconhecido,)), _candidato(), AGORA)
+    _recusado(decision, ReleaseOutcome.REJECTED_OVERWRITE)
