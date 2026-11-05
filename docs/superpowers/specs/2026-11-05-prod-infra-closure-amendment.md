@@ -48,6 +48,20 @@ Regra de decisão:
 4. Se o GREEN falhar por outro motivo, parar e reportar. `user=app`, raiz read-only e `drop ALL`
    nunca são relaxados.
 
+## Resultado do ensaio D10 (2026-11-05)
+
+O passo 2 da regra de decisão se aplicou: o RED confirmou o defeito, e o `VOLUME` deu GREEN.
+
+| Imagem | Run | `/tmp` | `/logs` | `/data` | `tempfile` |
+|---|---|---|---|---|---|
+| Sem `VOLUME` | `485eefc2` | `0:0 0o755 EACCES` | `0:0 0o755 EACCES` | `0:0 0o755 EACCES` | `FileNotFoundError` |
+| Com `VOLUME` | `f06a29b9`, `8a5f5168` | `0:0 0o1777 ok` | `999:999 0o755 ok` | `999:999 0o755 ok` | `ok:/tmp` |
+
+Nas três rodadas: `user=app`, `uid=999`, raiz `EROFS`, plataforma 1.4.0, 3 subnets, 1 regra de
+egress, 0 de ingress, status `succeeded`, `remaining=[]` e revisões `ACTIVE=0`, `INACTIVE=0`.
+`/tmp` com `root:root 1777` é o correto; o critério é a escrita, não o dono. `recover-once` termina
+igual nas duas imagens (exit 1), então não separa RED de GREEN.
+
 ## Limites do ensaio real
 
 - Root da AWS só localmente, para criar e remover a identidade temporária `/cnesdata-cap/` com
@@ -65,8 +79,9 @@ PR da #384:
 
 - `apps/data_processor/Dockerfile`, só pela regra de decisão acima;
 - `tests/integration/aws_capability/**` e `docs/runbooks/floci-and-aws-capability.md`;
-- `tests/production/infra/test_processing_security.py`, `tests/production/infra/test_acceptance.py`
-  e um teste novo de espelho da task em `tests/production/infra/`.
+- `tests/production/infra/test_processing_security.py`, `_dockerfile_volumes.py`,
+  `test_fargate_task_mirror.py` (espelho da task) e `_acceptance_gate.py`, para onde a tabela do
+  `test_acceptance.py` foi movida.
 
 PR da #382:
 

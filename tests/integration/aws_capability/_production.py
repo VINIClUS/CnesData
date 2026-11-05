@@ -13,9 +13,13 @@ from typing import Any
 
 import httpx
 
+from tests.integration.aws_capability._fargate_images import DockerImages
 from tests.integration.aws_capability._login_dns_udp import UdpDns
 from tests.integration.aws_capability._login_listener import listener_factory
-from tests.integration.aws_capability._operator_inputs import read_operator_inputs
+from tests.integration.aws_capability._operator_inputs import (
+    read_fargate_image,
+    read_operator_inputs,
+)
 from tests.integration.aws_capability._profiles import PROFILES
 from tests.integration.aws_capability._safety import SafetyFailure
 from tests.integration.aws_capability._service_contracts import (
@@ -170,6 +174,7 @@ def build_ports(
     commands = AwsCommands(spec.region, dict(environment), COMMAND_TIMEOUT)
     operator = read_operator_inputs(spec, environment) if "iam" in profile.services else None
     login = spec.probe == "cognito-login"
+    fargate = spec.probe == "fargate-write"
     service_ports = ServicePorts(
         commands,
         clock,
@@ -179,11 +184,20 @@ def build_ports(
         build_http_client() if login else None,
         listener_factory() if login else None,
         UdpDns() if login else None,
+        DockerImages() if fargate else None,
+        _fargate_image(spec, environment) if fargate else None,
     )
     services = AwsServices(spec, service_ports)
     policy = Policy(spec.account, AUTHORIZED_REGIONS, profile.limits)
     budget = RequestBudget(profile.limits, spec.deadline, clock)
     return Ports(services, processes, clock, policy, budget)
+
+
+def _fargate_image(spec: RunSpec, environment: Mapping[str, str]) -> str | None:
+    try:
+        return read_fargate_image(spec, environment)
+    except SafetyFailure:
+        return None
 
 
 def supervise(
@@ -240,6 +254,8 @@ def dispatch(
 ) -> tuple[str, Outcome]:
     command, spec, worker_pid = parse(argv)
     require_session_credentials(environment)
+    if command == "run" and spec.probe == "fargate-write":
+        read_fargate_image(spec, environment)
     ports = runtime.build(spec, environment, runtime.processes, runtime.clock)
     if command == "run":
         return command, run(spec, ports)

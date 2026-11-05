@@ -32,6 +32,8 @@ EMPTY_SUCCESS = frozenset(
         ("cognito-idp", "admin-delete-user"),
         ("dynamodb", "transact-write-items"),
         ("dynamodb", "get-item"),
+        ("logs", "create-log-group"),
+        ("logs", "put-retention-policy"),
     }
 )
 

@@ -42,3 +42,27 @@ def _valid(pattern: str, spec: RunSpec, value: str | None) -> str | None:
     if isinstance(value, str) and re.fullmatch(expression, value) is not None:
         return value
     return None
+
+
+FARGATE_IMAGE_KEY = "CAP_FARGATE_IMAGE"
+_COMPONENT = r"[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*"
+_IMAGE = re.compile(
+    rf"(?:{_COMPONENT}(?::[0-9]{{1,5}})?/)?(?:{_COMPONENT}/)*{_COMPONENT}"
+    r"(?::[a-z0-9_][a-z0-9_.-]{0,127})?(?:@sha256:[0-9a-f]{64})?"
+)
+_IMAGE_LIMIT = 255
+
+
+def read_fargate_image(spec: RunSpec, environment: Mapping[str, str]) -> str:
+    """Returns: referência local da imagem do perfil fargate-write.
+
+    Raises: SafetyFailure para valor ausente ou fora do formato fechado.
+    """
+    value = environment.get(FARGATE_IMAGE_KEY)
+    if (
+        not isinstance(value, str)
+        or len(value) > _IMAGE_LIMIT
+        or _IMAGE.fullmatch(value) is None
+    ):
+        raise SafetyFailure("fargate_image_invalid")
+    return value

@@ -1,6 +1,6 @@
 """Varreduras completas com paginação limitada e inspeção obrigatória."""
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 
 from tests.integration.aws_capability._resource_ids import s3_logical_identity
 from tests.integration.aws_capability._safety import CAP_PREFIX, SERVICES, SafetyFailure
@@ -41,17 +41,22 @@ def pages(fetch: Callable[[str | None], Page], limit: int) -> list[Resource]:
     raise SafetyFailure("inventory_incomplete")
 
 
-def service_counts(resources: Iterable[Resource]) -> dict[str, int]:
+def service_counts(
+    resources: Iterable[Resource], services: Sequence[str] = SERVICES
+) -> dict[str, int]:
     refs = list(resources)
-    return {service: sum(ref.service == service for ref in refs) for service in SERVICES}
+    return {service: sum(ref.service == service for ref in refs) for service in services}
 
 
 def inventory(
-    ports: Ports, context: RequestContext, known: frozenset[tuple[str, str]] = frozenset()
+    ports: Ports,
+    context: RequestContext,
+    known: frozenset[tuple[str, str]] = frozenset(),
+    services: Sequence[str] = SERVICES,
 ) -> list[tuple[Resource, Ownership]]:
     rows: list[tuple[Resource, Ownership]] = []
     try:
-        for service in SERVICES:
+        for service in services:
             rows.extend(inventory_service(service, ports, context, known))
     except ServiceFailure:
         raise SafetyFailure("inventory_incomplete") from None

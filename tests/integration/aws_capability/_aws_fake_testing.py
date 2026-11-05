@@ -5,8 +5,14 @@ from dataclasses import dataclass, field
 
 from tests.integration.aws_capability._aws_fake_cognito_testing import CognitoHandlers, FakePool
 from tests.integration.aws_capability._aws_fake_ddb_testing import DdbHandlers, FakeTable
+from tests.integration.aws_capability._aws_fake_ecs_testing import EcsHandlers
+from tests.integration.aws_capability._aws_fake_fargate_testing import (
+    FargateHandlers,
+    FargateState,
+)
 from tests.integration.aws_capability._aws_fake_iam_testing import IamHandlers
 from tests.integration.aws_capability._aws_fake_policy_testing import PolicyHandlers
+from tests.integration.aws_capability._aws_fake_run_task_testing import RunTaskHandlers
 from tests.integration.aws_capability._aws_fake_s3_testing import S3Handlers
 from tests.integration.aws_capability._aws_fake_sts_testing import (
     StsHandlers,
@@ -34,7 +40,15 @@ CHAINING_MESSAGE = (
 
 @dataclass
 class FakeAws(
-    S3Handlers, IamHandlers, DdbHandlers, StsHandlers, PolicyHandlers, CognitoHandlers
+    S3Handlers,
+    IamHandlers,
+    DdbHandlers,
+    StsHandlers,
+    PolicyHandlers,
+    CognitoHandlers,
+    FargateHandlers,
+    EcsHandlers,
+    RunTaskHandlers,
 ):
     clock: Callable[[], float]
     advance: Callable[[float], None]
@@ -68,6 +82,8 @@ class FakeAws(
     requests: list[Request] = field(default_factory=list)
     counter: int = 0
     assumes: int = 0
+    fargate: FargateState = field(default_factory=FargateState)
+    caller_arn: str | None = None
 
     def call(self, request: Request, context: RequestContext) -> Reply:
         return self.dispatch(request, context, OPERATOR)
@@ -103,7 +119,8 @@ class FakeAws(
         return [op for _, op, actor in self.calls if who is None or actor == who]
 
     def _sts_get_caller_identity(self, payload: dict, who: str) -> Reply:
-        arn = f"arn:aws:sts::{ACCOUNT}:assumed-role/cnesdata-cap-operator-0a1b2c3d/session"
+        default = f"arn:aws:sts::{ACCOUNT}:assumed-role/cnesdata-cap-operator-0a1b2c3d/session"
+        arn = self.caller_arn or default
         return good({"Account": ACCOUNT, "Arn": arn, "UserId": "synthetic"})
 
 

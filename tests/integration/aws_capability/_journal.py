@@ -12,7 +12,13 @@ from pathlib import Path
 
 from tests.integration.aws_capability._profiles import PROFILES
 from tests.integration.aws_capability._resource_ids import cognito_child
-from tests.integration.aws_capability._safety import SERVICES, SafetyFailure, root_names, run_name
+from tests.integration.aws_capability._safety import (
+    SERVICES,
+    SafetyFailure,
+    root_names,
+    run_name,
+    services_for,
+)
 from tests.integration.aws_capability._service_cognito import _is_regional_pool_id
 from tests.integration.aws_capability.contracts import Resource, RunSpec, ServiceFailure
 
@@ -28,6 +34,10 @@ class Journal:
     dynamodb_delete_accepted: list[Resource] = field(default_factory=list)
     pending_resource: Resource | None = None
     pending_name: str | None = None
+
+    @property
+    def services(self) -> tuple[str, ...]:
+        return services_for(self.spec.probe)
 
     @property
     def path(self) -> Path:
@@ -128,8 +138,8 @@ class Journal:
         self.operation_state = data["operation_state"]
         self.validate_legacy_state()
         self.validate_pending_name()
-        self.baseline = decode_resources(data["baseline"])
-        self.created = decode_resources(data["created"])
+        self.baseline = decode_resources(data["baseline"], self.services)
+        self.created = decode_resources(data["created"], self.services)
         self.dynamodb_delete_accepted = self.decode_dynamodb_deletes(
             data.get("dynamodb_delete_accepted", [])
         )
@@ -139,7 +149,7 @@ class Journal:
             raise SafetyFailure("journal_corrupt")
         if self.operation_state not in {"unknown", "confirmed", "rejected"}:
             raise SafetyFailure("journal_corrupt")
-        if self.pending_service is not None and self.pending_service not in SERVICES:
+        if self.pending_service is not None and self.pending_service not in self.services:
             raise SafetyFailure("journal_corrupt")
         if (self.operation_state == "unknown") != (self.pending_service is not None):
             raise SafetyFailure("journal_corrupt")
@@ -173,11 +183,11 @@ class Journal:
         ):
             raise SafetyFailure("journal_corrupt")
         self.phase, self.operation_state = data["phase"], data["operation_state"]
-        self.baseline = decode_resources(data["baseline"])
-        self.created = decode_resources(data["created"])
+        self.baseline = decode_resources(data["baseline"], self.services)
+        self.created = decode_resources(data["created"], self.services)
         self.pending_service = data.get("pending_service")
         if "pending_resource" in data:
-            self.pending_resource = decode_resources([data["pending_resource"]])[0]
+            self.pending_resource = decode_resources([data["pending_resource"]], self.services)[0]
         self.validate_server_state()
         self.dynamodb_delete_accepted = self.decode_dynamodb_deletes(
             data.get("dynamodb_delete_accepted", [])
@@ -245,7 +255,7 @@ class Journal:
             raise SafetyFailure("journal_corrupt")
 
     def decode_dynamodb_deletes(self, rows: list) -> list[Resource]:
-        resources = decode_resources(rows)
+        resources = decode_resources(rows, self.services)
         identities = {(ref.service, ref.resource_id) for ref in resources}
         if len(identities) != len(resources):
             raise SafetyFailure("journal_corrupt")
@@ -298,12 +308,12 @@ class Journal:
         )
 
 
-def decode_resources(rows: list) -> list[Resource]:
+def decode_resources(rows: list, services: tuple[str, ...] = SERVICES) -> list[Resource]:
     if not isinstance(rows, list):
         raise SafetyFailure("journal_corrupt")
     resources = [Resource(**row) for row in rows]
     for resource in resources:
-        if resource.service not in SERVICES or not resource.resource_id or not resource.name:
+        if resource.service not in services or not resource.resource_id or not resource.name:
             raise SafetyFailure("journal_corrupt")
         if not all(isinstance(value, str) for value in asdict(resource).values()):
             raise SafetyFailure("journal_corrupt")

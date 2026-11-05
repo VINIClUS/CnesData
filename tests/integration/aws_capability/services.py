@@ -4,6 +4,11 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
 from tests.integration.aws_capability._dynamodb_probe import probe_dynamodb
+from tests.integration.aws_capability._fargate_probe_run import probe_fargate
+from tests.integration.aws_capability._fargate_residue import (
+    purge_revisions,
+    revision_counts,
+)
 from tests.integration.aws_capability._iam_s3_probe import probe_iam_s3
 from tests.integration.aws_capability._leadingkeys_probe import probe_leadingkeys
 from tests.integration.aws_capability._login_probe import probe_login
@@ -38,6 +43,15 @@ from tests.integration.aws_capability._service_dynamodb_delete import (
     await_table_gone,
     delete_table,
 )
+from tests.integration.aws_capability._service_fargate import (
+    LEAVES,
+    inspect_leaf,
+    list_leaf,
+    lookup_leaf,
+    require_leaf,
+)
+from tests.integration.aws_capability._service_fargate_create import create_leaf
+from tests.integration.aws_capability._service_fargate_delete import delete_leaf
 from tests.integration.aws_capability._service_iam import inspect_role, list_roles, lookup_role
 from tests.integration.aws_capability._service_iam_children import (
     inspect_iam_child,
@@ -72,7 +86,10 @@ from tests.integration.aws_capability.contracts import (
 
 S3_PROFILES = frozenset({"s3-hold", "s3-retention"})
 S3_CREATE_PROFILES = S3_PROFILES | {"iam-s3"}
-IAM_ROLE_PROFILES = frozenset({"s3-retention", "iam-trust", "iam-leadingkeys", "iam-s3"})
+IAM_ROLE_PROFILES = frozenset(
+    {"s3-retention", "iam-trust", "iam-leadingkeys", "iam-s3", "fargate-write"}
+)
+FARGATE = "fargate-write"
 
 
 @dataclass(frozen=True)
@@ -92,9 +109,18 @@ class AwsServices:
     ports: ServicePorts = field(repr=False)
 
     def identity(self, context: RequestContext) -> str:
-        return read_identity(self.ports.commands, self.spec, context)
+        operator = self.ports.operator if self.spec.probe == FARGATE else None
+        return read_identity(self.ports.commands, self.spec, context, operator)
+
+    def revision_counts(self, context: RequestContext) -> dict[str, int]:
+        return revision_counts(self.ports.commands, self.spec, context)
+
+    def purge_revisions(self, context: RequestContext) -> None:
+        purge_revisions(self.ports.commands, self.spec, context)
 
     def inventory(self, service: str, cursor: str | None, context: RequestContext) -> Page:
+        if self._leaf(service):
+            return list_leaf(service, self.ports.commands, cursor, context)
         if service == "iam":
             return list_roles(self.ports.commands, self.spec, cursor, context)
         if service == "s3":
@@ -105,7 +131,12 @@ class AwsServices:
             raise ServiceFailure("service=service_unavailable")
         return list_tables(self.ports.commands, self.spec, cursor, context)
 
+    def _leaf(self, service: str) -> bool:
+        return self.spec.probe == FARGATE and service in LEAVES
+
     def inspect(self, resource: Resource, context: RequestContext) -> Ownership:
+        if self._leaf(resource.service):
+            return inspect_leaf(self.ports.commands, self.spec, resource, context)
         if resource.service == "iam":
             inspect = inspect_iam_child if resource.resource_id != resource.name else inspect_role
             return inspect(self.ports.commands, self.spec, resource, context)
@@ -128,6 +159,11 @@ class AwsServices:
         return inspect_pool(self.ports.commands, self.spec, resource, context)
 
     def lookup(self, resource: Resource, context: RequestContext) -> Ownership | None:
+        if self._leaf(resource.service):
+            return lookup_leaf(self.ports.commands, self.spec, resource, context)
+        return self._lookup_other(resource, context)
+
+    def _lookup_other(self, resource: Resource, context: RequestContext) -> Ownership | None:
         if resource.service == "iam":
             lookup = lookup_iam_child if resource.resource_id != resource.name else lookup_role
             return lookup(self.ports.commands, self.spec, resource, context)
@@ -145,6 +181,11 @@ class AwsServices:
         return lookup_table(self.ports.commands, self.spec, resource, context)
 
     def dependents(self, resource: Resource, cursor: str | None, context: RequestContext) -> Page:
+        if self._leaf(resource.service):
+            require_leaf(resource)
+            if cursor is not None:
+                raise ServiceFailure("service=cursor_invalid")
+            return Page()
         if resource.service == "iam":
             return iam_dependents(resource, cursor, self, context)
         if resource.service == "s3":
@@ -157,6 +198,8 @@ class AwsServices:
         return leaf_dependents(self.ports.commands, self.spec, resource, context)
 
     def create(self, service: str, creation: Creation, context: RequestContext) -> Resource:
+        if self._leaf(service):
+            return create_leaf(service, creation, self, context)
         if service == "cognito":
             if not _cognito_enabled(self.spec):
                 raise ServiceFailure("service=not_implemented")
@@ -172,6 +215,8 @@ class AwsServices:
     def probe(
         self, resources: Sequence[Resource], spec: RunSpec, context: RequestContext
     ) -> Mapping[str, object]:
+        if self.spec.probe == FARGATE:
+            return self._probe_fargate(resources, spec, context)
         if self.spec.probe == "cognito-resource-server":
             return self._probe_server(resources, spec, context)
         if self.spec.probe == "cognito-login":
@@ -188,6 +233,13 @@ class AwsServices:
                 raise ServiceFailure("probe=s3_invalid")
             return probe_s3(resources, spec, self.ports, context)
         return self._probe_other(resources, spec, context)
+
+    def _probe_fargate(
+        self, resources: Sequence[Resource], spec: RunSpec, context: RequestContext
+    ) -> Mapping[str, object]:
+        if spec != self.spec:
+            raise ServiceFailure("probe=fargate_invalid")
+        return probe_fargate(resources, spec, self.ports, context)
 
     def _probe_other(
         self, resources: Sequence[Resource], spec: RunSpec, context: RequestContext
@@ -235,6 +287,9 @@ class AwsServices:
             await_table_gone(self.ports, self.spec, resource, context)
 
     def delete(self, resource: Resource, bypass: bool, context: RequestContext) -> None:
+        if self._leaf(resource.service):
+            delete_leaf(resource, bypass, self, context)
+            return
         if resource.service == "s3":
             delete_s3(resource, bypass, self, context)
             return
