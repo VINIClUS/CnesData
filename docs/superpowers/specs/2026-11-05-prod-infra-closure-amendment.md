@@ -154,6 +154,16 @@ Pré-condições que o publicador da Task 8 precisa respeitar:
 - `retire` não presume a regra `static-web-gc`, que retém uma versão não corrente a mais
   (`newer_noncurrent_versions = 1`). Ao ativar a regra, os dois critérios seguem independentes.
 
+### Exceção de teste do PR #460
+
+`test_asset_com_delete_marker_fica_sem_versao_recente_e_pode_voltar` e
+`test_asset_com_hash_desconhecido_na_versao_recente_recusa_sobrescrita` são testes de
+caracterização: foram escritos depois do código e passam contra `2da01faa`, porque o PR só mudou o
+docstring de `StoredVersion`. Não há execução falha-depois-passa contra o código anterior. A prova
+de que detectam quebra veio de mutantes em memória: contar versão substituída como recente derruba
+o primeiro, e tratar `sha256=None` como ausente derruba o segundo. O mutante do segundo rodou antes
+do merge; o do primeiro, depois do merge e do fechamento das issues.
+
 ### Renovação da AWS-0132 (D11)
 
 - `main.tf` revisado: SHA256 `b94212cb1c9d65c04e02f7cb6550b108f8b3ced71613c28ace7c3eaec3ce8e17`;
