@@ -71,9 +71,10 @@ PR da #384:
 PR da #382:
 
 - `infra/opentofu/modules/static-web/main.tf`;
-- `tests/production/infra/test_static_web.py`, `test_static_web_composition.py` e
-  `test_acceptance.py`;
-- `packages/cnes_domain/src/cnes_domain/orchestration/static_release.py` e seu teste;
+- `tests/production/infra/test_static_web.py`, `_static_web_controls.py`,
+  `test_static_web_composition.py` e `test_acceptance.py`;
+- `packages/cnes_domain/src/cnes_domain/orchestration/static_release.py`, `test_static_release.py` e
+  `test_static_release_retention.py`;
 - `.trivyignore.yaml` e a seção 6.1 da deployment design;
 - `docs/roadmap.md`.
 
@@ -91,8 +92,9 @@ PR da #382:
 
 ### Prova da CSP contra o `dist/` de produção
 
-Build com env de produção (14 arquivos, 1.200.315 bytes), servido localmente com a CSP em enforce e
-exercitado com Playwright:
+Build em modo produção com env sintético de Cognito (14 arquivos, 1.200.315 bytes), servido
+localmente com a CSP em enforce e exercitado com Playwright. O domínio real só existe depois do
+`apply`, e a CSP segue `report_only` até a verificação da Task 8. Resultado:
 
 - o login completo gera só `document authorize`, `fetch token` e `fetch API`. O browser não chama
   `cognito-idp`, porque os metadados são estáticos e `getSigningKeys` não é chamado. A origem sai do
@@ -117,6 +119,16 @@ exercitado com Playwright:
 - **Segredos.** Chaves `sk_test_` e `rk_test_` também recusam a release.
 - **Publicação idempotente.** Objeto com SHA256 igual ao da versão mais recente vai para
   `already_published`, seja asset ou entrypoint.
+
+Pré-condições que o publicador da Task 8 precisa respeitar:
+
+- `current` e `prior` listam todos os objetos de cada release, a partir do manifesto dela. O contrato
+  não deriva esses objetos do `index.html`: um `current` parcial exporia os assets omitidos a delete
+  marker.
+- `current` pode apontar para versão que não é a mais recente, como depois de publicação interrompida.
+  O alvo de rollback continua sendo a referência em `current`.
+- `retire` não presume a regra `static-web-gc`, que retém uma versão não corrente a mais
+  (`newer_noncurrent_versions = 1`). Ao ativar a regra, os dois critérios seguem independentes.
 
 ### Renovação da AWS-0132 (D11)
 

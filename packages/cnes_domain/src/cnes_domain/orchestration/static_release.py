@@ -198,7 +198,10 @@ def _valid_version(version: StoredVersion, now: datetime) -> bool:
     return (
         version.size >= 0
         and _not_after(version.modified_at, now)
-        and (superseded is None or _not_after(superseded, now))
+        and (
+            superseded is None
+            or (_not_after(superseded, now) and version.modified_at <= superseded)
+        )
     )
 
 
