@@ -29,7 +29,7 @@ def list_revisions(
     }
     found: list[str] = []
     for _ in range(MAX_PAGES):
-        data = require_data(call(commands, "ecs", "list-task-definitions", payload, context))
+        data = require_data(call(commands, "ecs.list-task-definitions", payload, context))
         arns = data.get("taskDefinitionArns")
         if not isinstance(arns, list) or not all(isinstance(arn, str) and arn for arn in arns):
             raise ServiceFailure("service=inventory_invalid")

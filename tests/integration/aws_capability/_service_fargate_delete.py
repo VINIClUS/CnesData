@@ -43,18 +43,18 @@ def delete_leaf(
 
 def _delete_ecr(resource: Resource, services: "AwsServices", context: RequestContext) -> None:
     payload = {"repositoryName": resource.name, "force": True}
-    require_data(call(services.ports.commands, "ecr", "delete-repository", payload, context))
+    require_data(call(services.ports.commands, "ecr.delete-repository", payload, context))
 
 
 def _delete_logs(resource: Resource, services: "AwsServices", context: RequestContext) -> None:
     payload = {"logGroupName": resource.name}
-    require_data(call(services.ports.commands, "logs", "delete-log-group", payload, context))
+    require_data(call(services.ports.commands, "logs.delete-log-group", payload, context))
 
 
 def _delete_group(resource: Resource, services: "AwsServices", context: RequestContext) -> None:
     payload = {"GroupId": resource.resource_id}
     for attempt in range(GROUP_ATTEMPTS):
-        reply = call(services.ports.commands, "ec2", "delete-security-group", payload, context)
+        reply = call(services.ports.commands, "ec2.delete-security-group", payload, context)
         if reply.ok or failed_with(reply, "InvalidGroup.NotFound"):
             return
         if not failed_with(reply, "DependencyViolation"):
@@ -78,20 +78,20 @@ def _delete_cluster(resource: Resource, services: "AwsServices", context: Reques
     _stop_tasks(resource.name, services, context)
     for arn in list_revisions(commands, services.spec, "ACTIVE", context):
         payload = {"taskDefinition": arn}
-        require_data(call(commands, "ecs", "deregister-task-definition", payload, context))
+        require_data(call(commands, "ecs.deregister-task-definition", payload, context))
     inactive = list_revisions(commands, services.spec, "INACTIVE", context)
     for start in range(0, len(inactive), BATCH):
         payload = {"taskDefinitions": inactive[start : start + BATCH]}
-        require_data(call(commands, "ecs", "delete-task-definitions", payload, context))
+        require_data(call(commands, "ecs.delete-task-definitions", payload, context))
     payload = {"cluster": resource.name}
-    require_data(call(commands, "ecs", "delete-cluster", payload, context))
+    require_data(call(commands, "ecs.delete-cluster", payload, context))
 
 
 def _task_arns(
     cluster: str, status: str, services: "AwsServices", context: RequestContext
 ) -> list[str]:
     payload = {"cluster": cluster, "desiredStatus": status}
-    data = require_data(call(services.ports.commands, "ecs", "list-tasks", payload, context))
+    data = require_data(call(services.ports.commands, "ecs.list-tasks", payload, context))
     arns = data.get("taskArns")
     if not isinstance(arns, list) or not all(isinstance(arn, str) and arn for arn in arns):
         raise ServiceFailure("service=inventory_invalid")
@@ -102,7 +102,7 @@ def _stop_tasks(cluster: str, services: "AwsServices", context: RequestContext) 
     running = _task_arns(cluster, "RUNNING", services, context)
     for arn in running:
         payload = {"cluster": cluster, "task": arn, "reason": "cnesdata capability cleanup"}
-        require_data(call(services.ports.commands, "ecs", "stop-task", payload, context))
+        require_data(call(services.ports.commands, "ecs.stop-task", payload, context))
     stopping = _task_arns(cluster, "STOPPED", services, context)
     pending = sorted({*running, *stopping})
     for _ in range(STOP_POLLS):
@@ -119,7 +119,7 @@ def _still_active(
     if not arns:
         return []
     payload = {"cluster": cluster, "tasks": arns[:100]}
-    data = require_data(call(services.ports.commands, "ecs", "describe-tasks", payload, context))
+    data = require_data(call(services.ports.commands, "ecs.describe-tasks", payload, context))
     rows = rows_of(data, "tasks")
     stopped = {row.get("taskArn") for row in rows if row.get("lastStatus") == "STOPPED"}
     return [arn for arn in arns if arn not in stopped]

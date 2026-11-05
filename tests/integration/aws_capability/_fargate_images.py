@@ -34,16 +34,25 @@ class DockerImages:
     ) -> str:
         """Returns: digest publicado; Raises: ServiceFailure sem expor o token."""
         with self._private_config() as environment:
-            login_argv = ["docker", "login", "--username", login.username]
-            login_argv += ["--password-stdin", login.registry]
-            self._execute("login", login_argv, environment, context, login.token)
-            self._execute("tag", ["docker", "tag", image, target], environment, context)
-            output = self._execute("push", ["docker", "push", target], environment, context)
-            digest = DIGEST.findall(output)
-            if not digest:
-                raise ServiceFailure("service=docker_push_digest_missing")
-            self._best_effort(["docker", "rmi", target], environment, context)
-            return digest[-1]
+            argv = ["docker", "login", "--username", login.username]
+            argv += ["--password-stdin", login.registry]
+            self._execute(argv, environment, context, login.token)
+            try:
+                return self._publish(image, target, environment, context)
+            finally:
+                logout = ["docker", "logout", login.registry]
+                self._best_effort(logout, environment, context)
+
+    def _publish(
+        self, image: str, target: str, environment: dict[str, str], context: RequestContext
+    ) -> str:
+        self._execute(["docker", "tag", image, target], environment, context)
+        output = self._execute(["docker", "push", target], environment, context)
+        digest = DIGEST.findall(output)
+        if not digest:
+            raise ServiceFailure("service=docker_push_digest_missing")
+        self._best_effort(["docker", "rmi", target], environment, context)
+        return digest[-1]
 
     @contextmanager
     def _private_config(self) -> Iterator[dict[str, str]]:
@@ -57,7 +66,6 @@ class DockerImages:
 
     def _execute(
         self,
-        verb: str,
         argv: list[str],
         environment: dict[str, str],
         context: RequestContext,
@@ -75,15 +83,15 @@ class DockerImages:
         try:
             done = self.run(argv, **options)
         except (subprocess.SubprocessError, OSError):
-            raise ServiceFailure(f"service=docker_{verb}_failed") from None
+            raise ServiceFailure(f"service=docker_{argv[1]}_failed") from None
         if done.returncode != 0:
-            raise ServiceFailure(f"service=docker_{verb}_failed")
+            raise ServiceFailure(f"service=docker_{argv[1]}_failed")
         return str(done.stdout) + str(done.stderr)
 
     def _best_effort(
         self, argv: list[str], environment: dict[str, str], context: RequestContext
     ) -> None:
         try:
-            self._execute("rmi", argv, environment, context)
+            self._execute(argv, environment, context)
         except (ServiceFailure, BudgetExhausted):
             return

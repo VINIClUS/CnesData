@@ -28,7 +28,7 @@ class Runner:
     cluster: str
 
     def data(self, service: str, operation: str, payload: Mapping[str, object]) -> Mapping:
-        return require_data(call(self.commands, service, operation, payload, self.context))
+        return require_data(call(self.commands, f"{service}.{operation}", payload, self.context))
 
 
 @dataclass(frozen=True)
@@ -120,7 +120,7 @@ def _read_pages(runner: Runner, group: str, stream: str) -> list[str]:
     messages: list[str] = []
     token: str | None = None
     for _ in range(LOG_PAGES):
-        reply = call(runner.commands, "logs", "get-log-events", payload, runner.context)
+        reply = call(runner.commands, "logs.get-log-events", payload, runner.context)
         if failed_with(reply, "ResourceNotFoundException"):
             return []
         data = require_data(reply)

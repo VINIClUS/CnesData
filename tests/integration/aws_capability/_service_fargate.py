@@ -22,12 +22,10 @@ _GROUP_ID = re.compile(r"sg-[a-z0-9]+")
 
 
 def call(
-    commands: CommandPort,
-    service: str,
-    operation: str,
-    payload: Mapping[str, object],
-    context: RequestContext,
+    commands: CommandPort, target: str, payload: Mapping[str, object], context: RequestContext
 ) -> Reply:
+    """Args: target no formato servico.operacao, ex. ecs.list-tasks."""
+    service, _, operation = target.partition(".")
     return call_command(commands, Request(service, operation, dict(payload)), context)
 
 
@@ -92,7 +90,7 @@ def _list_ecr(commands: CommandPort, cursor: str | None, context: RequestContext
     payload: dict[str, object] = {"maxResults": 1000}
     if cursor is not None:
         payload["nextToken"] = cursor
-    data = require_data(call(commands, "ecr", "describe-repositories", payload, context))
+    data = require_data(call(commands, "ecr.describe-repositories", payload, context))
     names = [text_of(row, "repositoryName") for row in rows_of(data, "repositories")]
     resources = tuple(Resource("ecr", name, name) for name in names)
     return Page(resources, next_token(data, "nextToken"))
@@ -102,7 +100,7 @@ def _list_logs(commands: CommandPort, cursor: str | None, context: RequestContex
     payload: dict[str, object] = {"logGroupNamePrefix": CAP_PREFIX, "limit": 50}
     if cursor is not None:
         payload["nextToken"] = cursor
-    data = require_data(call(commands, "logs", "describe-log-groups", payload, context))
+    data = require_data(call(commands, "logs.describe-log-groups", payload, context))
     names = [text_of(row, "logGroupName") for row in rows_of(data, "logGroups")]
     resources = tuple(Resource("logs", name, name) for name in names)
     return Page(resources, next_token(data, "nextToken"))
@@ -112,7 +110,7 @@ def _list_ecs(commands: CommandPort, cursor: str | None, context: RequestContext
     payload: dict[str, object] = {"maxResults": 100}
     if cursor is not None:
         payload["nextToken"] = cursor
-    data = require_data(call(commands, "ecs", "list-clusters", payload, context))
+    data = require_data(call(commands, "ecs.list-clusters", payload, context))
     arns = data.get("clusterArns")
     if not isinstance(arns, list) or not all(isinstance(arn, str) and arn for arn in arns):
         raise ServiceFailure("service=inventory_invalid")
@@ -128,7 +126,7 @@ def _list_ec2(commands: CommandPort, cursor: str | None, context: RequestContext
     }
     if cursor is not None:
         payload["NextToken"] = cursor
-    data = require_data(call(commands, "ec2", "describe-security-groups", payload, context))
+    data = require_data(call(commands, "ec2.describe-security-groups", payload, context))
     rows = rows_of(data, "SecurityGroups")
     resources = tuple(
         Resource("ec2", text_of(row, "GroupId"), text_of(row, "GroupName")) for row in rows
@@ -183,7 +181,7 @@ def _read_ecr(
     commands: CommandPort, spec: RunSpec, resource: Resource, context: RequestContext
 ) -> Ownership | None:
     payload = {"repositoryNames": [resource.name]}
-    reply = call(commands, "ecr", "describe-repositories", payload, context)
+    reply = call(commands, "ecr.describe-repositories", payload, context)
     if failed_with(reply, "RepositoryNotFoundException"):
         return None
     rows = rows_of(require_data(reply), "repositories")
@@ -192,7 +190,7 @@ def _read_ecr(
     arn = text_of(rows[0], "repositoryArn")
     region = _region_of(arn, "repository/")
     tags = require_data(
-        call(commands, "ecr", "list-tags-for-resource", {"resourceArn": arn}, context)
+        call(commands, "ecr.list-tags-for-resource", {"resourceArn": arn}, context)
     )
     return Ownership(
         text_of(rows[0], "registryId"), _tags_from_pairs(tags.get("tags"), "Key", "Value"), region
@@ -207,7 +205,7 @@ def _read_logs(
         return None
     arn = text_of(group, "arn").removesuffix(":*")
     region = _region_of(arn, "log-group")
-    reply = call(commands, "logs", "list-tags-for-resource", {"resourceArn": arn}, context)
+    reply = call(commands, "logs.list-tags-for-resource", {"resourceArn": arn}, context)
     tags = require_data(reply).get("tags")
     if not isinstance(tags, Mapping) or not all(
         isinstance(k, str) and isinstance(v, str) for k, v in tags.items()
@@ -221,7 +219,7 @@ def _find_log_group(
 ) -> Mapping[str, object] | None:
     payload: dict[str, object] = {"logGroupNamePrefix": name, "limit": 50}
     for _ in range(MAX_PAGES):
-        data = require_data(call(commands, "logs", "describe-log-groups", payload, context))
+        data = require_data(call(commands, "logs.describe-log-groups", payload, context))
         for row in rows_of(data, "logGroups"):
             if row.get("logGroupName") == name:
                 return row
@@ -236,7 +234,7 @@ def _read_ecs(
     commands: CommandPort, spec: RunSpec, resource: Resource, context: RequestContext
 ) -> Ownership | None:
     payload = {"clusters": [resource.name], "include": ["TAGS"]}
-    data = require_data(call(commands, "ecs", "describe-clusters", payload, context))
+    data = require_data(call(commands, "ecs.describe-clusters", payload, context))
     rows = rows_of(data, "clusters")
     if not rows:
         if any(row.get("reason") == "MISSING" for row in rows_of(data, "failures")):
@@ -260,9 +258,8 @@ def describe_group(
 ) -> Mapping[str, object] | None:
     """Returns: linha do security group ou None se ausente; Raises: ServiceFailure."""
     require_leaf(resource)
-    reply = call(
-        commands, "ec2", "describe-security-groups", {"GroupIds": [resource.resource_id]}, context
-    )
+    payload = {"GroupIds": [resource.resource_id]}
+    reply = call(commands, "ec2.describe-security-groups", payload, context)
     if failed_with(reply, "InvalidGroup.NotFound"):
         return None
     rows = rows_of(require_data(reply), "SecurityGroups")

@@ -368,17 +368,18 @@ def test_run_task_pode_voltar_ok_com_failures_e_sem_tasks(lab: FargateLab) -> No
 
 
 @pytest.mark.parametrize(
-    ("service", "operation", "key", "token"),
+    ("service", "operation", "names"),
     [
-        ("ecr", "describe-repositories", "repositories", "nextToken"),
-        ("logs", "describe-log-groups", "logGroups", "nextToken"),
-        ("ecs", "list-clusters", "clusterArns", "nextToken"),
-        ("ec2", "describe-security-groups", "SecurityGroups", "NextToken"),
+        ("ecr", "describe-repositories", ("repositories", "nextToken")),
+        ("logs", "describe-log-groups", ("logGroups", "nextToken")),
+        ("ecs", "list-clusters", ("clusterArns", "nextToken")),
+        ("ec2", "describe-security-groups", ("SecurityGroups", "NextToken")),
     ],
 )
 def test_listagens_paginam_com_cursor_encadeado(
-    lab: FargateLab, service: str, operation: str, key: str, token: str
+    lab: FargateLab, service: str, operation: str, names: tuple[str, str]
 ) -> None:
+    key, token = names
     seed_fargate(lab.aws, lab.spec)
     for index in range(4):
         seed_fargate(lab.aws, lab.spec, f"{NAME}-{index}")

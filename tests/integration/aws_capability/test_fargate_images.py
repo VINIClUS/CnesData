@@ -202,3 +202,17 @@ def test_sem_tempo_restante_nao_executa_docker(port: DockerImages, runner: Runne
     with pytest.raises((BudgetExhausted, ServiceFailure)):
         port.push(IMAGE, TARGET, login(), make_context(remaining=0.0))
     assert len(runner.calls) == before
+
+
+def test_logout_do_registry_roda_depois_de_login_bem_sucedido_com_ou_sem_falha_no_push(
+    runner: Runner, tmp_path: Path
+) -> None:
+    DockerImages(run=runner, root=tmp_path).push(IMAGE, TARGET, login(), make_context())
+    assert runner.verbs()[-1] == "logout"
+    runner.calls.clear()
+    runner.outputs["push"] = (1, "", "falhou")
+    with pytest.raises(ServiceFailure):
+        DockerImages(run=runner, root=tmp_path).push(IMAGE, TARGET, login(), make_context())
+    assert runner.verbs() == ["login", "tag", "push", "logout"]
+    logout = runner.calls[-1].argv
+    assert logout == ["docker", "logout", REGISTRY]

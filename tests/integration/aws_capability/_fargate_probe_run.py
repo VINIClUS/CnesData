@@ -125,8 +125,10 @@ def _publish(
 ) -> tuple[str, str]:
     repository = {"repositoryNames": [roots.name]}
     rows = rows_of(runner.data("ecr", "describe-repositories", repository), "repositories")
+    if len(rows) != 1:
+        raise ServiceFailure("probe=repository_invalid")
     uri = text_of(rows[0], "repositoryUri")
-    if len(rows) != 1 or not uri.endswith("/" + roots.name):
+    if not uri.endswith("/" + roots.name):
         raise ServiceFailure("probe=repository_invalid")
     login = _login(runner, uri.split("/")[0])
     try:

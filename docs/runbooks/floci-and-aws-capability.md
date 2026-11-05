@@ -379,14 +379,20 @@ decide se o `VOLUME ["/tmp", "/logs", "/data"]` de `apps/data_processor/Dockerfi
   `CompleteLayerUpload`, `BatchCheckLayerAvailability`, `GetDownloadUrlForLayer` e `BatchGetImage`
   em `repository/cnesdata-cap-*`, mais `GetAuthorizationToken` sem escopo; Logs
   `CreateLogGroup`, `DeleteLogGroup`, `PutRetentionPolicy`, `ListTagsForResource`,
-  `GetLogEvents` em `log-group:cnesdata-cap-*[:*]` e `DescribeLogGroups` sem escopo; ECS
-  `CreateCluster`, `DeleteCluster`, `DescribeClusters`, `ListTagsForResource`, `RunTask`,
+  `GetLogEvents` em `log-group:cnesdata-cap-*[:*]` (mais `TagResource`) e `DescribeLogGroups` sem escopo; ECS
+  `CreateCluster`, `DeleteCluster`, `DescribeClusters`, `TagResource`, `ListTagsForResource`, `RunTask`,
   `StopTask`, `DescribeTasks` e `ListTasks` em `cluster/task/task-definition` `cnesdata-cap-*`, mais
   `RegisterTaskDefinition`, `DeregisterTaskDefinition`, `DeleteTaskDefinitions`,
   `ListTaskDefinitions` e `ListClusters` sem escopo; `iam:PassRole` dos roles `cnesdata-cap-*`
   para `ecs-tasks.amazonaws.com`; EC2 `DescribeVpcs`, `DescribeSubnets`,
   `DescribeSecurityGroups` e `DescribeNetworkInterfaces`, `CreateSecurityGroup` e `CreateTags`, e
   `Delete/Authorize/RevokeSecurityGroupEgress` por tag `Purpose=aws-capability`.
+- **Boundary dos roles da task:** `create_role` anexa o boundary do operador aos roles `-exec` e
+  `-task`. O boundary precisa permitir `ecr:BatchGetImage`, `ecr:GetDownloadUrlForLayer`,
+  `ecr:BatchCheckLayerAvailability` em `repository/cnesdata-cap-*`, `ecr:GetAuthorizationToken`
+  sem escopo e `logs:CreateLogStream`/`logs:PutLogEvents` em `log-group:cnesdata-cap-*:log-stream:*`;
+  o fake só avalia a política inline, então a falta de qualquer uma aparece no ensaio real como
+  `probe=task_not_started` (task parada sem `exitCode`).
 - **Root recusado:** a identidade do `run` e do `janitor` exige sessão assumida do role do operador;
   qualquer outro chamador, inclusive root, termina em `operator_mismatch` depois de uma única
   chamada `sts get-caller-identity` e antes de criar ou ler qualquer recurso.
