@@ -2,7 +2,7 @@
 
 from typing import TYPE_CHECKING
 
-from tests.integration.aws_capability._fargate_residue import list_revisions
+from tests.integration.aws_capability._fargate_residue import purge_revisions
 from tests.integration.aws_capability._safety import owned, root_names
 from tests.integration.aws_capability._service_commands import require_data
 from tests.integration.aws_capability._service_fargate import (
@@ -23,7 +23,6 @@ FINAL_SECONDS = 80.0
 FINAL_CALLS = 50
 STOP_POLLS = 24
 STOP_PAUSE = 5.0
-BATCH = 10
 
 
 def delete_leaf(
@@ -76,13 +75,7 @@ def _can_wait(context: RequestContext) -> bool:
 def _delete_cluster(resource: Resource, services: "AwsServices", context: RequestContext) -> None:
     commands = services.ports.commands
     _stop_tasks(resource.name, services, context)
-    for arn in list_revisions(commands, services.spec, "ACTIVE", context):
-        payload = {"taskDefinition": arn}
-        require_data(call(commands, "ecs.deregister-task-definition", payload, context))
-    inactive = list_revisions(commands, services.spec, "INACTIVE", context)
-    for start in range(0, len(inactive), BATCH):
-        payload = {"taskDefinitions": inactive[start : start + BATCH]}
-        require_data(call(commands, "ecs.delete-task-definitions", payload, context))
+    purge_revisions(commands, services.spec, context)
     payload = {"cluster": resource.name}
     require_data(call(commands, "ecs.delete-cluster", payload, context))
 

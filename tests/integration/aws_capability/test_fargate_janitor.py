@@ -129,6 +129,73 @@ def test_janitor_com_journal_minimo_remove_recursos_achados_so_pelo_nome_do_run(
     }
 
 
+def orphan_lab(tmp_path: Path) -> FargateLab:
+    lab = make_fargate_lab(tmp_path / "private", seeded=False, image=None)
+    lab.state.revisions += [
+        FakeRevision(f"{NAME}-write", 1, {}),
+        FakeRevision(f"{NAME}-recovery", 1, {}, "INACTIVE"),
+        FakeRevision(f"{OTHER_RUN}-write", 1, {}),
+        FakeRevision("cnesdata-prod-processor-recovery", 1, {}),
+    ]
+    write_journal(lab, [])
+    return lab
+
+
+def revision_status(lab: FargateLab) -> dict[str, str]:
+    return {revision.family: revision.status for revision in lab.state.revisions}
+
+
+def test_janitor_remove_revisao_orfa_de_run_sem_cluster_e_nao_toca_outra_familia(
+    tmp_path: Path,
+) -> None:
+    lab = orphan_lab(tmp_path)
+    outcome = lifecycle.janitor(lab.spec, janitor_ports(lab))
+    assert (outcome.status, outcome.reason) == ("succeeded", "complete")
+    assert outcome.evidence["task_definition_revisions"] == {"ACTIVE": 0, "INACTIVE": 0}
+    assert revision_status(lab) == {
+        f"{NAME}-write": "DELETE_IN_PROGRESS",
+        f"{NAME}-recovery": "DELETE_IN_PROGRESS",
+        f"{OTHER_RUN}-write": "ACTIVE",
+        "cnesdata-prod-processor-recovery": "ACTIVE",
+    }
+
+
+def test_janitor_com_failures_no_delete_de_revisao_relata_e_a_passada_seguinte_limpa(
+    tmp_path: Path,
+) -> None:
+    lab = orphan_lab(tmp_path)
+    lab.state.delete_definition_failures = 1
+    first = lifecycle.janitor(lab.spec, janitor_ports(lab))
+    assert (first.status, first.reason) == ("incomplete", "cleanup_failed")
+    assert first.evidence["inventory_complete"] is True
+    assert first.evidence["task_definition_revisions"] == {"ACTIVE": 0, "INACTIVE": 2}
+    second = lifecycle.janitor(lab.spec, janitor_ports(lab))
+    assert (second.status, second.reason) == ("succeeded", "complete")
+    assert second.evidence["task_definition_revisions"] == {"ACTIVE": 0, "INACTIVE": 0}
+
+
+def test_janitor_com_deregister_negado_relata_a_revisao_em_vez_de_alegar_vazio(
+    tmp_path: Path,
+) -> None:
+    lab = orphan_lab(tmp_path)
+    lab.state.deregister_denied = True
+    outcome = lifecycle.janitor(lab.spec, janitor_ports(lab))
+    assert (outcome.status, outcome.reason) == ("incomplete", "cleanup_failed")
+    assert outcome.evidence["inventory_complete"] is True
+    assert outcome.evidence["task_definition_revisions"] == {"ACTIVE": 1, "INACTIVE": 1}
+
+
+def test_janitor_sem_revisao_so_conta_e_nao_chama_remocao_de_revisao(tmp_path: Path) -> None:
+    lab = make_fargate_lab(tmp_path / "private", seeded=False, image=None)
+    write_journal(lab, [])
+    outcome = lifecycle.janitor(lab.spec, janitor_ports(lab))
+    assert (outcome.status, outcome.reason) == ("succeeded", "complete")
+    called = operations(lab)
+    assert called.count("ecs.list-task-definitions") == 2
+    assert "ecs.deregister-task-definition" not in called
+    assert "ecs.delete-task-definitions" not in called
+
+
 def test_janitor_acha_e_remove_recurso_do_run_que_esta_em_pagina_posterior(
     tmp_path: Path,
 ) -> None:

@@ -138,12 +138,18 @@ class EcsHandlers:
 
     def _ecs_deregister_task_definition(self, payload: dict, who: str) -> Reply:
         revision = self._by_arn(payload["taskDefinition"])
+        if self.fargate.deregister_denied:
+            return denied("AccessDeniedException")
         if revision is None or revision.status == "DELETE_IN_PROGRESS":
             return denied("ClientException")
         revision.status = "INACTIVE"
         return good({"taskDefinition": {"taskDefinitionArn": revision.arn, "status": "INACTIVE"}})
 
     def _ecs_delete_task_definitions(self, payload: dict, who: str) -> Reply:
+        if self.fargate.delete_definition_failures > 0:
+            self.fargate.delete_definition_failures -= 1
+            refused = [{"arn": arn, "reason": "SERVER"} for arn in payload["taskDefinitions"]]
+            return good({"taskDefinitions": [], "failures": refused})
         done, failures = [], []
         for arn in payload["taskDefinitions"]:
             revision = self._by_arn(arn)

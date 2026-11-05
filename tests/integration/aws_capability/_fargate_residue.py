@@ -7,6 +7,7 @@ from tests.integration.aws_capability._service_fargate import MAX_PAGES, call, n
 from tests.integration.aws_capability.contracts import RequestContext, RunSpec, ServiceFailure
 
 STATUSES = ("ACTIVE", "INACTIVE")
+BATCH = 10
 
 
 def family_of(arn: str) -> str:
@@ -48,3 +49,14 @@ def revision_counts(
     return {
         status: len(list_revisions(commands, spec, status, context)) for status in STATUSES
     }
+
+
+def purge_revisions(commands: CommandPort, spec: RunSpec, context: RequestContext) -> None:
+    """Raises: ServiceFailure se a AWS recusar; só a recontagem prova que as revisões saíram."""
+    for arn in list_revisions(commands, spec, "ACTIVE", context):
+        payload = {"taskDefinition": arn}
+        require_data(call(commands, "ecs.deregister-task-definition", payload, context))
+    inactive = list_revisions(commands, spec, "INACTIVE", context)
+    for start in range(0, len(inactive), BATCH):
+        payload = {"taskDefinitions": inactive[start : start + BATCH]}
+        require_data(call(commands, "ecs.delete-task-definitions", payload, context))

@@ -119,6 +119,8 @@ class FargateState:
     page_size: int = 0
     describe_missing: int = 0
     run_failures: int = 0
+    delete_definition_failures: int = 0
+    deregister_denied: bool = False
     empty_first_log_page: bool = False
     force_pull_failure: bool = False
     counter: int = 0

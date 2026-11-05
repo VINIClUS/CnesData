@@ -5,7 +5,10 @@ from dataclasses import dataclass, field
 
 from tests.integration.aws_capability._dynamodb_probe import probe_dynamodb
 from tests.integration.aws_capability._fargate_probe_run import probe_fargate
-from tests.integration.aws_capability._fargate_residue import revision_counts
+from tests.integration.aws_capability._fargate_residue import (
+    purge_revisions,
+    revision_counts,
+)
 from tests.integration.aws_capability._iam_s3_probe import probe_iam_s3
 from tests.integration.aws_capability._leadingkeys_probe import probe_leadingkeys
 from tests.integration.aws_capability._login_probe import probe_login
@@ -111,6 +114,9 @@ class AwsServices:
 
     def revision_counts(self, context: RequestContext) -> dict[str, int]:
         return revision_counts(self.ports.commands, self.spec, context)
+
+    def purge_revisions(self, context: RequestContext) -> None:
+        purge_revisions(self.ports.commands, self.spec, context)
 
     def inventory(self, service: str, cursor: str | None, context: RequestContext) -> Page:
         if self._leaf(service):

@@ -1,5 +1,6 @@
 """Reconciliação conservadora e remoção limitada com prova final fresca."""
 
+from contextlib import suppress
 from dataclasses import dataclass, field
 
 from tests.integration.aws_capability._inventory import dependents, inventory, service_counts
@@ -319,10 +320,19 @@ class Cleanup:
     def revision_residue(self) -> dict[str, int] | None:
         if self.journal.spec.probe != "fargate-write":
             return None
+        services = self.ports.services
         try:
-            return self.ports.services.revision_counts(self.context)  # type: ignore[attr-defined]
+            counts = services.revision_counts(self.context)  # type: ignore[attr-defined]
+            if not any(counts.values()):
+                return counts
+            self.purge_orphan_revisions()
+            return services.revision_counts(self.context)  # type: ignore[attr-defined]
         except ServiceFailure:
             raise SafetyFailure("inventory_incomplete") from None
+
+    def purge_orphan_revisions(self) -> None:
+        with suppress(ServiceFailure):
+            self.ports.services.purge_revisions(self.context)  # type: ignore[attr-defined]
 
     def execute(self) -> Outcome:
         try:
