@@ -40,6 +40,8 @@ class VersionRef:
 
 @dataclass(frozen=True)
 class StoredVersion:
+    """Versão com conteúdo; delete marker não entra aqui, só define o superseded_at da anterior."""
+
     ref: VersionRef
     size: int
     sha256: str | None

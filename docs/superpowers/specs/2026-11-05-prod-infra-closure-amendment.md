@@ -48,6 +48,11 @@ Regra de decisão:
 4. Se o GREEN falhar por outro motivo, parar e reportar. `user=app`, raiz read-only e `drop ALL`
    nunca são relaxados.
 
+Impacto do `VOLUME`: todo consumidor da imagem herda a declaração. O único fora do Fargate é o
+`data-processor-local`, do profile `local`, que passa a criar volumes anônimos em `/tmp` e `/logs`
+(`/data` já é o volume nomeado `local_data`), com o mesmo uid e a mesma escrita medidos com e sem
+`VOLUME`. `docker compose down -v` os remove. Nenhum compose de `deploy/` usa essa imagem.
+
 ## Resultado do ensaio D10 (2026-11-05)
 
 O passo 2 da regra de decisão se aplicou: o RED confirmou o defeito, e o `VOLUME` deu GREEN.
@@ -140,6 +145,10 @@ Pré-condições que o publicador da Task 8 precisa respeitar:
 - `current` e `prior` listam todos os objetos de cada release, a partir do manifesto dela. O contrato
   não deriva esses objetos do `index.html`: um `current` parcial exporia os assets omitidos a delete
   marker.
+- Delete marker não entra em `versions`: ele só define o `superseded_at` da versão anterior.
+  Modelado como versão, faria `_overwrites` recusar para sempre o asset que voltasse num rollback
+  de código, e `retire_latest` proporia outro marker sobre ele. `sha256=None` significa hash
+  desconhecido e recusa a sobrescrita.
 - `current` pode apontar para versão que não é a mais recente, como depois de publicação interrompida.
   O alvo de rollback continua sendo a referência em `current`.
 - `retire` não presume a regra `static-web-gc`, que retém uma versão não corrente a mais
