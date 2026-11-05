@@ -72,7 +72,7 @@ PR da #382:
 
 - `infra/opentofu/modules/static-web/main.tf`;
 - `tests/production/infra/test_static_web.py`, `_static_web_controls.py`,
-  `test_static_web_composition.py` e `test_acceptance.py`;
+  `test_static_web_composition.py`, `test_acceptance.py` e `_acceptance_gate.py`;
 - `packages/cnes_domain/src/cnes_domain/orchestration/static_release.py`, `test_static_release.py` e
   `test_static_release_retention.py`;
 - `.trivyignore.yaml` e a seção 6.1 da deployment design;
