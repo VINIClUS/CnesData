@@ -17,7 +17,7 @@ from cnes_domain.orchestration.static_release import (
 )
 
 AGORA = datetime(2026, 11, 5, 12, tzinfo=UTC)
-ANTES = AGORA - timedelta(days=30)
+ANTES = AGORA - timedelta(days=90)
 VELHO = AGORA - timedelta(days=60)
 ASSET = "assets/index-BxvR3nbv.js"
 FONTE = "assets/inter-latin-wght-normal-Dx4kXJAl.woff2"
