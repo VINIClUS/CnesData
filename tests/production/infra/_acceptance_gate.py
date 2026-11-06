@@ -52,7 +52,8 @@ GATE: dict[str, dict[str, tuple[str, ...]]] = {
             "test_varredura_enxerga_as_fontes_conhecidas_do_gate",
             "test_gatilho_do_gate_cobre_as_fontes_lidas_fora_de_infra",
             "test_varredura_reconhece_cada_forma_de_leitura",
-            "test_varredura_do_workflow_ignora_as_listas_de_filtro")},
+            "test_varredura_do_workflow_ignora_as_listas_de_filtro",
+            "test_varredura_segue_imports_transitivos")},
     "PROD-INFRA-008": {
         "test_step_functions_iam.py": (
             "test_role_step_functions_tem_trust_e_grants_common_exatos_no_bootstrap",),

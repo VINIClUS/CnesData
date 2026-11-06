@@ -55,16 +55,21 @@ def _workflow_scripts() -> set[str]:
     return {path for run in runs for path in WORKFLOW_SCRIPT.findall(run)}
 
 
-def _gate_inputs() -> set[str]:
-    found = _workflow_scripts()
-    pending = sorted(path for path in INFRA_TESTS.rglob("*.py") if path != Path(__file__))
+def _followed_inputs(sources: list[Path]) -> set[str]:
+    found: set[str] = set()
+    pending = list(sources)
     while pending:
         text = pending.pop().read_text(encoding="utf-8")
         found.update(_read_paths(text))
         for path in _imported_files(text) - found:
             found.add(path)
             pending.append(REPO_ROOT / path)
-    return found - GENERAL_SCANS
+    return found
+
+
+def _gate_inputs() -> set[str]:
+    sources = sorted(path for path in INFRA_TESTS.rglob("*.py") if path != Path(__file__))
+    return (_workflow_scripts() | _followed_inputs(sources)) - GENERAL_SCANS
 
 
 def _covered(path: str, patterns: list[str]) -> bool:
@@ -119,3 +124,11 @@ def test_varredura_do_workflow_ignora_as_listas_de_filtro() -> None:
     assert "tests/production/test_runtime_acceptance.py" in scripts
     assert "tests/scripts/test_ci_opentofu_runner.py" in scripts
     assert "tests/integration/aws_capability/_fargate_mirror.py" not in scripts
+
+
+def test_varredura_segue_imports_transitivos(tmp_path: Path) -> None:
+    fonte = tmp_path / "fonte.py"
+    fonte.write_text(
+        "from tests.integration.aws_capability import _iam_s3_probe\n", encoding="utf-8"
+    )
+    assert "tests/integration/aws_capability/_matrix_policies.py" in _followed_inputs([fonte])
