@@ -38,7 +38,7 @@ está integrado; infraestrutura parcial em código não significa promoção AWS
 | Outbox e workers isolados (#374/#375) | Alta | [^bworkers] |
 | Promoção AWS (#365 fechada; Tasks 3, 4, 8, 10 e 11 do delivery) | Alta | [^binfra] |
 | Cutover final (#280/#281) | Alta | [^bcutover] |
-| PEN IANA dos certificados (#60) | Pré-produção | [^bpen] |
+| PEN IANA dos certificados (#60, concluída) | Implementado | [^bpen] |
 | Rules service externo | Média | Repo separado; consome Gold/landing via SQL JOINs |
 | HR PIS->CPF cross-walking | Média | Reativar/reescrever fluxo em monorepo |
 | Esus PEC | Alta | Acesso ao DB municipal varia; negociação política |
@@ -68,7 +68,9 @@ está integrado; infraestrutura parcial em código não significa promoção AWS
 [^bcutover]: Promoção AWS, equivalentes das features vivas e evidências atuais antes de remover
     PostgreSQL/MinIO/BigQuery/Keycloak
 
-[^bpen]: Ainda sem atribuição; bloqueia emissão/rollout de certificados de produção
+[^bpen]: PEN 67386 nos OIDs dos certificados de agente, contrato em
+    `docs/contracts/agent-certificate-oids.md`; a emissão em produção segue presa à promoção AWS
+    e ao plano delivery
 
 [^bbilling]: Manter `BILLING_MODE=disabled` neste rollout; ativação comercial exige seus próprios
     pré-requisitos

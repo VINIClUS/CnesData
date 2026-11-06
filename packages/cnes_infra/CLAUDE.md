@@ -58,6 +58,7 @@ importam classes concretas diretamente (exceto factories no bootstrap).
 | `telemetry.py` | `init_telemetry(service)` + `instrument_engine(engine)` |
 | `config.py` | `DB_URL`, `S3_*`, `API_*`, `COMPETENCIA_*`, `_LAZY_ATTRS` |
 | `auth/jwt.py` | JWKSValidator for OIDC JWT verification |
+| `auth/cert_extensions.py` | OIDs `tenant_id`/`agent_id` do PEN IANA 67386 + codec DER UTF8String estrito (`docs/contracts/agent-certificate-oids.md`) |
 | `storage/dashboard_models.py` | SQLAlchemy ORM for `dashboard.*` tables |
 | `billing/settings.py` | `BillingSettings.from_mapping` (compõe `parse_profile`) + `BillingConfigurationError` |
 | `billing/wiring.py` | `build_entitlement_gate` (off/shadow/enforce, observador de shadow) + `build_execution_callbacks` |

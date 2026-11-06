@@ -10,8 +10,11 @@ from cryptography.x509.oid import NameOID
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 
-_AGENT_OID = x509.ObjectIdentifier("1.3.6.1.4.1.99999.1.2")
-_TENANT_OID = x509.ObjectIdentifier("1.3.6.1.4.1.99999.1.1")
+from cnes_infra.auth.cert_extensions import (
+    AGENT_ID_OID,
+    TENANT_ID_OID,
+    encode_extension_value,
+)
 
 _PROXY_PEER = ("172.20.0.2", 50000)
 
@@ -80,10 +83,10 @@ def _sign_leaf(session_root_ca, *, agent_id="agent-rot-001",
     )
     if include_oids:
         builder = builder.add_extension(
-            x509.UnrecognizedExtension(_AGENT_OID, agent_id.encode()),
+            x509.UnrecognizedExtension(AGENT_ID_OID, encode_extension_value(agent_id)),
             critical=False,
         ).add_extension(
-            x509.UnrecognizedExtension(_TENANT_OID, tenant_id.encode()),
+            x509.UnrecognizedExtension(TENANT_ID_OID, encode_extension_value(tenant_id)),
             critical=False,
         )
     leaf = builder.sign(ca_key, hashes.SHA256())

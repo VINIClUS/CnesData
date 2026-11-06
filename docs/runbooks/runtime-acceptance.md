@@ -127,5 +127,5 @@ Os candidatos e ensaios anteriores acima permanecem evidências históricas.
 
 A issue #377 permanece aberta pela dependência formal da #398, que exige os ensaios
 reais de OAuth/PKCE, audiência no access token, refresh e cleanup AWS. O gate integrado
-não comprova readiness AWS, emissão de certificado ou deploy; #381, #280 e #60
+não comprova readiness AWS, emissão de certificado ou deploy; #381 e #280
 também continuam limitações do estado operacional.

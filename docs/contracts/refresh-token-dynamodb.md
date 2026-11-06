@@ -210,4 +210,4 @@ Moto oferece evidência em memória dos itens, condições e interleavings deter
 do CAS. Não certifica ordenação ou conflitos reais da AWS, coleta TTL, durabilidade,
 reinício, isolamento de serviço ou reutilização de segredos em produção.
 Faltam wiring e migração; esta fatia não autoriza cutover
-ou migração de dados ativos. #280 e #60 permanecem abertos.
+ou migração de dados ativos. #280 permanece aberto.
