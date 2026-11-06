@@ -346,8 +346,8 @@ compara o payload com o plano).
   `docker login --password-stdin` com `DOCKER_CONFIG` temporário em `/dev/shm`, sem `AWS_*` no
   ambiente, e o token do ECR nunca aparece em argv, journal, evidência, repr nem traceback.
   `SIGKILL` entre o login e o `finally` deixa o token (validade de 12 h) em
-  `/dev/shm/cnesdata-cap-docker-*`: apague à mão. O `docker rmi` final tira a tag do ECR; imagem
-  passada por ID, sem outra tag, sai do Docker local.
+  `/dev/shm/cnesdata-cap-docker-*`: apague à mão. O `docker rmi` tira a tag do ECR, salvo se o prazo
+  acabar no push: aí, à mão. Imagem passada por ID, sem outra tag, sai do Docker local.
 - **Raízes e ordem de criação:** ECR (`IMMUTABLE`), log group (retenção 1 dia), roles `-exec` e
   `-task`, security group na VPC default (egress só TCP 443, sem ingress) e cluster ECS. Remoção
   na ordem do inventário: ECS (para tasks, desregistra e apaga as revisões do run, apaga o

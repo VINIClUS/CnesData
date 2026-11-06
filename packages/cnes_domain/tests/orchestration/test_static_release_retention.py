@@ -101,8 +101,10 @@ def test_chave_referenciada_em_outra_versao_nao_vira_delete_marker() -> None:
 
 def test_entrypoint_fora_do_candidato_nao_vira_delete_marker() -> None:
     antigo = _versao("theme-init.js", "v1")
+    atual = _versao("index.html", "i1")
+    snapshot = _snapshot((antigo, atual), frozenset({atual.ref}))
     candidato = (_objeto("index.html"), _objeto(ASSET))
-    assert plan_static_release(_snapshot((antigo,)), candidato, AGORA).retire_latest == ()
+    assert plan_static_release(snapshot, candidato, AGORA).retire_latest == ()
 
 
 def test_total_soma_versoes_incompletos_e_proxima_release() -> None:
@@ -296,4 +298,12 @@ def test_sem_referencia_atual_nao_propoe_retirada() -> None:
     antiga = _versao("index.html", "v0", AGORA - timedelta(days=30))
     decision = plan_static_release(_snapshot((antiga,)), _candidato(), AGORA)
     assert decision.outcome is ReleaseOutcome.PLANNED
+    assert decision.retire == ()
+
+
+def test_versao_nao_corrente_citada_em_atual_fica_fora_da_retirada() -> None:
+    fixada = _versao("index.html", "fixada", VELHO)
+    recente = _versao("index.html", "recente")
+    snapshot = _snapshot((fixada, recente), frozenset({fixada.ref}))
+    decision = plan_static_release(snapshot, _candidato(), AGORA)
     assert decision.retire == ()

@@ -91,9 +91,10 @@ Runs são identificadores do ensaio, não commits. As duas imagens saíram da á
   do último ensaio.
 - Evidência redigida: sem conta, ARN, credencial ou URL assinada.
 - A imagem é build local do repositório. A prova com o digest promovido é a transferência da Task 4.
-- Se o prazo de trabalho acaba durante o `docker push`, a tag local com a conta fica para trás e
-  precisa de `docker rmi` manual. O `rmi` não usa a faixa `cleanup` porque o relógio dela é único, e
-  gastá-lo com uma tag local tiraria tempo da remoção dos recursos reais.
+- Se o prazo de trabalho acaba durante o `docker push`, a tag local com a conta fica para trás, sem
+  credencial, e precisa de `docker rmi` manual. O `rmi` não usa a faixa `cleanup` porque o relógio
+  dela é único: com o daemon travado, ele gastaria esse relógio, e a remoção dos recursos reais
+  terminaria em `cleanup_timeout`. Com o daemon saudável, o `rmi` é imediato.
 
 ## Paths autorizados
 
@@ -124,7 +125,8 @@ PR de correção da auditoria independente:
 - `tests/integration/aws_capability/_fargate_images.py` e `test_fargate_images.py`;
 - `packages/cnes_domain/src/cnes_domain/orchestration/static_release.py`, `test_static_release.py` e
   `test_static_release_retention.py`;
-- este amendment, `docs/runbooks/infrastructure-plan.md`, `docs/roadmap.md` e o plano delivery.
+- este amendment, `docs/runbooks/infrastructure-plan.md`, `docs/runbooks/floci-and-aws-capability.md`,
+  `docs/roadmap.md` e o plano delivery.
 
 ## Decisões da #382
 
@@ -217,10 +219,12 @@ scripts que o próprio workflow executa, os documentos citados por nome, `confte
 `.gitignore`, `CODEOWNERS` e `deploy-main.yml`.
 
 `test_gate_triggers.py` protege essa lista por leitura estática. Ele enxerga `REPO_ROOT / ...`,
-`parents[3] / ...`, literais `apps/` e `packages/`, imports de `apps`, `packages` e `tests`, e scripts
-citados no workflow. Não enxerga `joinpath`, caminho relativo, f-string, outro nome de raiz, nem o que
-`tofu`, `conftest`, `trivy` e processos filhos do pytest leem. Um arquivo lido dessas formas pode
-ficar fora dos filtros sem o teste avisar.
+`parents[3] / ...`, literais `apps/` e `packages/`, `from ... import` de `apps`, `packages` e `tests`,
+e arquivos `tests/**/*.py` citados no workflow. Não enxerga, entre outros, `import a.b`,
+`import_module`, `runpy.run_path`, `joinpath`, `parents[N]` com outro N, caminho relativo, f-string,
+outro nome de raiz, `from scripts...`, `scripts/` no workflow, nem o que `tofu`, `conftest`, `trivy`
+e processos filhos do pytest leem. Um arquivo lido dessas formas pode ficar fora dos filtros sem o
+teste avisar.
 
 Varreduras gerais ficam de fora, de propósito: segredos em `docs/runbooks`, `tests/production` e
 `.github/workflows`, e rótulo de runner em todos os workflows. Mudança só nesses arquivos não dispara

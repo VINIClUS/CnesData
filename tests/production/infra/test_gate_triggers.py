@@ -44,7 +44,7 @@ def _imported_files(text: str) -> set[str]:
 
 def _gate_inputs() -> set[str]:
     found = set(WORKFLOW_SCRIPT.findall(WORKFLOW.read_text(encoding="utf-8")))
-    pending = sorted(INFRA_TESTS.rglob("*.py"))
+    pending = sorted(path for path in INFRA_TESTS.rglob("*.py") if path != Path(__file__))
     while pending:
         text = pending.pop().read_text(encoding="utf-8")
         found.update(SOURCE_LITERAL.findall(text))
