@@ -167,3 +167,6 @@ specifications remain binding except where the explicit decisions below amend th
 
 - Document missing IANA allocation and certificate rotation requirements. Do not invent a PEN,
   send an external application without explicit instructions, or issue production certificates.
+- Status 2026-11-06: IANA assigned PEN 67386 to the owner; agent certificate OIDs moved to
+  `1.3.6.1.4.1.67386.1.{1,2}` (see `docs/contracts/agent-certificate-oids.md`). No production
+  certificate was issued.

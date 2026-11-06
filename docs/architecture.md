@@ -124,7 +124,9 @@ Current `dump_agent_go` production path includes:
 mTLS: o Caddy (`client_auth verify_if_given`) prova a posse da chave e sobrescreve
 `X-SSL-Client-Cert`; o `central_api` só confia no header vindo de
 `TRUSTED_PROXY_CIDRS` e revalida cadeia, serial ativo e refresh token
-(`apps/central_api/src/central_api/agent_auth.py`).
+(`apps/central_api/src/central_api/agent_auth.py`). Tenant e agente vêm das extensões
+`1.3.6.1.4.1.67386.1.{1,2}` do PEN IANA 67386, em DER UTF8String; ver
+`docs/contracts/agent-certificate-oids.md`.
 
 ### Central → S3 (MinIO AIStor em dev, LocalStack em CI, S3 real em prod)
 

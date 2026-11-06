@@ -210,5 +210,5 @@ O gate foi integrado em `develop` por `f58c6b64` (PR #426) e corrigido por
 [41148506951](https://github.com/VINIClUS/CnesData/actions/runs/41148506951).
 A issue #377 permanece aberta pela dependência formal da #398: faltam os ensaios
 reais de OAuth/PKCE, audiência no access token, refresh e cleanup AWS. Essa integração
-não comprova deploy, emissão de certificado ou readiness AWS; #381, #280 e #60
+não comprova deploy, emissão de certificado ou readiness AWS; #381 e #280
 também continuam limitações do estado operacional.

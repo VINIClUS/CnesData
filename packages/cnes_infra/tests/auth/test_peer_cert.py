@@ -12,6 +12,11 @@ from cryptography.x509.oid import NameOID
 from starlette.requests import Request
 
 from cnes_infra.auth.ca import CertAuthority
+from cnes_infra.auth.cert_extensions import (
+    AGENT_ID_OID,
+    TENANT_ID_OID,
+    encode_extension_value,
+)
 from cnes_infra.auth.errors import OAuthError
 from cnes_infra.auth.peer_cert import (
     extract_peer_cert,
@@ -21,13 +26,13 @@ from cnes_infra.auth.peer_cert import (
     verify_peer_cert,
 )
 
-_AGENT_OID = x509.ObjectIdentifier("1.3.6.1.4.1.99999.1.2")
-_TENANT_OID = x509.ObjectIdentifier("1.3.6.1.4.1.99999.1.1")
+_LEGACY_AGENT_OID = x509.ObjectIdentifier("1.3.6.1.4.1.99999.1.2")
+_LEGACY_TENANT_OID = x509.ObjectIdentifier("1.3.6.1.4.1.99999.1.1")
 _NOW = dt.datetime.now(dt.UTC)
 
 
-def _make_leaf_cert(
-    *, agent_id: str | None = "agent-001", tenant_id: str | None = "354130"
+def _cert_with_extensions(
+    extensions: list[tuple[x509.ObjectIdentifier, bytes]],
 ) -> x509.Certificate:
     key = ec.generate_private_key(ec.SECP256R1())
     subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "agent-test")])
@@ -40,17 +45,22 @@ def _make_leaf_cert(
         .not_valid_before(_NOW - dt.timedelta(minutes=1))
         .not_valid_after(_NOW + dt.timedelta(days=90))
     )
-    if agent_id is not None:
+    for oid, value in extensions:
         builder = builder.add_extension(
-            x509.UnrecognizedExtension(_AGENT_OID, agent_id.encode()),
-            critical=False,
-        )
-    if tenant_id is not None:
-        builder = builder.add_extension(
-            x509.UnrecognizedExtension(_TENANT_OID, tenant_id.encode()),
-            critical=False,
+            x509.UnrecognizedExtension(oid, value), critical=False,
         )
     return builder.sign(key, hashes.SHA256())
+
+
+def _make_leaf_cert(
+    *, agent_id: str | None = "agent-001", tenant_id: str | None = "354130"
+) -> x509.Certificate:
+    extensions: list[tuple[x509.ObjectIdentifier, bytes]] = []
+    if agent_id is not None:
+        extensions.append((AGENT_ID_OID, encode_extension_value(agent_id)))
+    if tenant_id is not None:
+        extensions.append((TENANT_ID_OID, encode_extension_value(tenant_id)))
+    return _cert_with_extensions(extensions)
 
 
 def _der_b64(cert: x509.Certificate) -> str:
@@ -200,23 +210,29 @@ def test_read_oid_levanta_401_quando_oid_ausente():
 
 def test_read_oid_levanta_401_quando_oid_tem_bytes_invalidos_utf8():
     """Critical regression: malformed UTF-8 in OID must NOT crash 500."""
-    key = ec.generate_private_key(ec.SECP256R1())
-    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "agent-test")])
-    cert = (
-        x509.CertificateBuilder()
-        .subject_name(subject)
-        .issuer_name(subject)
-        .public_key(key.public_key())
-        .serial_number(x509.random_serial_number())
-        .not_valid_before(_NOW - dt.timedelta(minutes=1))
-        .not_valid_after(_NOW + dt.timedelta(days=90))
-        .add_extension(
-            x509.UnrecognizedExtension(_AGENT_OID, b"\xff\xfe\xfd"),
-            critical=False,
-        )
-        .sign(key, hashes.SHA256())
-    )
+    cert = _cert_with_extensions([(AGENT_ID_OID, b"\x0c\x03\xff\xfe\xfd")])
     with pytest.raises(OAuthError) as exc:
         read_agent_id(cert)
     assert exc.value.code == "invalid_token"
     assert exc.value.status_code == 401
+
+
+def test_rejeita_valor_utf8_cru_sem_der_com_401():
+    cert = _cert_with_extensions(
+        [(AGENT_ID_OID, b"agent-001"), (TENANT_ID_OID, b"354130")],
+    )
+    for reader in (read_agent_id, read_tenant_id):
+        with pytest.raises(OAuthError) as exc:
+            reader(cert)
+        assert (exc.value.code, exc.value.status_code) == ("invalid_token", 401)
+
+
+@pytest.mark.parametrize("value", [b"agent-001", b"\x0c\x09agent-001"])
+def test_rejeita_certificado_com_oid_placeholder_99999_com_401(value):
+    cert = _cert_with_extensions(
+        [(_LEGACY_AGENT_OID, value), (_LEGACY_TENANT_OID, value)],
+    )
+    for reader in (read_agent_id, read_tenant_id):
+        with pytest.raises(OAuthError) as exc:
+            reader(cert)
+        assert (exc.value.code, exc.value.status_code) == ("invalid_token", 401)
