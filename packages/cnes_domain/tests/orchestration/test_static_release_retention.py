@@ -307,3 +307,10 @@ def test_versao_nao_corrente_citada_em_atual_fica_fora_da_retirada() -> None:
     snapshot = _snapshot((fixada, recente), frozenset({fixada.ref}))
     decision = plan_static_release(snapshot, _candidato(), AGORA)
     assert decision.retire == ()
+
+
+def test_asset_que_ja_tem_delete_marker_nao_recebe_outro() -> None:
+    marcado = _versao("assets/index-AAAAAAAA.js", "v1", VELHO)
+    atual = _versao("index.html", "i1")
+    snapshot = _snapshot((marcado, atual), frozenset({atual.ref}))
+    assert plan_static_release(snapshot, _candidato(), AGORA).retire_latest == ()
