@@ -51,7 +51,9 @@ Regra de decisão:
 Impacto do `VOLUME`: todo consumidor da imagem herda a declaração. O único fora do Fargate é o
 `data-processor-local`, do profile `local`, que passa a criar volumes anônimos em `/tmp` e `/logs`
 (`/data` já é o volume nomeado `local_data`), com o mesmo uid e a mesma escrita medidos com e sem
-`VOLUME`. `docker compose down -v` os remove. Nenhum compose de `deploy/` usa essa imagem.
+`VOLUME`. Esses volumes persistem em `up --force-recreate` e em `down` sem `-v`, então arquivos
+deixados em `/tmp` e `/logs` sobrevivem ao container. `docker compose down -v` os remove. Nenhum
+compose de `deploy/` usa essa imagem.
 
 ## Resultado do ensaio D10 (2026-11-05)
 
@@ -67,16 +69,32 @@ egress, 0 de ingress, status `succeeded`, `remaining=[]` e revisões `ACTIVE=0`,
 `/tmp` com `root:root 1777` é o correto; o critério é a escrita, não o dono. `recover-once` termina
 igual nas duas imagens (exit 1), então não separa RED de GREEN.
 
+Runs são identificadores do ensaio, não commits. As duas imagens saíram da árvore de `8bc05769`
+(pré-squash do #459), sem diferença para `2da01faa` em `apps/data_processor/`, `packages/` e
+`uv.lock`. A RED usou esse Dockerfile sem a linha `VOLUME`. Digests do push: RED
+`sha256:23f87153c6797ca7076ca84392b6246b2dbe3f62fb64cf1f8d63e2a31cf7cc0b`; GREEN, nas duas rodadas,
+`sha256:0f4d8a7e48cf5b0ea5c3f3f6293e0bdc3539baf6c6fdd445748117c41a1bf5ea`.
+
 ## Limites do ensaio real
 
 - Root da AWS só localmente, para criar e remover a identidade temporária `/cnesdata-cap/` com
-  permissions boundary. O harness continua recusando root e perfis.
-- Recursos só com nome `cnesdata-cap-*` e tags `Project`, `Purpose`, `Run` e `ExpiresAt`.
+  permissions boundary e para remover o `AWSServiceRoleForECS` descrito abaixo. O harness continua
+  recusando root e perfis.
+- Recursos só com nome `cnesdata-cap-*` e tags `Project`, `Purpose`, `Run` e `ExpiresAt`. Exceção:
+  o `AWSServiceRoleForECS`, que a própria AWS cria na primeira task ECS da conta, com nome fixo. Foi
+  removido com root ao final dos ensaios, e a AWS o recria na próxima task.
 - Roda na VPC default de `us-east-2`, com IP público, zero ingress e egress TLS, como a rede de
   produção.
 - Termina com inventário vazio em ECR, ECS, logs, security group, IAM, S3, DynamoDB e Cognito.
+  A evidência `final_counts_all_cap` só conta os serviços do perfil em execução: perfis antigos não
+  enxergam ECR, ECS, logs e security group. O inventário completo veio de leitura separada, depois
+  do último ensaio.
 - Evidência redigida: sem conta, ARN, credencial ou URL assinada.
 - A imagem é build local do repositório. A prova com o digest promovido é a transferência da Task 4.
+- Se o prazo de trabalho acaba durante o `docker push`, a tag local com a conta fica para trás, sem
+  credencial, e precisa de `docker rmi` manual. O `rmi` não usa a faixa `cleanup` porque o relógio
+  dela é único: com o daemon travado, ele gastaria esse relógio, e a remoção dos recursos reais
+  terminaria em `cleanup_timeout`. Com o daemon saudável, o `rmi` é imediato.
 
 ## Paths autorizados
 
@@ -97,6 +115,18 @@ PR da #382:
   `test_static_release_retention.py`;
 - `.trivyignore.yaml` e a seção 6.1 da deployment design;
 - `docs/roadmap.md`.
+
+PR de correção da auditoria independente:
+
+- `.github/workflows/infra-native.yml` e `.github/workflows/ci.yml`;
+- `tests/production/infra/test_gate_triggers.py`, `test_acceptance.py`,
+  `test_athena_delivery_contracts.py` e `_acceptance_gate.py`;
+- `tests/scripts/test_ci_opentofu_runner.py`;
+- `tests/integration/aws_capability/_fargate_images.py` e `test_fargate_images.py`;
+- `packages/cnes_domain/src/cnes_domain/orchestration/static_release.py`, `test_static_release.py` e
+  `test_static_release_retention.py`;
+- este amendment, `docs/runbooks/infrastructure-plan.md`, `docs/runbooks/floci-and-aws-capability.md`,
+  `docs/roadmap.md` e o plano delivery.
 
 ## Decisões da #382
 
@@ -136,6 +166,11 @@ localmente com a CSP em enforce e exercitado com Playwright. O domínio real só
   desconta esses itens, porque os bytes só saem depois da retirada real.
 - **Delete marker.** Só em `assets/`, e nunca em chave referenciada por atual ou anterior, mesmo em
   outra versão: o CloudFront lê a versão mais recente da chave.
+- **Sem `current`.** Nem `retire` nem `retire_latest`: um inventário sem referência atual não prova
+  que um objeto saiu de uso, e o alvo real de rollback poderia ser removido. A release segue
+  `PLANNED`, para não travar a primeira publicação nem a retomada depois de publicação interrompida.
+  Com o bucket cheio e sem `current`, a recusa por capacidade não devolve o que retirar, e a saída
+  é manual.
 - **Segredos.** Chaves `sk_test_` e `rk_test_` também recusam a release.
 - **Publicação idempotente.** Objeto com SHA256 igual ao da versão mais recente vai para
   `already_published`, seja asset ou entrypoint.
@@ -153,6 +188,9 @@ Pré-condições que o publicador da Task 8 precisa respeitar:
   O alvo de rollback continua sendo a referência em `current`.
 - `retire` não presume a regra `static-web-gc`, que retém uma versão não corrente a mais
   (`newer_noncurrent_versions = 1`). Ao ativar a regra, os dois critérios seguem independentes.
+- O contrato só reconhece referência do `index.html` em atributo entre aspas com caminho absoluto
+  (`src="/assets/x.js"`). Isso exige manter o `base` do Vite em `/`: com `./assets/x.js` ou atributo
+  sem aspas, o asset deixa de ser exigido no candidato.
 
 ### Exceção de teste do PR #460
 
@@ -172,6 +210,30 @@ do merge; o do primeiro, depois do merge e do fechamento das issues.
   `1b0b9b80f68f080f82bb18b76f3f031377fac8d8154ce47faa4b46279a551c16`;
 - com `.trivyignore.yaml`, na raiz do repositório como no CI: 0 achados.
 
+## Gatilho do gate
+
+A auditoria independente achou o gate PROD-INFRA-012 fora dos filtros do `infra-native` quando mudam
+arquivos que ele lê. Os filtros passam a cobrir: Dockerfile e código do `data_processor`, os três
+pacotes, `production_values.py`, os dois arquivos do dashboard, os dois módulos do harness, os dois
+scripts que o próprio workflow executa, os documentos citados por nome, `conftest.py`, `pytest.ini`,
+`.gitignore`, `CODEOWNERS` e `deploy-main.yml`.
+
+`test_gate_triggers.py` protege essa lista por leitura estática. Ele enxerga `REPO_ROOT / ...`,
+`parents[3] / ...`, literais `apps/` e `packages/`, `from ... import` de `apps`, `packages` e `tests`,
+e arquivos `tests/**/*.py` citados no workflow. Não enxerga, entre outros, `import a.b`,
+`import_module`, `runpy.run_path`, `joinpath`, `parents[N]` com outro N, caminho relativo, f-string,
+outro nome de raiz, `from scripts...`, `scripts/` no workflow, nem o que `tofu`, `conftest`, `trivy`
+e processos filhos do pytest leem. Um arquivo lido dessas formas pode ficar fora dos filtros sem o
+teste avisar.
+
+Varreduras gerais ficam de fora, de propósito: segredos em `docs/runbooks`, `tests/production` e
+`.github/workflows`, e rótulo de runner em todos os workflows. Mudança só nesses arquivos não dispara
+o gate, e um problema neles aparece no próximo gate que rodar. PRs nos paths novos passam a esperar o
+gate, cerca de 10 minutos; o repositório é público, sem custo de Actions.
+
+A suíte offline de `tests/integration/aws_capability` não rodava em nenhum workflow. Agora roda no
+`ci.yml`.
+
 ## Transferências para o plano delivery
 
 | Obrigação | Origem | Destino |
@@ -182,6 +244,13 @@ do merge; o do primeiro, depois do merge e do fechamento das issues.
 | `prune_revisions.py` sobre `processor_retention`, inventário e poda de digests | #384 | Task 10 |
 | FREE ACTIVE, ACM emitido, DNS | #382 | Task 11 |
 | Enforce da CSP depois da primeira publicação real | #382 | Task 8 |
+| Teste do mapeamento de `ListObjectVersions` para `StoredVersion` | #382 | Task 8 |
+| Rollback restaura também `theme-init.js`; o contrato só devolve `index.html` | #382 | Task 8 |
+| Apply do ACM em duas fases: `ISSUED` antes de a distribuição usar o ARN | #382 | Task 3 |
+| `certificate_domain_validated = true` (HSTS) depois da validação do domínio | #382 | Task 11 |
+
+Ordem de execução: a Task 3 entrega o apply em duas fases, e a Task 11 emite o certificado. A
+publicação real da Task 8 depende da distribuição, então só roda depois do certificado `ISSUED`.
 
 ## Nomes de teste das issues
 
@@ -190,7 +259,7 @@ Os nomes pedidos nas issues divergiram na implementação. Mapeamento vigente:
 | Issue | Pedido | Vigente |
 |---|---|---|
 | #382 | `test_bucket_lido_so_pela_distribuicao` | `test_origem_privada_separa_allow_oac_e_deny_tls` |
-| #382 | `test_csp_lista_cognito_e_origem_s3_exatas` | `test_raiz_agenda_static_web_e_acm_do_produto` |
+| #382 | `test_csp_lista_cognito_e_origem_s3_exatas` | `test_composicao_consume_cognito_serving_e_certificado` |
 | #382 | `test_assets_imutaveis_e_index_sem_cache` | mesmo nome, em `test_static_release.py` |
 | #382 | `test_lifecycle_retem_atual_e_anterior` | mesmo nome, em `test_static_release.py` |
 | #384 | `test_task_definitions_fargate_read_only_sem_root` | `test_container_exige_raiz_somente_leitura_usuario_app_e_sem_privilegios` |

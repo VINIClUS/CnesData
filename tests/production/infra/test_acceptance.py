@@ -1,6 +1,7 @@
 """Gate de aceite não-mutante da infraestrutura de produção (PROD-INFRA-012)."""
 
 import ast
+import configparser
 import json
 import re
 import subprocess
@@ -158,6 +159,11 @@ def test_gate_nao_pode_ser_silenciado_por_configuracao() -> None:
     flags = str(pytest_options.get("addopts", ""))
     assert not re.search(r"--ignore|--deselect|(^|\s)-[km]\b|--lf|--maxfail", flags), flags
     assert "norecursedirs" not in pytest_options
+    ini = configparser.ConfigParser()
+    ini.read(REPO_ROOT / "pytest.ini", encoding="utf-8")
+    ini_flags = ini.get("pytest", "addopts", fallback="")
+    assert not re.search(r"--ignore|--deselect|(^|\s)-[km]\b|--lf|--maxfail", ini_flags), ini_flags
+    assert not ini.has_option("pytest", "norecursedirs")
     for path in [REPO_ROOT / "conftest.py", *INFRA_TESTS.rglob("conftest.py")]:
         text = path.read_text(encoding="utf-8")
         assert not re.search(r"collect_ignore|pytest_collection_modifyitems", text), path.name

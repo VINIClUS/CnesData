@@ -73,7 +73,8 @@ def test_ci_instala_conftest_fixado_so_no_job_hospedado_nativo() -> None:
     assert 'tar -xzf "${archive}" -C "${RUNNER_TEMP}/conftest-bin" conftest' in step["run"]
     for name, job in jobs.items():
         if name != "opentofu-native":
-            assert "conftest" not in yaml.safe_dump(job).lower(), f"job={name}"
+            rendered = yaml.safe_dump(job).lower().replace("conftest.py", "")
+            assert "conftest" not in rendered, f"job={name}"
         assert "self-hosted" not in str(job["runs-on"]), f"job={name}"
 
 

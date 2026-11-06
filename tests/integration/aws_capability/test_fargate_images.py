@@ -162,6 +162,20 @@ def test_falha_no_login_nao_tenta_tag_nem_push(runner: Runner, tmp_path: Path) -
     assert runner.verbs() == ["login"]
 
 
+def test_push_com_falha_remove_a_tag_local_com_a_conta(runner: Runner, tmp_path: Path) -> None:
+    runner.outputs["push"] = (1, "", "falhou")
+    with pytest.raises(ServiceFailure):
+        DockerImages(run=runner, root=tmp_path).push(IMAGE, TARGET, login(), make_context())
+    assert ["docker", "rmi", TARGET] in [call.argv for call in runner.calls]
+
+
+def test_push_sem_digest_tambem_remove_a_tag_local(runner: Runner, tmp_path: Path) -> None:
+    runner.outputs["push"] = (0, "pushed ok sem digest\n", "")
+    with pytest.raises(ServiceFailure):
+        DockerImages(run=runner, root=tmp_path).push(IMAGE, TARGET, login(), make_context())
+    assert ["docker", "rmi", TARGET] in [call.argv for call in runner.calls]
+
+
 def test_push_sem_digest_na_saida_e_falha(runner: Runner, tmp_path: Path) -> None:
     control(tmp_path)
     runner.outputs["push"] = (0, "pushed ok sem digest\n", "")
@@ -213,6 +227,6 @@ def test_logout_do_registry_roda_depois_de_login_bem_sucedido_com_ou_sem_falha_n
     runner.outputs["push"] = (1, "", "falhou")
     with pytest.raises(ServiceFailure):
         DockerImages(run=runner, root=tmp_path).push(IMAGE, TARGET, login(), make_context())
-    assert runner.verbs() == ["login", "tag", "push", "logout"]
+    assert runner.verbs() == ["login", "tag", "push", "rmi", "logout"]
     logout = runner.calls[-1].argv
     assert logout == ["docker", "logout", REGISTRY]

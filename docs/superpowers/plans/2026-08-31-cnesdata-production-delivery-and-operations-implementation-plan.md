@@ -23,6 +23,10 @@ OPA/Conftest, Syft, Trivy.
 **Spec:** docs/superpowers/specs/2026-08-29-cnesdata-production-operations-design.md with resource
 contracts from docs/superpowers/specs/2026-08-29-cnesdata-production-deployment-design.md
 
+**Transferred obligations:** docs/superpowers/specs/2026-11-05-prod-infra-closure-amendment.md adds
+production obligations to Tasks 3, 4, 8, 10 and 11, listed in its "Transferências para o plano
+delivery" table. They bind those tasks together with the text below.
+
 ## Global Constraints
 
 - Start only after runtime amendments and infrastructure Tasks 1-12 are merged and green on develop.

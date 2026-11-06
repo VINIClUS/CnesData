@@ -28,7 +28,8 @@ GATE: dict[str, dict[str, tuple[str, ...]]] = {
             "test_headers_cache_e_lifecycle_respeitam_ruling",),
         "test_static_web_composition.py": (
             "test_raiz_agenda_static_web_e_acm_do_produto",
-            "test_outputs_cloudfront_e_runtime_sao_utilizaveis")},
+            "test_outputs_cloudfront_e_runtime_sao_utilizaveis",
+            "test_composicao_consume_cognito_serving_e_certificado")},
     "PROD-INFRA-006": {
         "test_network.py": (
             "test_rede_sem_nat_lb_ou_listener", "test_security_group_sem_ingress"),
@@ -46,7 +47,10 @@ GATE: dict[str, dict[str, tuple[str, ...]]] = {
             "test_dockerfile_declara_volume_dos_mounts_depois_do_chown"),
         "test_fargate_task_mirror.py": (
             "test_espelho_container_e_task_iguais_ao_modo_recovery_renderizado",
-            "test_espelho_com_entrypoint_do_probe_difere_so_no_entrypoint")},
+            "test_espelho_com_entrypoint_do_probe_difere_so_no_entrypoint"),
+        "test_gate_triggers.py": (
+            "test_varredura_enxerga_as_fontes_conhecidas_do_gate",
+            "test_gatilho_do_gate_cobre_as_fontes_lidas_fora_de_infra")},
     "PROD-INFRA-008": {
         "test_step_functions_iam.py": (
             "test_role_step_functions_tem_trust_e_grants_common_exatos_no_bootstrap",),

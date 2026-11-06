@@ -83,24 +83,16 @@ def _build_real() -> tuple[ReleaseObject, ...]:
     )
 
 
-def _versao(
-    key: str,
-    version: str,
-    substituida_em: datetime | None = None,
-    tamanho: int = 10,
-    sha256: str | None = "a" * 64,
-) -> StoredVersion:
-    return StoredVersion(VersionRef(key, version), tamanho, sha256, ANTES, substituida_em)
+def _versao(key: str, version: str, substituida_em: datetime | None = None) -> StoredVersion:
+    return StoredVersion(VersionRef(key, version), 10, "a" * 64, ANTES, substituida_em)
 
 
 def _snapshot(
     versoes: tuple[StoredVersion, ...] = (),
     atual: frozenset[VersionRef] = frozenset(),
     anterior: frozenset[VersionRef] = frozenset(),
-    incompletos: int = 0,
-    complete: bool = True,
 ) -> StaticBucketSnapshot:
-    return StaticBucketSnapshot(versoes, incompletos, atual, anterior, complete)
+    return StaticBucketSnapshot(versoes, 0, atual, anterior, True)
 
 
 def _recusado(decision: StaticReleaseDecision, outcome: ReleaseOutcome) -> None:
@@ -340,7 +332,7 @@ def test_candidato_malformado_recusa(candidato: tuple[ReleaseObject, ...]) -> No
 
 def test_asset_identico_ja_publicado_nao_reenvia() -> None:
     objeto = _objeto(ASSET)
-    publicado = _versao(ASSET, "v1", sha256=objeto.sha256)
+    publicado = replace(_versao(ASSET, "v1"), sha256=objeto.sha256)
     decision = plan_static_release(_snapshot((publicado,)), _candidato(), AGORA)
     assert decision.outcome == ReleaseOutcome.PLANNED
     assert decision.already_published == (ASSET,)
@@ -349,13 +341,13 @@ def test_asset_identico_ja_publicado_nao_reenvia() -> None:
 
 @pytest.mark.parametrize("sha256", ["b" * 64, None], ids=["sha_diferente", "sem_checksum"])
 def test_sobrescrever_asset_imutavel_recusa(sha256: str | None) -> None:
-    publicado = _versao(ASSET, "v1", sha256=sha256)
+    publicado = replace(_versao(ASSET, "v1"), sha256=sha256)
     decision = plan_static_release(_snapshot((publicado,)), _candidato(), AGORA)
     _recusado(decision, ReleaseOutcome.REJECTED_OVERWRITE)
 
 
 def test_asset_sob_delete_marker_pode_voltar_a_ser_publicado() -> None:
-    retirado = _versao(ASSET, "v1", VELHO, sha256="b" * 64)
+    retirado = replace(_versao(ASSET, "v1", VELHO), sha256="b" * 64)
     decision = plan_static_release(_snapshot((retirado,)), _candidato(), AGORA)
     assert decision.outcome == ReleaseOutcome.PLANNED
     assert ASSET in decision.upload_order
@@ -371,7 +363,8 @@ def test_entrypoint_pode_receber_nova_versao() -> None:
 
 
 def test_entrypoint_identico_nao_gera_nova_versao() -> None:
-    publicado = _versao("index.html", "v1", sha256=_objeto("index.html", INDEX_HTML).sha256)
+    sha256 = _objeto("index.html", INDEX_HTML).sha256
+    publicado = replace(_versao("index.html", "v1"), sha256=sha256)
     decision = plan_static_release(_snapshot((publicado,)), _candidato(), AGORA)
     assert decision.outcome == ReleaseOutcome.PLANNED
     assert decision.already_published == ("index.html",)

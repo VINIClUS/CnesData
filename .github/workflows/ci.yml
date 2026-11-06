@@ -93,6 +93,9 @@ jobs:
         run: |
           uv run --no-build pytest -q -m local_profile tests/integration tests/chaos
 
+      - name: Run AWS capability harness offline tests
+        run: uv run --no-build pytest -q tests/integration/aws_capability
+
       - name: Run backup script unit tests
         run: uv run --no-build pytest -q scripts/local_backup_test.py
 
