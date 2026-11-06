@@ -27,6 +27,9 @@ from packages.cnes_domain.tests.orchestration.test_static_release import (
     _versao,
 )
 
+ORFA = _versao("assets/index-FFFFFFFF.js", "orfa")
+ORFA_SUBSTITUIDA = _versao("index.html", "orfa", VELHO)
+
 
 def test_retirada_exige_mais_de_sete_dias_desde_a_substituicao() -> None:
     no_limite = _versao("index.html", "limite", AGORA - timedelta(days=7))
@@ -81,11 +84,11 @@ def test_referencias_e_candidato_nao_viram_delete_marker() -> None:
     anterior = _versao("assets/index-BBBBBBBB.js", "anterior")
     candidato_publicado = replace(_versao(ASSET, "v1"), sha256=_objeto(ASSET).sha256)
     snapshot = _snapshot(
-        (index_atual, index_anterior, atual, anterior, candidato_publicado),
+        (index_atual, index_anterior, atual, anterior, candidato_publicado, ORFA),
         atual=frozenset({index_atual.ref, atual.ref}),
         anterior=frozenset({index_anterior.ref, anterior.ref}),
     )
-    assert plan_static_release(snapshot, _candidato(), AGORA).retire_latest == ()
+    assert plan_static_release(snapshot, _candidato(), AGORA).retire_latest == (ORFA.ref,)
 
 
 def test_chave_referenciada_em_outra_versao_nao_vira_delete_marker() -> None:
@@ -94,17 +97,17 @@ def test_chave_referenciada_em_outra_versao_nao_vira_delete_marker() -> None:
     referenciada = _versao(chave, "v1", VELHO)
     mais_nova = _versao(chave, "v2")
     snapshot = _snapshot(
-        (index, referenciada, mais_nova), atual=frozenset({index.ref, referenciada.ref})
+        (index, referenciada, mais_nova, ORFA), atual=frozenset({index.ref, referenciada.ref})
     )
-    assert plan_static_release(snapshot, _candidato(), AGORA).retire_latest == ()
+    assert plan_static_release(snapshot, _candidato(), AGORA).retire_latest == (ORFA.ref,)
 
 
 def test_entrypoint_fora_do_candidato_nao_vira_delete_marker() -> None:
     antigo = _versao("theme-init.js", "v1")
     atual = _versao("index.html", "i1")
-    snapshot = _snapshot((antigo, atual), frozenset({atual.ref}))
+    snapshot = _snapshot((antigo, atual, ORFA), frozenset({atual.ref}))
     candidato = (_objeto("index.html"), _objeto(ASSET))
-    assert plan_static_release(snapshot, candidato, AGORA).retire_latest == ()
+    assert plan_static_release(snapshot, candidato, AGORA).retire_latest == (ORFA.ref,)
 
 
 def test_total_soma_versoes_incompletos_e_proxima_release() -> None:
@@ -275,10 +278,12 @@ def test_precedencia_entre_recusas(
 def test_asset_com_delete_marker_fica_sem_versao_recente_e_pode_voltar() -> None:
     """Delete marker não é versão: só define o superseded_at da versão anterior."""
     anterior = _versao(ASSET, "v1", AGORA - timedelta(days=3))
-    decision = plan_static_release(_snapshot((anterior,)), _candidato(), AGORA)
+    atual = _versao("index.html", "i1")
+    snapshot = _snapshot((anterior, atual, ORFA), frozenset({atual.ref}))
+    decision = plan_static_release(snapshot, _candidato(), AGORA)
     assert decision.outcome is ReleaseOutcome.PLANNED
     assert ASSET in decision.upload_order
-    assert decision.retire_latest == ()
+    assert decision.retire_latest == (ORFA.ref,)
 
 
 def test_asset_com_hash_desconhecido_na_versao_recente_recusa_sobrescrita() -> None:
@@ -304,13 +309,13 @@ def test_sem_referencia_atual_nao_propoe_retirada() -> None:
 def test_versao_nao_corrente_citada_em_atual_fica_fora_da_retirada() -> None:
     fixada = _versao("index.html", "fixada", VELHO)
     recente = _versao("index.html", "recente")
-    snapshot = _snapshot((fixada, recente), frozenset({fixada.ref}))
+    snapshot = _snapshot((fixada, recente, ORFA_SUBSTITUIDA), frozenset({fixada.ref}))
     decision = plan_static_release(snapshot, _candidato(), AGORA)
-    assert decision.retire == ()
+    assert decision.retire == (ORFA_SUBSTITUIDA.ref,)
 
 
 def test_asset_que_ja_tem_delete_marker_nao_recebe_outro() -> None:
     marcado = _versao("assets/index-AAAAAAAA.js", "v1", VELHO)
     atual = _versao("index.html", "i1")
-    snapshot = _snapshot((marcado, atual), frozenset({atual.ref}))
-    assert plan_static_release(snapshot, _candidato(), AGORA).retire_latest == ()
+    snapshot = _snapshot((marcado, atual, ORFA), frozenset({atual.ref}))
+    assert plan_static_release(snapshot, _candidato(), AGORA).retire_latest == (ORFA.ref,)

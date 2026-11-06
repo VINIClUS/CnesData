@@ -91,8 +91,9 @@ Runs são identificadores do ensaio, não commits. As duas imagens saíram da á
   do último ensaio.
 - Evidência redigida: sem conta, ARN, credencial ou URL assinada.
 - A imagem é build local do repositório. A prova com o digest promovido é a transferência da Task 4.
-- Se o prazo de trabalho acaba durante o `docker push`, a tag local com a conta fica para trás, sem
-  credencial, e precisa de `docker rmi` manual. O `rmi` não usa a faixa `cleanup` porque o relógio
+- Se o prazo de trabalho acaba durante o `docker push`, ou se o próprio `rmi` falha depois de um push
+  bem-sucedido, a tag local com a conta fica para trás, sem credencial e sem aviso, e precisa de
+  `docker rmi` manual. O `rmi` não usa a faixa `cleanup` porque o relógio
   dela é único: com o daemon travado, ele gastaria esse relógio, e a remoção dos recursos reais
   terminaria em `cleanup_timeout`. Com o daemon saudável, o `rmi` é imediato.
 
@@ -220,7 +221,8 @@ scripts que o próprio workflow executa, os documentos citados por nome, `confte
 
 `test_gate_triggers.py` protege essa lista por leitura estática. Ele enxerga `REPO_ROOT / ...`,
 `parents[3] / ...`, literais `apps/` e `packages/`, `from ... import` de `apps`, `packages` e `tests`,
-e arquivos `tests/**/*.py` citados no workflow. Não enxerga, entre outros, `import a.b`,
+e arquivos `tests/**/*.py` citados nos blocos `run` do workflow, fora a detecção de mudanças, que só
+tem as listas de filtro. Cada forma tem um caso próprio no teste. Não enxerga, entre outros, `import a.b`,
 `import_module`, `runpy.run_path`, `joinpath`, `parents[N]` com outro N, caminho relativo, f-string,
 outro nome de raiz, `from scripts...`, `scripts/` no workflow, nem o que `tofu`, `conftest`, `trivy`
 e processos filhos do pytest leem. Um arquivo lido dessas formas pode ficar fora dos filtros sem o
