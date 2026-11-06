@@ -69,8 +69,9 @@ está integrado; infraestrutura parcial em código não significa promoção AWS
     PostgreSQL/MinIO/BigQuery/Keycloak
 
 [^bpen]: PEN 67386 nos OIDs dos certificados de agente, contrato em
-    `docs/contracts/agent-certificate-oids.md`; a emissão em produção segue presa à promoção AWS
-    e ao plano delivery
+    `docs/contracts/agent-certificate-oids.md`. Certificados 99999 deixam de valer no deploy;
+    cada agente se registra de novo pelo procedimento do contrato. A emissão em produção segue
+    presa à promoção AWS e ao plano delivery
 
 [^bbilling]: Manter `BILLING_MODE=disabled` neste rollout; ativação comercial exige seus próprios
     pré-requisitos

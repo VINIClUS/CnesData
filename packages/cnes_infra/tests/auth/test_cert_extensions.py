@@ -33,7 +33,7 @@ def test_codifica_comprimento_em_bytes_e_nao_em_caracteres():
 
 
 @pytest.mark.parametrize(
-    "valor", ["354130", "agent-0f3c", "", "ação", "x" * 127, "y" * 128, "z" * 300],
+    "valor", ["354130", "agent-0f3c", "ação", "x" * 127, "y" * 128, "z" * 300],
 )
 def test_decodifica_ida_e_volta(valor):
     assert decode_extension_value(encode_extension_value(valor)) == valor
@@ -54,8 +54,14 @@ def test_decodifica_ida_e_volta(valor):
         (b"\x0c\x07354130", "extension_value_length_mismatch"),
         (b"\x0c\x05354130", "extension_value_length_mismatch"),
         (b"\x0c\x03\xff\xfe\xfd", "extension_value_utf8_invalid"),
+        (b"\x0c\x00", "extension_value_empty"),
     ],
 )
 def test_rejeita_valor_que_nao_e_utf8string_der_canonico(der, erro):
     with pytest.raises(ValueError, match=erro):
         decode_extension_value(der)
+
+
+def test_recusa_codificar_valor_vazio():
+    with pytest.raises(ValueError, match="extension_value_empty"):
+        encode_extension_value("")

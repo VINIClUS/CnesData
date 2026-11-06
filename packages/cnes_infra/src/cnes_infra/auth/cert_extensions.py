@@ -13,7 +13,9 @@ _MAX_LENGTH_OCTETS = 4
 
 
 def encode_extension_value(value: str) -> bytes:
-    """Returns: valor da extensão como DER UTF8String."""
+    """Returns: valor da extensão como DER UTF8String. Raises: ValueError se vazio."""
+    if not value:
+        raise ValueError("extension_value_empty")
     payload = value.encode()
     return bytes([_UTF8_STRING_TAG]) + _encode_length(len(payload)) + payload
 
@@ -25,6 +27,8 @@ def decode_extension_value(der: bytes) -> str:
     length, offset = _decode_length(der)
     if len(der) != offset + length:
         raise ValueError("extension_value_length_mismatch")
+    if length == 0:
+        raise ValueError("extension_value_empty")
     try:
         return der[offset:].decode()
     except UnicodeDecodeError as exc:

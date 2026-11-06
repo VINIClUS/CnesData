@@ -16,6 +16,11 @@ from cnes_infra.auth.cert_extensions import (
     encode_extension_value,
 )
 
+_LEGACY_OIDS = (
+    x509.ObjectIdentifier("1.3.6.1.4.1.99999.1.2"),
+    x509.ObjectIdentifier("1.3.6.1.4.1.99999.1.1"),
+)
+
 _PROXY_PEER = ("172.20.0.2", 50000)
 
 _TEST_AGENT_IDS = (
@@ -60,7 +65,7 @@ def _make_app(session_root_ca, monkeypatch):
 
 def _sign_leaf(session_root_ca, *, agent_id="agent-rot-001",
                tenant_id="354130", ca_serial_override=None,
-               include_oids=True):
+               oids=(AGENT_ID_OID, TENANT_ID_OID)):
     """Sign a leaf cert directly with the test CA. Returns (PEM bytes, hex serial)."""
     ca_cert_path, ca_key_path = session_root_ca
     ca_cert = x509.load_pem_x509_certificate(ca_cert_path.read_bytes())
@@ -81,12 +86,12 @@ def _sign_leaf(session_root_ca, *, agent_id="agent-rot-001",
         .not_valid_before(now - dt.timedelta(minutes=1))
         .not_valid_after(now + dt.timedelta(days=90))
     )
-    if include_oids:
+    if oids is not None:
         builder = builder.add_extension(
-            x509.UnrecognizedExtension(AGENT_ID_OID, encode_extension_value(agent_id)),
+            x509.UnrecognizedExtension(oids[0], encode_extension_value(agent_id)),
             critical=False,
         ).add_extension(
-            x509.UnrecognizedExtension(TENANT_ID_OID, encode_extension_value(tenant_id)),
+            x509.UnrecognizedExtension(oids[1], encode_extension_value(tenant_id)),
             critical=False,
         )
     leaf = builder.sign(ca_key, hashes.SHA256())
@@ -129,7 +134,21 @@ def test_rotate_com_cert_sem_agent_id_oid_retorna_401(
     session_root_ca, monkeypatch, make_csr_pem,
 ):
     app = _make_app(session_root_ca, monkeypatch)
-    pem_bytes, _ = _sign_leaf(session_root_ca, include_oids=False)
+    pem_bytes, _ = _sign_leaf(session_root_ca, oids=None)
+    with TestClient(app, client=_PROXY_PEER) as client:
+        r = client.post(
+            "/provision/cert/rotate", headers=_mtls_headers(pem_bytes),
+            json={"csr_pem": make_csr_pem().decode()},
+        )
+    assert r.status_code == 401
+    assert r.json() == {"error": "invalid_token"}
+
+
+def test_rotate_com_cert_do_placeholder_99999_retorna_401(
+    session_root_ca, monkeypatch, make_csr_pem,
+):
+    app = _make_app(session_root_ca, monkeypatch)
+    pem_bytes, _ = _sign_leaf(session_root_ca, oids=_LEGACY_OIDS)
     with TestClient(app, client=_PROXY_PEER) as client:
         r = client.post(
             "/provision/cert/rotate", headers=_mtls_headers(pem_bytes),

@@ -3,7 +3,7 @@
 Contrato das extensões X.509 que a CA do `central_api` grava no certificado folha do
 `dump_agent_go` e que o `central_api` lê para ligar a requisição mTLS a um tenant e a um
 agente. A fonte única no código é `packages/cnes_infra/src/cnes_infra/auth/cert_extensions.py`,
-usada pela emissão (`auth/ca.py`) e pela leitura (`auth/peer_cert.py`). Resolve a issue #60.
+usada pela emissão (`auth/ca.py`) e pela leitura (`auth/peer_cert.py`). Origem: issue #60.
 
 ## Atribuição
 
@@ -37,12 +37,13 @@ O `extnValue` de cada extensão contém o DER de um `UTF8String` (tag `0x0C`):
 - comprimento definido na forma mínima: curta até 127 bytes, longa com até 4 octetos e
   sem zero à esquerda;
 - nenhum byte depois do valor;
-- conteúdo UTF-8 válido.
+- conteúdo UTF-8 válido e não vazio.
 
 Exemplo: o valor `354130` vira `0C 06 33 35 34 31 33 30`.
 
 A leitura é estrita. Tag diferente, comprimento indefinido ou não mínimo, bytes
-sobrando, truncamento ou UTF-8 inválido resultam em `401 invalid_token`, nunca em 500.
+sobrando, truncamento, UTF-8 inválido ou valor vazio resultam em `401 invalid_token`,
+nunca em 500. A emissão também recusa valor vazio.
 O mesmo vale para extensão ausente.
 
 ## Legado `1.3.6.1.4.1.99999`
@@ -61,8 +62,9 @@ afetado, depois do deploy do `central_api` com este contrato:
 2. Rodar `dumpagent register --force --tenant-id <tenant> --base-url <url>` e aprovar o
    `user_code` na página de ativação do dashboard. Nos ambientes com CA privada, repetir o
    `--ca-pin`: `--force` sem ele remove o pin persistido.
-3. Conferir o smoke mTLS do próprio `register` (`GET /api/v1/agents/whoami`, sem
-   `--no-smoke`) e subir o serviço.
+3. Conferir `mtls_ok status=200` no stderr do `register`, que faz o smoke
+   `GET /api/v1/agents/whoami` (sem `--no-smoke`). O smoke só avisa: o comando sai com 0
+   mesmo com `mtls_check_failed`. Depois subir o serviço.
 
 Conferência manual de um certificado emitido:
 
