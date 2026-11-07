@@ -91,6 +91,10 @@ Mocks are not live provider/authentication/issuance/DNS/FREE evidence.
 
 ## Ownership and retained holds
 
+[Ownership amendment](2026-11-07-prod-delivery-external-ownership-amendment.md) supersedes the
+unassigned external ownership and prohibition on assigning producers below. The backend and
+Budget/freeze limitation of personal-infra-live remains; other holds retain their own gates.
+
 personal-infra-live is limited to Budget/freeze and its backend. It receives no DNS,
 additional state or other resource ownership. Product owns Web S3/CloudFront/ACM/WAF.
 DNS is an external handoff; existing operator/account/zone/configuration and change evidence

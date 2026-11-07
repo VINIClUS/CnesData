@@ -19,6 +19,10 @@ revisão do novo SHA256 do `main.tf`. Mantém SSE-S3: o build é público e sem 
 
 ## Estado do gate do delivery em 2026-11-05
 
+[Ownership amendment](2026-11-07-prod-delivery-external-ownership-amendment.md) atualiza os
+produtores e os refs externos deste snapshot. Bootstrap merged não comprova EXT-1/2/3 nem
+readiness real. As transferências de Produção abaixo continuam obrigatórias.
+
 O item 1 do corpo da #365 está desatualizado: o amendment static-web de 2026-10-31 limita o
 `personal-infra-live` a Budget/freeze e backend. Estado observado:
 
