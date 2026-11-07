@@ -212,8 +212,7 @@ def test_ci_falha_sem_ferramenta(monkeypatch: pytest.MonkeyPatch) -> None:
         require_tool("actionlint")
 
 
-DIST_ORACLE = r"""
-const {chromium} = require('@playwright/test');
+DIST_ORACLE = r"""const {chromium} = require('@playwright/test');
 const fs = require('node:fs');
 const path = require('node:path');
 const assert = require('node:assert/strict');
@@ -273,8 +272,7 @@ const assert = require('node:assert/strict');
        auth: null, tenant: null}
     ]);
   } finally { await browser.close(); }
-})().catch(e => { console.error(e.message); process.exit(1); });
-"""
+})().catch(e => { console.error(e.message); process.exit(1); });"""
 
 
 def _dist_path() -> Path:
@@ -319,7 +317,7 @@ set -euo pipefail
 printf '%s\n' "$*" >> "$DOCKER_CALLS"
 case "$1 $2" in
   'login ghcr.io') cat > /dev/null ;;
-  'image inspect') printf '%s\n' "$LOADED_CONFIG" ;;
+  'image inspect') printf '%s\n' "$LOADED_ID" ;;
   'buildx imagetools')
     if [[ "$5" == --raw ]]; then
       printf '{"config":{"digest":"%s"}}\n' "$REMOTE_CONFIG"
@@ -330,11 +328,24 @@ esac
 """
 
 
+def _shell(cwd: Path, env: dict[str, str], body: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(  # noqa: S603 -- Executes checked-in workflow at executable boundaries.
+        [require_tool("bash"), "-euo", "pipefail", "-c", body],
+        cwd=cwd,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=10,
+    )
+
+
 def _publisher_inputs(directory: Path) -> dict[str, str]:
     config = "sha256:" + "c" * 64
     files = {
         "image.tar": "scanned_image",
-        "image.id": config,
+        "image.id": "sha256:" + "d" * 64,
+        "scan.json": json.dumps({"Metadata": {"ImageID": config}}),
         "sbom.cdx.json": "{}",
         "source.sha": "a" * 40,
         "run.id": "123",
@@ -356,20 +367,29 @@ def _publisher_inputs(directory: Path) -> dict[str, str]:
         APP="central_api",
         GHCR_TOKEN="synthetic",  # noqa: S106 -- Synthetic Docker boundary credential.
         GHCR_ACTOR="synthetic",
-        LOADED_CONFIG=config,
+        LOADED_ID=files["image.id"],
         REMOTE_CONFIG=config,
         DOCKER_CALLS=str(directory / "docker.calls"),
     )
 
 
 def _checksum_inputs(directory: Path) -> None:
-    files = sorted(p for p in directory.iterdir() if p.name != "SHA256SUMS")
+    files = sorted(p for p in directory.iterdir() if p.name not in {"SHA256SUMS", "docker"})
     content = "".join(f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n" for p in files)
     (directory / "SHA256SUMS").write_text(content)
 
 
 @pytest.mark.parametrize(
-    "case", ["valido", "tar_corrompido", "outro_sha", "load_errado", "remoto_errado"]
+    "case",
+    [
+        "valido",
+        "tar_corrompido",
+        "outro_sha",
+        "load_errado",
+        "remoto_errado",
+        "config_ausente",
+        "config_ambiguo",
+    ],
 )
 def test_publisher_so_publica_os_bytes_vinculados_ao_run(tmp_path: Path, case: str) -> None:
     environment = _publisher_inputs(tmp_path)
@@ -378,25 +398,21 @@ def test_publisher_so_publica_os_bytes_vinculados_ao_run(tmp_path: Path, case: s
     if case == "outro_sha":
         environment["GITHUB_SHA"] = "b" * 40
     if case == "load_errado":
-        environment["LOADED_CONFIG"] = "sha256:" + "d" * 64
+        environment["LOADED_ID"] = "sha256:" + "e" * 64
     if case == "remoto_errado":
         environment["REMOTE_CONFIG"] = "sha256:" + "d" * 64
+    if case.startswith("config_"):
+        value = None if case == "config_ausente" else [environment["REMOTE_CONFIG"]] * 2
+        (tmp_path / "scan.json").write_text(json.dumps({"Metadata": {"ImageID": value}}))
+        _checksum_inputs(tmp_path)
     job = _workflow()["jobs"]["oci-publish"]
     body = next(
         s["run"] for s in job["steps"] if s.get("name") == "Load verified bytes and publish digest"
     )
-    result = subprocess.run(  # noqa: S603 -- Executes the workflow; Docker is the mocked boundary.
-        [require_tool("bash"), "-euo", "pipefail", "-c", body],
-        cwd=tmp_path,
-        env=environment,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=10,
-    )
+    result = _shell(tmp_path, environment, body)
     assert (result.returncode == 0) is (case == "valido"), result.stderr
     calls = (tmp_path / "docker.calls").read_text() if (tmp_path / "docker.calls").exists() else ""
-    if case in {"tar_corrompido", "outro_sha", "load_errado"}:
+    if case in {"tar_corrompido", "outro_sha", "load_errado", "config_ausente", "config_ambiguo"}:
         assert "push " not in calls
     _assert_no_image_build(calls)
     if case == "valido":
@@ -405,7 +421,7 @@ def test_publisher_so_publica_os_bytes_vinculados_ao_run(tmp_path: Path, case: s
         assert manifest["source_sha"] == environment["GITHUB_SHA"]
         assert manifest["run_id"] == "123"
         assert manifest["run_attempt"] == "1"
-        assert manifest["config_digest"] == environment["LOADED_CONFIG"]
+        assert manifest["config_digest"] == environment["REMOTE_CONFIG"]
         assert manifest["image"] == "ghcr.io/viniclus/cnesdata/central_api"
         files = {"image.tar": "image_archive_sha256", "sbom.cdx.json": "sbom_sha256"}
         for name, field in files.items():
@@ -441,15 +457,7 @@ def test_contrato_de_bytes_rejeita_comandos_efetivos_de_rebuild(
     command: str,
 ) -> None:
     environment = _publisher_inputs(tmp_path)
-    result = subprocess.run(  # noqa: S603 -- Docker is a local executable boundary stub.
-        [require_tool("bash"), "-euo", "pipefail", "-c", "docker " + command],
-        cwd=tmp_path,
-        env=environment,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=5,
-    )
+    result = _shell(tmp_path, environment, "docker " + command)
     assert result.returncode == 0, result.stderr
     with pytest.raises(AssertionError, match="image_rebuild_forbidden"):
         _assert_no_image_build((tmp_path / "docker.calls").read_text())
@@ -480,15 +488,7 @@ def test_config_empacota_fontes_existentes_e_checksums_reais(tmp_path: Path) -> 
         if s.get("name") == "Package validated configuration and locks"
     )
     environment = dict(os.environ, GITHUB_SHA="a" * 40, GITHUB_RUN_ID="123", GITHUB_RUN_ATTEMPT="1")
-    result = subprocess.run(  # noqa: S603 -- Executes the checked-in artifact packaging step.
-        [require_tool("bash"), "-euo", "pipefail", "-c", body],
-        cwd=tmp_path,
-        env=environment,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=5,
-    )
+    result = _shell(tmp_path, environment, body)
     assert result.returncode == 0, result.stderr
     with tarfile.open(tmp_path / "config-artifact/config.tar") as archive:
         assert set(paths) <= set(archive.getnames())
