@@ -7,11 +7,11 @@ import pytest
 
 from apps.billing_worker.tests.support import REGION, STATE_MACHINE, STRIPE_ENV, TABLE, env, without
 from billing_worker.composition import build_worker
+from cnes_control_plane.billing.enforcement import ShadowAccessLossEnforcer
+from cnes_control_plane.billing.metrics import CloudWatchBillingMetrics, DiscardBillingMetrics
+from cnes_control_plane.billing.revocation_sweep import RevocationSweep
+from cnes_control_plane.billing.settings import BillingConfigurationError
 from cnes_domain.billing.revocation import ImmediateRevocationService
-from cnes_infra.billing.enforcement import ShadowAccessLossEnforcer
-from cnes_infra.billing.metrics import CloudWatchBillingMetrics, DiscardBillingMetrics
-from cnes_infra.billing.revocation_sweep import RevocationSweep
-from cnes_infra.billing.settings import BillingConfigurationError
 
 ENFORCED = env(BILLING_ENFORCEMENT_MODE="enforce", AWS_STATE_MACHINE_ARN=STATE_MACHINE)
 

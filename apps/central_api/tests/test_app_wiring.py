@@ -82,7 +82,7 @@ def test_oauth_error_handler_renderiza_body_rfc():
     from fastapi.testclient import TestClient
 
     from central_api.app import create_app
-    from cnes_infra.auth.errors import OAuthError
+    from cnes_identity.errors import OAuthError
 
     app = create_app()
 
@@ -111,7 +111,7 @@ def test_oauth_error_handler_status_401_quando_invalid_token():
     from fastapi.testclient import TestClient
 
     from central_api.app import create_app
-    from cnes_infra.auth.errors import OAuthError
+    from cnes_identity.errors import OAuthError
 
     app = create_app()
 
@@ -153,7 +153,7 @@ def _aws_env(monkeypatch) -> None:
 
 class _Verifier:
     def verify(self, token: str):
-        from cnes_infra.auth import OidcPrincipal, TokenInvalid
+        from cnes_identity import OidcPrincipal, TokenInvalid
 
         if token != ACCEPTED_BEARER:
             raise TokenInvalid("signature")

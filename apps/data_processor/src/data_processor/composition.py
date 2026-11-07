@@ -6,6 +6,19 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, cast
 
 from cnes_contracts.manifests.raw import SourceType
+from cnes_control_plane.billing import (
+    LOCAL_BILLING_SETTINGS,
+    BillingSettings,
+    build_execution_callbacks,
+)
+from cnes_control_plane.billing.wiring import BillingGateResources, build_entitlement_gate
+from cnes_control_plane.execution.local_pool import LocalWorkerPool
+from cnes_control_plane.execution.step_functions import (
+    StepFunctionsExecutor,
+    validate_state_machine,
+)
+from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
+from cnes_data.object_store import FilesystemObjectStore
 from cnes_domain.billing.publication import (
     BillingPublicationPolicy,
     PublicationPolicyDependencies,
@@ -14,14 +27,8 @@ from cnes_domain.control_plane.entities import Tenant
 from cnes_domain.orchestration.source_catalog import build_source_catalog
 from cnes_domain.ports.processing import ExecutionPolicyConfig
 from cnes_domain.profiles import ProfileNotImplemented, RuntimeProfile, parse_profile
-from cnes_infra.audit.local_sink import LocalAuditSink
-from cnes_infra.aws import AwsRuntimeSettings, build_aws_runtime, create_aws_clients
-from cnes_infra.billing import LOCAL_BILLING_SETTINGS, BillingSettings, build_execution_callbacks
-from cnes_infra.billing.wiring import BillingGateResources, build_entitlement_gate
-from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
-from cnes_infra.executor.local_pool import LocalWorkerPool
-from cnes_infra.executor.step_functions import StepFunctionsExecutor, validate_state_machine
-from cnes_infra.object_store import FilesystemObjectStore
+from cnes_governance.local_sink import LocalAuditSink
+from cnes_runtime.aws import AwsRuntimeSettings, build_aws_runtime, create_aws_clients
 from data_processor.orchestration.coordinator import (
     CoordinatorDependencies,
     PipelineCoordinator,
@@ -69,7 +76,7 @@ if TYPE_CHECKING:
         ProcessorExecutorPort,
     )
     from cnes_domain.profiles import ProfileSettings
-    from cnes_infra.aws import AwsClients, AwsRuntimeComponents
+    from cnes_runtime.aws import AwsClients, AwsRuntimeComponents
 
 _DEPLOYMENT_LIMIT = 4
 _DISPATCH_LEASE_SECONDS = 300

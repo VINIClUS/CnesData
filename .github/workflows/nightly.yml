@@ -16,7 +16,7 @@ jobs:
           python-version: "3.13"
       - name: Install
         run: |
-          pip install -e packages/cnes_contracts packages/cnes_domain packages/cnes_infra
+          pip install -e packages/*
           pip install -e apps/data_processor
           pip install pytest pytest-benchmark psutil hypothesis fdb
       - name: Start perf stack
@@ -29,7 +29,7 @@ jobs:
           done
       - name: Migrate
         run: |
-          cd packages/cnes_infra
+          cd packages/cnes_data
           alembic -c alembic.ini upgrade head
         env:
           SQLALCHEMY_URL: postgresql+psycopg://cnesdata:cnesdata_perf@localhost:5434/cnesdata_perf

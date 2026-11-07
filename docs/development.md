@@ -86,7 +86,7 @@ uv run uvicorn central_api.app:create_app --factory --reload
 Run Alembic migrations manually:
 
 ```bash
-cd packages/cnes_infra
+cd packages/cnes_data
 uv run alembic -c alembic.ini upgrade head
 ```
 
@@ -122,7 +122,7 @@ uv run ruff check .
 ```
 
 Type check (CI gate in `scripts/ci_python_gate.sh`; config in
-`pyproject.toml` `[tool.pyright]` — strict for `packages/*/src` and
+`pyproject.toml` `[tool.pyright]` — strict for production modules directly in `packages/cnes_*/` and
 `apps/*/src`, standard for tests and `scripts/`):
 
 ```bash
@@ -149,7 +149,7 @@ Core packages with coverage:
 
 ```bash
 uv run pytest \
-  packages/cnes_domain packages/cnes_infra \
+  packages/ \
   -m "not bigquery and not e2e and not stress and not soak and not spike" \
   --cov --cov-config=pyproject.toml \
   --cov-report=term-missing
@@ -243,3 +243,12 @@ uv run pytest tests/perf/stress -m stress -v
 uv run pytest tests/perf/soak -m soak -v
 uv run pytest tests/perf/spike -m spike -v
 ```
+
+## Layout das bibliotecas e verificação de artefatos
+
+Módulos ficam diretamente em `packages/cnes_*/`, ao lado de `tests/`. Hatch
+reescreve o prefixo no wheel e adiciona `packages/` no modo editable; os imports
+públicos permanecem `cnes_*`. `tests/architecture` verifica grafo, layout e
+fronteiras. `scripts/ci_package_artifacts.sh` instala os oito wheels em diretório
+isolado e usa Python sem processamento de editable paths para verificar imports
+e recursos Alembic. Docker e integrações pesadas ficam no CI.

@@ -7,7 +7,7 @@ deploy. O texto descreve o código de `develop`; onde plano e código divergem, 
 **Bloqueado pela especificação de deployment**
 (`docs/superpowers/plans/2026-08-31-cnesdata-production-*.md`): criação de recursos, documentos
 de policy IAM, KMS, rede, alarmes e agendamento. Não há IaC do profile `aws` no repo;
-`deploy/aws/raw/` pertence ao caminho raw legado (#294).
+`ops/infra/aws/raw-legacy/` pertence ao caminho raw legado (#294).
 
 ## Gate em emuladores
 
@@ -43,7 +43,7 @@ O bucket de audit, com retenção `COMPLIANCE`, só some no `down -v`.
 
 ## Variáveis de ambiente
 
-Fonte: `packages/cnes_infra/src/cnes_infra/aws/settings.py`. Valor inválido derruba o boot com
+Fonte: `packages/cnes_runtime/aws/settings.py`. Valor inválido derruba o boot com
 `AwsRuntimeConfigurationError(<código>)`.
 
 | Variável | Regra | Código |
@@ -66,7 +66,7 @@ Fonte: `packages/cnes_infra/src/cnes_infra/aws/settings.py`. Valor inválido der
 | `DYNAMODB_ENDPOINT_URL`, `AWS_ENDPOINT_URL` | só em emulador; produção deixa vazias | — |
 
 - Variável numérica presente e vazia não usa o default: falha com `integer_invalid=<VAR>`.
-- `DB_URL` segue obrigatório no import de `cnes_infra.config` (placeholder, não usado).
+- `DB_URL` segue obrigatório no import de `cnes_runtime.config` (placeholder, não usado).
 - Credenciais vêm só da provider chain (role da task). A task definition não define
   `AWS_ACCESS_KEY_ID` nem `AWS_SECRET_ACCESS_KEY`: o boto3 prefere as variáveis à role.
 - A API recusa `RAW_BACKEND` e `RAW_AWS_*` no mesmo processo (`raw_backend=forbidden`).
@@ -82,7 +82,7 @@ erro):
 uv run python - <<'PY'
 import os
 
-from cnes_infra.aws.settings import AwsRuntimeSettings
+from cnes_runtime.aws.settings import AwsRuntimeSettings
 
 AwsRuntimeSettings.from_mapping(os.environ)
 PY
@@ -114,7 +114,7 @@ import os
 
 import boto3
 
-from cnes_infra.executor.step_functions import validate_state_machine
+from cnes_control_plane.execution.step_functions import validate_state_machine
 
 validate_state_machine(
     boto3.client("stepfunctions", region_name=os.environ["AWS_REGION"]),
@@ -127,7 +127,7 @@ PY
 
 ## State machine compatível
 
-`validate_state_machine` (`packages/cnes_infra/src/cnes_infra/executor/step_functions.py`)
+`validate_state_machine` (`packages/cnes_control_plane/execution/step_functions.py`)
 recusa com `IncompatibleStateMachine(<código>)`:
 
 | Exigência | Código |
@@ -154,7 +154,7 @@ O `ItemSelector` exato leva os quatro IDs do input e o `unit_id` de `$$.Map.Item
 Não são validados `Cluster`, `SecurityGroups`, conteúdo e revisão da task definition, roles e
 `Retry`. Erro de API no `DescribeStateMachine` vira `ProcessorExecutionUnavailable(<código>)`.
 Definição de referência:
-`packages/cnes_infra/tests/fixtures/step_functions/standard_inline_ecs.json`.
+`packages/cnes_data/tests/fixtures/step_functions/standard_inline_ecs.json`.
 
 O input da execução carrega só `tenant_id`, `run_id`, `wave_id`, `dispatch_id`, `unit_ids` e
 `max_concurrency`. O nome da execução é o `dispatch_id`: um replay com o mesmo input recebe
@@ -245,7 +245,7 @@ de hoje; ninguém na aplicação chama ECS.
 - Cada evento do outbox vira dois objetos em retenção `COMPLIANCE` até
   `created_at + AWS_AUDIT_RETENTION_DAYS`: `audit/<tenant>/<AAAA>/<MM>/<DD>/<event_id>.json` e o
   marcador `audit/.event-id/<event_id>.json`
-  (`packages/cnes_infra/src/cnes_infra/audit/s3_object_lock_sink.py`).
+  (`packages/cnes_governance/s3_object_lock_sink.py`).
 - O put usa `IfNoneMatch: *` e checksum SHA-256. Replay só é aceito com conteúdo idêntico e
   retenção suficiente (`GetObjectRetention`); senão, `Conflict`.
 - Quem grava hoje é o dispatcher de outbox dentro da API, a cada 30 s. A entrega é
@@ -272,7 +272,7 @@ de hoje; ninguém na aplicação chama ECS.
   os extras no topo. Exceção sai só como `exception_type`, sem mensagem nem stack. Os campos
   `authorization`, `token`, `signed_url`, `aws_access_key_id`, `aws_secret_access_key` e
   `email`, e qualquer campo terminado em `_<nome>` (por exemplo `refresh_token`), viram
-  `[REDACTED]` (`packages/cnes_infra/src/cnes_infra/observability/json_logging.py`).
+  `[REDACTED]` (`packages/cnes_observability/json_logging.py`).
 - A API não configura logging da aplicação no profile `aws`. Eventos INFO
   (`aws_profile_composed`, `outbox_dispatched`) não saem. WARNING e acima
   (`dispatch_start_compensated`, `oidc_token_invalid`, `tenant_access_denied`,

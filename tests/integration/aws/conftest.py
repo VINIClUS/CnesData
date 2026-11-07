@@ -24,7 +24,7 @@ from central_api import deps as api_deps
 from central_api.composition import build_runtime
 from data_processor import composition as processor_composition
 from data_processor.composition import build_processor_runtime
-from packages.cnes_infra.tests.contracts.clock import MutableClock
+from packages.cnes_control_plane.tests.contracts.clock import MutableClock
 from tests.integration.aws._doubles import BearerSubjectVerifier
 from tests.integration.aws._harness import (
     ISSUER,
@@ -43,7 +43,8 @@ _READY_TIMEOUT_SECONDS = 60
 _REGION = "us-east-1"
 _INDEXES = tuple(f"gsi{number}" for number in range(1, 7))
 _STATE_MACHINES = (
-    Path(__file__).resolve().parents[3] / "packages/cnes_infra/tests/fixtures/step_functions"
+    Path(__file__).resolve().parents[3]
+    / "packages/cnes_control_plane/tests/fixtures/step_functions"
 )
 _ROLE_ARN = "arn:aws:iam::000000000000:role/aws014-processor"
 # Express rejects .sync integrations at creation, so the Express probe is a bare Pass state;

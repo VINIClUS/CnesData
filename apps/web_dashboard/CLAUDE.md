@@ -141,7 +141,7 @@ bun run typecheck
 - **`prettier-plugin-tailwindcss`** auto-sorts Tailwind classes; idempotent.
 - **`endOfLine: "auto"`** in `.prettierrc` lets Windows + Linux both pass
   format:check despite different line endings (CRLF vs LF).
-- **Keycloak dev seed** em `docker-compose.keycloak/realm.json` é apenas
+- **Keycloak dev seed** em `ops/identity/keycloak/realm.json` é apenas
   para desenvolvimento local (usuário `gestor@local`, senha `dev`). Não usar
   em produção; em prod o IdP é externo (Keycloak gerenciado pelo município).
 - **Signup aprovação manual v1.1**: `dashboard.access_requests` row criada

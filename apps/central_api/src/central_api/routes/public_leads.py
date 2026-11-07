@@ -8,7 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from central_api.ratelimit import limiter
 from central_api.repositories.leads_repo import LeadRecord
-from cnes_infra import config
+from cnes_runtime import config
 
 logger = logging.getLogger(__name__)
 

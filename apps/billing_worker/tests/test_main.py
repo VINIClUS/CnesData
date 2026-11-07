@@ -13,13 +13,13 @@ from apps.billing_worker.tests.support import (
     make_worker,
 )
 from billing_worker.main import main
+from cnes_control_plane.billing.settings import BillingConfigurationError
 from cnes_domain.billing.errors import (
     BillingDependencyError,
     PermanentBillingError,
     RetryableBillingError,
 )
 from cnes_domain.billing.inbox import ReconciliationRequest, RecoveryRequest
-from cnes_infra.billing.settings import BillingConfigurationError
 
 
 def _injetar(**overrides: object):
@@ -153,7 +153,7 @@ def test_configuracao_invalida_retorna_2(caplog) -> None:
 
 @pytest.mark.parametrize(("retryable", "expected"), [(True, 1), (False, 2)])
 def test_falha_de_segredo_mapeia_exit_pelo_retryable(retryable, expected) -> None:
-    from cnes_infra.billing.secrets_manager import SecretProviderError
+    from cnes_control_plane.billing.secrets_manager import SecretProviderError
 
     error = SecretProviderError("ThrottlingException", retryable)
     with patch("billing_worker.main.build_worker", side_effect=error):

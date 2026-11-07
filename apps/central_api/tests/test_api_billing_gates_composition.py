@@ -17,19 +17,19 @@ from central_api.composition import (
 from central_api.services.serving_access import LocalServingAccess
 from central_api.services.serving_entitlement import EntitledServingAccess
 from central_api.serving import S3SignedServingAccess
+from cnes_control_plane.billing import BillingGateResources, BillingSettings
+from cnes_control_plane.billing.dynamodb_catalog import DynamoBillingCatalog
+from cnes_control_plane.billing.dynamodb_quota import DynamoQuotaReservations
 from cnes_domain.billing.models import BillingEnforcementMode
 from cnes_domain.billing.shadow import NULL_SHADOW_OBSERVER, ShadowEntitlementObserver
 from cnes_domain.profiles import BillingMode, parse_profile
-from cnes_infra.aws import AwsRuntimeSettings
-from cnes_infra.billing import BillingGateResources, BillingSettings
-from cnes_infra.billing.dynamodb_catalog import DynamoBillingCatalog
-from cnes_infra.billing.dynamodb_quota import DynamoQuotaReservations
+from cnes_runtime.aws import AwsRuntimeSettings
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
     from central_api.composition import RuntimeComponents
-    from cnes_infra.aws.runtime import AwsClients, AwsRuntimeComponents
+    from cnes_runtime.aws.runtime import AwsClients, AwsRuntimeComponents
 
 if TYPE_CHECKING:
     from central_api.services.billing_gates import ApiBillingGates

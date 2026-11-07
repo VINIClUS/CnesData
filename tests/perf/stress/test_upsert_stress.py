@@ -5,7 +5,7 @@ from sqlalchemy import text
 from tests.perf.stress._harness import break_point, rampa_sync
 
 EstabelecimentoRepository = pytest.importorskip(
-    "cnes_infra.storage.repositories.estabelecimento_repo",
+    "cnes_data.storage.repositories.estabelecimento_repo",
     reason="repositório ausente do develop reconciliado",
 ).EstabelecimentoRepository
 

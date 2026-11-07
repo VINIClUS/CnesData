@@ -13,12 +13,12 @@ from typing import Any
 from botocore.exceptions import ClientError
 
 from central_api.composition import api_billing_gates
+from cnes_control_plane.billing.wiring import BillingGateResources
 from cnes_domain.billing.models import BillingEnforcementMode, SubscriptionStatus
 from cnes_domain.control_plane.entities import Membership
-from cnes_infra.billing.wiring import BillingGateResources
-from packages.cnes_infra.tests.billing.billing_factories import NOW, TABLE_NAME
-from packages.cnes_infra.tests.billing.quota_support import TENANT
-from packages.cnes_infra.tests.billing.shadow_support import shadow_events
+from packages.cnes_control_plane.tests.billing.billing_factories import NOW, TABLE_NAME
+from packages.cnes_control_plane.tests.billing.quota_support import TENANT
+from packages.cnes_control_plane.tests.billing.shadow_support import shadow_events
 from tests.integration.billing._api_gates_stack import (
     NEXT_JOB_URL,
     SERVING_URL,

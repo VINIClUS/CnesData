@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 from central_api.deps import require_auth, require_tenant_header
 from central_api.middleware import AuthenticatedUser
-from cnes_infra import config
+from cnes_runtime import config
 
 router = APIRouter(tags=["dashboard"])
 

@@ -13,13 +13,13 @@ import pytest
 
 from cnes_contracts.manifests.outputs import OutputManifest
 from cnes_contracts.manifests.raw import SourceType
+from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
 from cnes_domain.control_plane.commands import ClaimRunUnit, PutRunUnits, ReserveRunDispatch
 from cnes_domain.control_plane.entities import ManifestRef, Run, RunDependency, RunUnit
 from cnes_domain.control_plane.enums import RunStage, RunState, RunUnitState
 from cnes_domain.control_plane.errors import FenceRejected, LeaseLost
 from cnes_domain.ports.object_store import ObjectStat
 from cnes_domain.ports.processing import RunUnitMessage
-from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
 from data_processor.orchestration.attempt_store import AttemptObjectStore, unit_attempt_prefix
 from data_processor.orchestration.unit_handler import RunUnitCommandHandler
 from data_processor.orchestration.unit_worker import (

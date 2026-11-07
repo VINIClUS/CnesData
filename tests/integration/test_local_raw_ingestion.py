@@ -305,9 +305,9 @@ def test_full_solicitado_reinicia_so_a_source_key(tmp_path: Path) -> None:
 
 
 def test_profile_local_nao_constroi_postgres_minio_ou_gcp(tmp_path: Path) -> None:
-    from cnes_infra.control_plane import SQLiteControlPlane
-    from cnes_infra.object_store import FilesystemObjectStore
-    from cnes_infra.storage.s3_presigned import S3PresignedStorage
+    from cnes_control_plane.persistence import SQLiteControlPlane
+    from cnes_data.object_store import FilesystemObjectStore
+    from cnes_data.storage.s3_presigned import S3PresignedStorage
 
     def explode(*args: object, **kwargs: object) -> None:
         raise AssertionError("local_profile_built_legacy_backend")

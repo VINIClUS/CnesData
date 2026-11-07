@@ -13,10 +13,10 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from cnes_control_plane.execution.local_pool import LocalWorkerPool
+from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
+from cnes_data.object_store import FilesystemObjectStore
 from cnes_domain.ports.processing import ExecutionStatus
-from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
-from cnes_infra.executor.local_pool import LocalWorkerPool
-from cnes_infra.object_store import FilesystemObjectStore
 from data_processor.migration.publication import Expected
 from data_processor.migration.report import aggregate_bytes
 from scripts.run_historical_shadow import main

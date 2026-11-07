@@ -10,6 +10,7 @@ from uuid import uuid4
 import pytest
 from botocore.exceptions import EndpointConnectionError
 
+from cnes_control_plane.billing.webhook_inbox_items import retry_delay_seconds
 from cnes_domain.billing.commands import SnapshotWrite
 from cnes_domain.billing.errors import (
     BillingDependencyError,
@@ -23,7 +24,6 @@ from cnes_domain.billing.inbox import (
     StripeRecoveryCursor,
 )
 from cnes_domain.billing.models import EntitlementSnapshot, SubscriptionStatus
-from cnes_infra.billing.webhook_inbox_items import retry_delay_seconds
 from tests.integration.billing._billing_stack import (
     ACCOUNT_ID,
     NOW,

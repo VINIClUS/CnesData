@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, BinaryIO
 
 import pytest
 
-from cnes_infra.object_store import FilesystemObjectStore
+from cnes_data.object_store import FilesystemObjectStore
 from data_processor.migration.publication import ShadowRunError
 from scripts.run_historical_shadow import main, write_report
 

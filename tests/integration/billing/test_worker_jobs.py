@@ -18,9 +18,9 @@ from cnes_domain.billing.revocation import (
     RevocationPhase,
 )
 from cnes_domain.control_plane.enums import RunState
-from packages.cnes_infra.tests.billing.billing_factories import NOW
-from packages.cnes_infra.tests.billing.quota_support import ACCOUNT
-from packages.cnes_infra.tests.billing.revocation_support import (
+from packages.cnes_control_plane.tests.billing.billing_factories import NOW
+from packages.cnes_control_plane.tests.billing.quota_support import ACCOUNT
+from packages.cnes_control_plane.tests.billing.revocation_support import (
     RUN_ID,
     RevEnv,
     create_run,
@@ -30,7 +30,7 @@ from packages.cnes_infra.tests.billing.revocation_support import (
     stored_run,
     usage_counters,
 )
-from packages.cnes_infra.tests.billing.test_dynamodb_revocation_service import (
+from packages.cnes_control_plane.tests.billing.test_dynamodb_revocation_service import (
     RecordingExecutor,
     build_service,
     snapshot_of,

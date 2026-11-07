@@ -68,7 +68,7 @@ lease (reaper removido em MIG-012).
 
 - p99 de rotas Postgres-only < 200ms
 - Zero cross-tenant leak (RLS + middleware + teste contratual)
-- Uptime 99.9% (single-replica inicialmente; rolling restart no k8s suporta)
+- Uptime 99.9% como objetivo operacional; deploy VPS via Docker Compose
 
 ## Limitations
 
@@ -95,7 +95,7 @@ lease (reaper removido em MIG-012).
 | Var | Obrigatória | Descrição |
 |---|---|---|
 | `DB_URL` | sim | Postgres URL (`postgresql+psycopg://...`) |
-| `S3_*` (`S3_ENDPOINT_URL`, `S3_PUBLIC_ENDPOINT_URL`, `S3_REGION`, `S3_BUCKET`, `S3_ADDRESSING_STYLE`) | não | Sem leitor em `central_api` desde MIG-012 (presign legado removido); seguem definidas em `cnes_infra.config` |
+| `S3_*` (`S3_ENDPOINT_URL`, `S3_PUBLIC_ENDPOINT_URL`, `S3_REGION`, `S3_BUCKET`, `S3_ADDRESSING_STYLE`) | não | Sem leitor em `central_api` desde MIG-012 (presign legado removido); seguem definidas em `cnes_runtime.config` |
 | `API_HOST` | opcional | Default `0.0.0.0` |
 | `API_PORT` | opcional | Default `8000` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | opcional | Tracing (se OTel SDK instalado) |

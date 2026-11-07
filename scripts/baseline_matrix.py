@@ -18,7 +18,7 @@ WAIVED_SUITES = frozenset({"python-fast", "python-integration-docker"})
 WAIVER = {
     "failure": (
         "ModuleNotFoundError: No module named "
-        "'cnes_infra.storage.repositories.estabelecimento_repo' during collection of "
+        "'cnes_data.storage.repositories.estabelecimento_repo' during collection of "
         "tests/perf/{macro,micro,soak,spike,stress}"
     ),
     "expected_exit_code": 2,
@@ -74,8 +74,7 @@ SUITES: tuple[Suite, ...] = (
             "uv",
             "run",
             "pytest",
-            "packages/cnes_domain",
-            "packages/cnes_infra",
+            "packages/",
             "-m",
             PYTHON_PACKAGE_MARKERS,
             "--cov",

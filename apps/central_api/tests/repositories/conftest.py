@@ -24,7 +24,7 @@ def pg_engine():
             f"postgres indisponível em {_PG_URL}; rode 'docker compose up -d' primeiro",
         )
     cfg = Config()
-    cfg.set_main_option("script_location", "cnes_infra:alembic")
+    cfg.set_main_option("script_location", "cnes_data:alembic")
     cfg.set_main_option("sqlalchemy.url", _PG_URL)
     command.upgrade(cfg, "head")
     yield engine

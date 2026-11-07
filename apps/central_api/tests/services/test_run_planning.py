@@ -15,6 +15,7 @@ from central_api.services.run_planning import (
     RunPlanningService,
 )
 from cnes_contracts.manifests.raw import RawManifest, SnapshotMode, SourceType
+from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
 from cnes_domain.control_plane.commands import FinishRunDispatch, ReserveRunDispatch
 from cnes_domain.control_plane.entities import (
     RawManifestRecord,
@@ -33,7 +34,6 @@ from cnes_domain.ports.processing import (
     ExecutionStatus,
     StartRunExecution,
 )
-from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
 from data_processor.orchestration.coordinator import allow_execution, noop_execution_started
 
 if TYPE_CHECKING:

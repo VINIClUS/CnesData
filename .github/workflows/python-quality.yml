@@ -106,7 +106,7 @@ jobs:
         run: >-
           uv run --no-build pytest -q
           -m "not e2e and not postgres and not dynamodb_local and not stripe"
-          packages/cnes_domain/tests/billing packages/cnes_infra/tests/billing
+          packages/cnes_domain/tests/billing packages/cnes_control_plane/tests/billing
           apps/central_api/tests apps/billing_worker/tests
           tests/property/test_entitlement_projection_cas.py
           tests/property/test_quota_last_unit_race.py
@@ -117,8 +117,8 @@ jobs:
           tests/chaos/test_stripe_customer_orphan_recovery.py
           tests/chaos/test_billing_account_lost_key_recovery.py
           tests/chaos/test_shadow_observer_failures.py
-          packages/cnes_infra/tests/control_plane/test_edge_registration_counting.py
-          packages/cnes_infra/tests/control_plane/test_dynamodb_billed_tenant_counting.py
+          packages/cnes_control_plane/tests/control_plane/test_edge_registration_counting.py
+          packages/cnes_control_plane/tests/control_plane/test_dynamodb_billed_tenant_counting.py
           tests/integration/billing
       - name: Local billing has no remote dependency
         env:
@@ -144,11 +144,11 @@ jobs:
         with: { python-version: "3.13" }
       - run: |
           pip install --upgrade pip
-          pip install -e packages/cnes_contracts packages/cnes_domain packages/cnes_infra
+          pip install -e packages/*
           pip install -e apps/central_api apps/data_processor
           pip install pytest pytest-asyncio hypothesis
       - name: Migrate
-        run: cd packages/cnes_infra && alembic -c alembic.ini upgrade head
+        run: cd packages/cnes_data && alembic -c alembic.ini upgrade head
       - name: N+1 tests
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -178,10 +178,10 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.13" }
       - run: |
-          pip install -e packages/cnes_contracts packages/cnes_domain packages/cnes_infra
+          pip install -e packages/*
           pip install pytest hypothesis "moto[dynamodb]>=5.2"
       - name: Migrate
-        run: cd packages/cnes_infra && alembic -c alembic.ini upgrade head
+        run: cd packages/cnes_data && alembic -c alembic.ini upgrade head
       - name: Race tests
         run: pytest tests/property/ -m race --hypothesis-show-statistics -v
       - name: Flag violation
@@ -198,7 +198,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.13" }
       - run: |
-          pip install -e packages/cnes_contracts packages/cnes_domain packages/cnes_infra
+          pip install -e packages/*
           pip install -e apps/central_api apps/data_processor
           pip install pytest pytest-memray
       - name: Memleak tests
@@ -233,7 +233,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.13" }
       - run: |
-          pip install -e packages/cnes_contracts packages/cnes_domain packages/cnes_infra
+          pip install -e packages/*
           pip install -e apps/central_api apps/data_processor
           pip install pytest pytest-asyncio httpx minio "moto[dynamodb]>=5.2"
       - name: Chaos tests
@@ -255,7 +255,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.13" }
       - run: |
-          pip install -e packages/cnes_contracts packages/cnes_domain packages/cnes_infra
+          pip install -e packages/*
           pip install -e apps/central_api apps/data_processor
           pip install pytest pytest-asyncio httpx minio testcontainers[postgres,minio] sqlalchemy
       - name: Chaos infra tests
@@ -274,7 +274,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.13" }
       - run: |
-          pip install -e packages/cnes_contracts packages/cnes_domain packages/cnes_infra
+          pip install -e packages/*
           pip install pytest hypothesis sqlalchemy
       - name: Negative tests
         run: pytest tests/negative/ -m negative -v

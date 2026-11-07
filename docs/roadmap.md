@@ -9,12 +9,12 @@
 | Item | Estado | Evidência |
 |---|---|---|
 | CNES local via Firebird | Ativo | `dump_agent_go/internal/extractor` + data_processor adapter |
-| CNES nacional via BigQuery | Ativo | `cnes_infra.ingestion.web_client` + data_processor adapter |
-| CNES via DATASUS API | Ativo | `cnes_infra.ingestion.cnes_oficial_web_adapter` |
+| CNES nacional via BigQuery | Ativo | `cnes_data.ingestion.web_client` + data_processor adapter |
+| CNES via DATASUS API | Ativo | `cnes_data.ingestion.cnes_oficial_web_adapter` |
 | SIHD hospitalar | Ativo | `dump_agent_go/internal/extractor` + data_processor adapter |
 | BPA (Boletim Produção Ambulatorial) | Ativo | `dump_agent_go.internal.extractor.ExtractBPA` + `data_processor.adapters.bpa_adapter` |
 | SIA (Sistema Info Ambulatorial) | Ativo | `dump_agent_go.internal.extractor.ExtractSIA` + `data_processor.adapters.sia_adapter` + `sia_dim_sync` |
-| Multi-tenant (RLS + Middleware) | Pronto, piloto PE/SP | `cnes_infra.storage.rls` + `central_api.middleware` |
+| Multi-tenant (RLS + Middleware) | Pronto, piloto PE/SP | `cnes_data.storage.rls` + `central_api.middleware` |
 | Perf test pipeline (5 tiers) | Pronto | `tests/perf/{micro,macro,stress,soak,spike}/` + nightly workflow |
 | CI com gates triplos (Python packages 100% branch, apps 90% line; Go agent 65% filtered) | Pronto | `.github/workflows/ci.yml` + `.github/workflows/dump-agent-go.yml` |
 | Web dashboard v1.0 | Ativo | `apps/web_dashboard/` (Bun+React+OIDC), `/activate` para P4 device flow + status agentes via landing.extractions |

@@ -7,7 +7,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from central_api.deps import get_health_engine
-from cnes_domain.models.api import HealthResponse
+from cnes_contracts.api import HealthResponse
 
 router = APIRouter(tags=["sistema"])
 

@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, cast
 import boto3
 from botocore.exceptions import ClientError
 
-from cnes_infra.auth.oidc import OidcPrincipal
+from cnes_identity.oidc import OidcPrincipal
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

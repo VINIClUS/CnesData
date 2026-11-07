@@ -46,7 +46,7 @@ def _bearer(tenant: str = AWS_TENANT) -> dict[str, str]:
 
 class _Verifier:
     def verify(self, token: str):
-        from cnes_infra.auth import OidcPrincipal
+        from cnes_identity import OidcPrincipal
 
         return OidcPrincipal(issuer=AWS_ISSUER, subject="user-1", email=None, display_name=None)
 
@@ -132,7 +132,7 @@ def _stripe_env(monkeypatch) -> None:
 
 
 def _storage():
-    from cnes_infra.billing import BillingStorage
+    from cnes_control_plane.billing import BillingStorage
 
     return BillingStorage(Mock(name="dynamodb"), TABLE)
 
@@ -244,7 +244,7 @@ def test_aws_stripe_nao_vaza_segredos_em_estado_logs_ou_runtime(
 
 
 def test_aws_stripe_sem_billing_storage_falha_o_startup(monkeypatch) -> None:
-    from cnes_infra.billing import BillingConfigurationError
+    from cnes_control_plane.billing import BillingConfigurationError
 
     _stripe_env(monkeypatch)
     session = _session_spy({API_ARN: SECRET_API, WEBHOOK_ARN: SECRET_WEBHOOK})
@@ -258,7 +258,7 @@ def test_aws_stripe_sem_billing_storage_falha_o_startup(monkeypatch) -> None:
 
 def test_create_aws_clients_mantem_assinatura() -> None:
     from central_api.composition import build_runtime
-    from cnes_infra.aws import create_aws_clients
+    from cnes_runtime.aws import create_aws_clients
 
     assert list(inspect.signature(create_aws_clients).parameters) == ["settings", "session"]
     assert list(inspect.signature(build_runtime).parameters) == [
@@ -333,12 +333,12 @@ ENQUEUE_BODY = {"tenant_id": AWS_TENANT, "agent_id": "agent-1", "competencia": "
 
 
 def _components_patch(**replacements):
-    from cnes_infra.billing import build_stripe_billing as real
+    from cnes_control_plane.billing import build_stripe_billing as real
 
     def _build(*args, **kwargs):
         return dataclasses.replace(real(*args, **kwargs), **replacements)
 
-    return patch("cnes_infra.billing.build_stripe_billing", side_effect=_build)
+    return patch("cnes_control_plane.billing.build_stripe_billing", side_effect=_build)
 
 
 def _owned_catalog() -> Mock:
@@ -368,7 +368,7 @@ def _signed_event(event_id: str) -> tuple[bytes, str]:
 
 
 def test_aws_stripe_nao_habilita_rota_admin_raw_jobs_sem_control_plane(monkeypatch) -> None:
-    from cnes_infra import config
+    from cnes_runtime import config
 
     monkeypatch.setattr(config, "ADMIN_TOKEN", ADMIN_TOKEN, raising=False)
     _, (build, verifier, sess, client) = _stripe_client(monkeypatch)

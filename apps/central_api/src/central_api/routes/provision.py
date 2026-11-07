@@ -7,8 +7,8 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
 from cnes_domain.tenant import set_tenant_id
-from cnes_infra.auth import CertProvisionResponse
-from cnes_infra.auth.errors import OAuthError
+from cnes_identity import CertProvisionResponse
+from cnes_identity.errors import OAuthError
 
 router = APIRouter(tags=["provision"])
 

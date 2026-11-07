@@ -118,9 +118,9 @@ def _publish_object(store: Any) -> Any:
 @pytest.mark.dynamodb_local
 @pytest.mark.s3_integration
 def test_replay_integrado_preserva_objetos_e_evidencia_de_retencao() -> None:
-    from cnes_infra.audit import S3ObjectLockAuditSink
-    from cnes_infra.control_plane import DynamoDBControlPlane
-    from cnes_infra.object_store import S3ObjectStore
+    from cnes_control_plane.persistence import DynamoDBControlPlane
+    from cnes_data.object_store import S3ObjectStore
+    from cnes_governance import S3ObjectLockAuditSink
 
     dynamodb = _client(
         "dynamodb", os.getenv("DYNAMODB_ENDPOINT", "http://127.0.0.1:18000")

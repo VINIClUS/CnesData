@@ -61,7 +61,7 @@ def stripe(tmp_path: Path) -> Iterator[Stack]:
 @pytest.fixture(autouse=True)
 def sleeps(monkeypatch: pytest.MonkeyPatch) -> list[float]:
     delays: list[float] = []
-    monkeypatch.setattr("cnes_infra.control_plane.dynamodb_billing.sleep", delays.append)
+    monkeypatch.setattr("cnes_control_plane.persistence.dynamodb_billing.sleep", delays.append)
     return delays
 
 

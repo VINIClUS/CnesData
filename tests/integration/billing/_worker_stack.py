@@ -6,6 +6,22 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
+from cnes_control_plane.billing.dynamodb_catalog import DynamoBillingCatalog
+from cnes_control_plane.billing.dynamodb_projection import DynamoEntitlementProjection
+from cnes_control_plane.billing.dynamodb_quota_items import (
+    decode_capacity_reservation,
+    encode_capacity_reservation,
+)
+from cnes_control_plane.billing.keys import (
+    capacity_reservation_key,
+    capacity_usage_key,
+    revocation_sweep_cursor_key,
+)
+from cnes_control_plane.billing.reconciliation_cursor import DynamoReconciliationCursor
+from cnes_control_plane.billing.revocation_sweep import RevocationSweep, RevocationSweepDependencies
+from cnes_control_plane.persistence.dynamodb_codec import item_key
+from cnes_control_plane.persistence.dynamodb_keys import idempotency_key
+from cnes_control_plane.persistence.edge_registration import EDGE_AGENT_SCOPE
 from cnes_domain.billing.commands import SnapshotWrite
 from cnes_domain.billing.inbox import ReservationRecoveryRequest
 from cnes_domain.billing.models import (
@@ -19,36 +35,20 @@ from cnes_domain.billing.revocation import (
     RevocationPhase,
     RevocationSettings,
 )
-from cnes_infra.billing.dynamodb_catalog import DynamoBillingCatalog
-from cnes_infra.billing.dynamodb_projection import DynamoEntitlementProjection
-from cnes_infra.billing.dynamodb_quota_items import (
-    decode_capacity_reservation,
-    encode_capacity_reservation,
-)
-from cnes_infra.billing.keys import (
-    capacity_reservation_key,
-    capacity_usage_key,
-    revocation_sweep_cursor_key,
-)
-from cnes_infra.billing.reconciliation_cursor import DynamoReconciliationCursor
-from cnes_infra.billing.revocation_sweep import RevocationSweep, RevocationSweepDependencies
-from cnes_infra.control_plane.dynamodb_codec import item_key
-from cnes_infra.control_plane.dynamodb_keys import idempotency_key
-from cnes_infra.control_plane.edge_registration import EDGE_AGENT_SCOPE
-from packages.cnes_infra.tests.billing.billing_factories import (
+from packages.cnes_control_plane.tests.billing.billing_factories import (
     NOW,
     make_create_command,
     make_plan,
     put_tenant,
 )
-from packages.cnes_infra.tests.billing.dynamodb_catalog_support import attach
-from packages.cnes_infra.tests.billing.quota_support import (
+from packages.cnes_control_plane.tests.billing.dynamodb_catalog_support import attach
+from packages.cnes_control_plane.tests.billing.quota_support import (
     ACCOUNT,
     RESERVATION_TTL,
     TENANT,
 )
-from packages.cnes_infra.tests.billing.revocation_support import RevEnv
-from packages.cnes_infra.tests.billing.test_dynamodb_revocation_service import (
+from packages.cnes_control_plane.tests.billing.revocation_support import RevEnv
+from packages.cnes_control_plane.tests.billing.test_dynamodb_revocation_service import (
     RecordingExecutor,
     ServiceOptions,
     build_service,

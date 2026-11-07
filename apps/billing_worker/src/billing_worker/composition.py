@@ -6,9 +6,7 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 from billing_worker.worker import BillingWorker, WorkerJobs
-from cnes_domain.billing.ports import BillingMetricsPort
-from cnes_domain.profiles import BillingMode
-from cnes_infra.billing.composition import (
+from cnes_control_plane.billing.composition import (
     BillingStorage,
     StripeBillingComponents,
     StripeRuntimeSettings,
@@ -16,9 +14,14 @@ from cnes_infra.billing.composition import (
     build_stripe_billing,
     build_webhook_recovery,
 )
-from cnes_infra.billing.enforcement import AccessLossEnforcerPort, select_access_loss_enforcer
-from cnes_infra.billing.metrics import build_billing_metrics
-from cnes_infra.billing.settings import BillingConfigurationError, BillingSettings
+from cnes_control_plane.billing.enforcement import (
+    AccessLossEnforcerPort,
+    select_access_loss_enforcer,
+)
+from cnes_control_plane.billing.metrics import build_billing_metrics
+from cnes_control_plane.billing.settings import BillingConfigurationError, BillingSettings
+from cnes_domain.billing.ports import BillingMetricsPort
+from cnes_domain.profiles import BillingMode
 
 SessionFactory = Callable[[str], Any]
 
@@ -58,12 +61,12 @@ def _state_machine_arn(values: Mapping[str, str], billing: BillingSettings) -> s
 
 
 def _revocation_service(runtime: _Runtime, components: StripeBillingComponents) -> Any:
+    from cnes_control_plane.billing.dynamodb_revocation import DynamoRevocationStore
+    from cnes_control_plane.execution.step_functions import StepFunctionsExecutor
     from cnes_domain.billing.revocation import (
         ImmediateRevocationService,
         RevocationDependencies,
     )
-    from cnes_infra.billing.dynamodb_revocation import DynamoRevocationStore
-    from cnes_infra.executor.step_functions import StepFunctionsExecutor
 
     storage = runtime.storage
     client = runtime.session.client("stepfunctions", region_name=runtime.region)
@@ -81,7 +84,7 @@ def _revocation_service(runtime: _Runtime, components: StripeBillingComponents) 
 def _enforcer(
     billing: BillingSettings, runtime: _Runtime, components: StripeBillingComponents
 ) -> AccessLossEnforcerPort | None:
-    from cnes_infra.billing.enforcement import ShadowAccessLossEnforcer
+    from cnes_control_plane.billing.enforcement import ShadowAccessLossEnforcer
 
     return select_access_loss_enforcer(
         billing,
@@ -91,7 +94,7 @@ def _enforcer(
 
 
 def _recovery(runtime: _Runtime, parts: _Parts) -> Any:
-    from cnes_infra.billing.projector import ProjectorDependencies
+    from cnes_control_plane.billing.projector import ProjectorDependencies
 
     c = parts.components
     dependencies = ProjectorDependencies(
@@ -101,8 +104,11 @@ def _recovery(runtime: _Runtime, parts: _Parts) -> Any:
 
 
 def _reconciler(runtime: _Runtime, parts: _Parts) -> Any:
-    from cnes_infra.billing.reconciliation import BillingReconciler, ReconciliationDependencies
-    from cnes_infra.billing.reconciliation_cursor import DynamoReconciliationCursor
+    from cnes_control_plane.billing.reconciliation import (
+        BillingReconciler,
+        ReconciliationDependencies,
+    )
+    from cnes_control_plane.billing.reconciliation_cursor import DynamoReconciliationCursor
 
     c, storage = parts.components, runtime.storage
     cursor = DynamoReconciliationCursor(storage.client, storage.table_name, _utc_now)
@@ -115,9 +121,12 @@ def _reconciler(runtime: _Runtime, parts: _Parts) -> Any:
 
 
 def _revocations(runtime: _Runtime, parts: _Parts) -> Any:
-    from cnes_infra.billing.keys import revocation_sweep_cursor_key
-    from cnes_infra.billing.reconciliation_cursor import DynamoReconciliationCursor
-    from cnes_infra.billing.revocation_sweep import RevocationSweep, RevocationSweepDependencies
+    from cnes_control_plane.billing.keys import revocation_sweep_cursor_key
+    from cnes_control_plane.billing.reconciliation_cursor import DynamoReconciliationCursor
+    from cnes_control_plane.billing.revocation_sweep import (
+        RevocationSweep,
+        RevocationSweepDependencies,
+    )
 
     if parts.enforcer is None:
         return None
@@ -133,7 +142,7 @@ def _revocations(runtime: _Runtime, parts: _Parts) -> Any:
 
 
 def _jobs(runtime: _Runtime, parts: _Parts) -> WorkerJobs:
-    from cnes_infra.billing.dynamodb_quota import DynamoQuotaReservations
+    from cnes_control_plane.billing.dynamodb_quota import DynamoQuotaReservations
 
     storage = runtime.storage
     return WorkerJobs(

@@ -7,25 +7,25 @@ from pathlib import Path
 import pytest
 
 from central_api.auth.aws_oidc import MembershipAuthorizer
+from cnes_control_plane.billing.dynamodb_catalog import DynamoBillingCatalog
+from cnes_control_plane.billing.keys import (
+    account_tenant_key,
+    capacity_usage_key,
+    tenant_account_key,
+    tenant_entity_key,
+)
+from cnes_control_plane.persistence.billed_tenant import TENANT_SCOPE
+from cnes_control_plane.persistence.dynamodb_keys import idempotency_key, membership_key
 from cnes_domain.billing.models import (
     BillingEnforcementMode,
     ReadConsistency,
     ReservationStatus,
 )
 from cnes_domain.control_plane.entities import Membership
-from cnes_infra.auth.dynamodb_memberships import DynamoDBMembershipCandidates
-from cnes_infra.auth.oidc import OidcPrincipal
-from cnes_infra.billing.dynamodb_catalog import DynamoBillingCatalog
-from cnes_infra.billing.keys import (
-    account_tenant_key,
-    capacity_usage_key,
-    tenant_account_key,
-    tenant_entity_key,
-)
-from cnes_infra.control_plane.billed_tenant import TENANT_SCOPE
-from cnes_infra.control_plane.dynamodb_keys import idempotency_key, membership_key
-from packages.cnes_infra.tests.billing.billing_factories import NOW, TABLE_NAME
-from packages.cnes_infra.tests.billing.quota_support import ACCOUNT, TENANT
+from cnes_identity.dynamodb_memberships import DynamoDBMembershipCandidates
+from cnes_identity.oidc import OidcPrincipal
+from packages.cnes_control_plane.tests.billing.billing_factories import NOW, TABLE_NAME
+from packages.cnes_control_plane.tests.billing.quota_support import ACCOUNT, TENANT
 from tests.integration.billing._api_gates_stack import (
     ISSUER,
     MANAGER,

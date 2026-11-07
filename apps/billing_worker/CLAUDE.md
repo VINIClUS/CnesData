@@ -4,7 +4,7 @@
 
 CLI de ciclo único (`billing-worker inbox|recover|reconcile|revoke-pending|
 release-expired-reservations`) para execução agendada (EventBridge/ECS task ou
-cron). Compõe os adapters de `cnes_infra.billing` por modo de enforcement. Não
+cron). Compõe os adapters de `cnes_control_plane.billing` por modo de enforcement. Não
 expõe HTTP e não mantém estado próprio.
 
 ## Role

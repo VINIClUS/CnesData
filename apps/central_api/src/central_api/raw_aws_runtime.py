@@ -10,8 +10,8 @@ import boto3
 from central_api.services.delta_policy import DeltaPolicy
 from central_api.services.raw_ingestion import RawIngestionService
 from central_api.services.raw_upload import RawUploadService
-from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
-from cnes_infra.object_store import S3ObjectStore
+from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
+from cnes_data.object_store import S3ObjectStore
 
 _RAW_BUCKET_OWNER = "836651842853"
 

@@ -1,6 +1,6 @@
 """Shared fixtures for scripts/tests/.
 
-Provides `pg_engine` (session-scoped) mirroring packages/cnes_infra/tests/conftest.py
+Provides `pg_engine` (session-scoped) mirroring packages/cnes_data/tests/conftest.py
 so seed script tests can run `gold.*` queries after alembic upgrade head.
 """
 from __future__ import annotations
@@ -27,7 +27,7 @@ def pg_engine():
     except Exception:
         pytest.skip(f"postgres indisponível em {_PG_URL}; rode 'docker compose up -d' primeiro")
     cfg = Config()
-    cfg.set_main_option("script_location", "cnes_infra:alembic")
+    cfg.set_main_option("script_location", "cnes_data:alembic")
     cfg.set_main_option("sqlalchemy.url", _PG_URL)
     command.upgrade(cfg, "head")
     yield engine

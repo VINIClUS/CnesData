@@ -16,8 +16,8 @@ from central_api.local_backup import create_backup, restore_backup
 from cnes_domain.control_plane.entities import AccessRequest, Agent, Membership, OutboxEvent
 from cnes_domain.control_plane.enums import AccessRequestState, AgentState
 from cnes_domain.profiles import local_state_db, parse_profile
-from cnes_infra.audit.local_sink import LocalAuditSink
-from cnes_infra.auth.local_credentials import LocalCredentialStore, build_user
+from cnes_governance.local_sink import LocalAuditSink
+from cnes_identity.local_credentials import LocalCredentialStore, build_user
 
 pytestmark = [pytest.mark.chaos, pytest.mark.local_profile]
 
@@ -114,7 +114,7 @@ def test_backup_restaura_usuarios_memberships_agents_e_access_decisions(tmp_path
     restored_user = restored_credentials.find_user_by_email(email)
     assert restored_user is not None
     assert restored_user.user_id == user_id
-    from cnes_infra.auth.local_credentials import hash_password
+    from cnes_identity.local_credentials import hash_password
     assert hash_password(_PASSWORD, restored_user.salt) == restored_user.password_hash
 
     assert restored_runtime.control_plane.get_membership(_TENANT, user_id) == membership

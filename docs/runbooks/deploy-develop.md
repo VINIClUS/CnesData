@@ -23,7 +23,7 @@ em `develop`, nunca por `pull_request`.
 O ambiente roda ao lado do stack de produção (`main`) na mesma VPS
 (`103.199.184.166`), em `/opt/cnesdata-dev`, com Postgres/MinIO/Keycloak
 próprios. Só o Caddy é compartilhado — ver `docs/architecture.md` e o
-compose em `deploy/dev/docker-compose.dev.yml`.
+compose em `ops/deploy/vps/dev/docker-compose.dev.yml`.
 
 ## Provisionamento único (já feito, referência)
 
@@ -31,11 +31,11 @@ compose em `deploy/dev/docker-compose.dev.yml`.
 # 1. Gerar a chave SSH da CI (uma vez, localmente)
 ssh-keygen -t ed25519 -f ~/.ssh/cnesdata_dev_ci -C cnesdata-dev-ci -N ""
 
-# 2. Copiar deploy/dev/*.sh para a VPS e rodar como root
+# 2. Copiar ops/deploy/vps/dev/*.sh para a VPS e rodar como root
 #    GHCR_USER/GHCR_PAT são opcionais — só necessários se os packages
 #    ghcr.io/viniclus/cnesdata/* forem privados. Preferimos torná-los
 #    públicos após o primeiro push a reter um PAT novo na VPS.
-scp deploy/dev/{bootstrap.sh,deploy.sh,docker-compose.dev.yml} root@103.199.184.166:/root/deploy-dev/
+scp ops/deploy/vps/dev/{bootstrap.sh,deploy.sh,docker-compose.dev.yml} root@103.199.184.166:/root/deploy-dev/
 ssh root@103.199.184.166 '
   CI_PUBLIC_KEY="'"$(cat ~/.ssh/cnesdata_dev_ci.pub)"'" \
     bash /root/deploy-dev/bootstrap.sh
@@ -165,7 +165,7 @@ Antes (ou junto) do merge para `develop`:
 
 ```bash
 # 1. reinstala o compose novo (bootstrap.sh é idempotente, não mexe em .env já existente)
-scp deploy/dev/docker-compose.dev.yml root@103.199.184.166:/opt/cnesdata-dev/docker-compose.dev.yml
+scp ops/deploy/vps/dev/docker-compose.dev.yml root@103.199.184.166:/opt/cnesdata-dev/docker-compose.dev.yml
 
 # 2. S3_BUCKET não existe no .env já provisionado (só heredocs novos de bootstrap.sh
 #    escrevem essa chave) — adicionar à mão:
@@ -258,17 +258,17 @@ precisam estar alinhadas, todas versionadas em `deploy/`:
 
 1. **DNS**: registro A de `api.dev.cnesdata.com.br` apontando para o VPS (Hostinger DNS,
    fora do repo). Caddy emite o certificado automaticamente na primeira requisição.
-2. **Caddy** (`deploy/prod/caddy/Caddyfile`, copiado manualmente para
+2. **Caddy** (`ops/deploy/vps/prod/caddy/Caddyfile`, copiado manualmente para
    `/opt/cnesdata/caddy/Caddyfile`): bloco `api.dev.cnesdata.com.br` → `dev-central-api:8000`,
    só `/api/*`; o resto responde 404. Aplicar com
    `docker compose -f docker-compose.prod.yml up -d caddy` em `/opt/cnesdata`.
-3. **Compose dev** (`deploy/dev/docker-compose.dev.yml`, copiado para `/opt/cnesdata-dev`):
+3. **Compose dev** (`ops/deploy/vps/dev/docker-compose.dev.yml`, copiado para `/opt/cnesdata-dev`):
    `central-api` entra na rede `cnesdata_edge` com alias `dev-central-api` e recebe
    `CORS_ALLOWED_ORIGINS=https://dev.cnesdata.com.br`; `dashboard` recebe
    `API_ORIGIN=https://api.dev.cnesdata.com.br` (CSP `connect-src`) e `PRECOS_NOINDEX`.
 
 O upload do edge agent usa `storage.dev.cnesdata.com.br` (o `minio` do dev entra na
-mesma rede `cnesdata_edge` com alias `dev-minio`, ver `deploy/dev/docker-compose.dev.yml`):
+mesma rede `cnesdata_edge` com alias `dev-minio`, ver `ops/deploy/vps/dev/docker-compose.dev.yml`):
 crie o DNS A para o VPS e configure `S3_PUBLIC_ENDPOINT_URL=https://storage.dev.cnesdata.com.br`
 no `.env` do stack dev. Prod não tem equivalente — o compose de prod não roda `minio`, e URLs
 presigned de S3 real já são públicas por construção.

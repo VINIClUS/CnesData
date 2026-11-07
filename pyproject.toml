@@ -6,7 +6,7 @@ requires-python = ">=3.13"
 dependencies = []
 
 [tool.uv.workspace]
-members = ["packages/*", "apps/central_api", "apps/billing_worker", "apps/data_processor", "apps/cnes_db_migrator", "apps/dump_agent"]
+members = ["packages/*", "apps/central_api", "apps/billing_worker", "apps/data_processor", "apps/cnes_db_migrator"]
 
 [tool.uv]
 override-dependencies = ["protobuf==6.33.6"]
@@ -33,11 +33,11 @@ dev-dependencies = [
 
 [tool.pyright]
 typeCheckingMode = "standard"
-strict = ["packages/*/src", "apps/*/src"]
+strict = ["apps/*/src", "packages/*/*.py", "packages/*/alembic", "packages/*/aws", "packages/*/billing", "packages/*/contracts", "packages/*/control_plane", "packages/*/execution", "packages/*/ingestion", "packages/*/manifests", "packages/*/models", "packages/*/object_store", "packages/*/orchestration", "packages/*/persistence", "packages/*/pipeline", "packages/*/ports", "packages/*/processing", "packages/*/storage", "packages/*/validation"]
 pythonVersion = "3.13"
 venvPath = "."
 venv = ".venv"
-include = ["packages", "apps", "tests", "scripts"]
+include = ["packages", "apps", "tests", "scripts", "ops/backup"]
 exclude = [
     "**/node_modules",
     "**/__pycache__",
@@ -47,9 +47,7 @@ exclude = [
     "apps/web_dashboard",
 ]
 extraPaths = [
-    "packages/cnes_contracts/src",
-    "packages/cnes_domain/src",
-    "packages/cnes_infra/src",
+    "packages",
     "apps/central_api/src",
     "apps/billing_worker/src",
     "apps/data_processor/src",
@@ -83,7 +81,7 @@ extend-exclude = [
     ".venv",
     "fb_64",
     "node_modules",
-    "packages/cnes_infra/src/cnes_infra/alembic/versions",
+    "packages/cnes_data/alembic/versions",
 ]
 
 [tool.ruff.lint]
@@ -153,10 +151,14 @@ ignore = [
 known-first-party = [
     "cnes_contracts",
     "cnes_domain",
-    "cnes_infra",
+    "cnes_data",
+    "cnes_identity",
+    "cnes_governance",
+    "cnes_control_plane",
+    "cnes_observability",
+    "cnes_runtime",
     "central_api",
     "billing_worker",
-    "dump_agent",
     "data_processor",
 ]
 
@@ -171,8 +173,14 @@ line-ending = "auto"
 [tool.coverage.run]
 branch = true
 source = [
-    "packages/cnes_domain/src",
-    "packages/cnes_infra/src",
+    "packages/cnes_contracts",
+    "packages/cnes_domain",
+    "packages/cnes_data",
+    "packages/cnes_identity",
+    "packages/cnes_governance",
+    "packages/cnes_control_plane",
+    "packages/cnes_observability",
+    "packages/cnes_runtime",
 ]
 omit = [
     "**/__pycache__/**",
@@ -180,8 +188,8 @@ omit = [
     "**/alembic/**",
     "*/alembic/*",
     "*/alembic/versions/*",
-    "*/cnes_infra/alembic/*",
-    "*/cnes_infra/alembic/versions/*",
+    "*/cnes_data/alembic/*",
+    "*/cnes_data/alembic/versions/*",
 ]
 
 [tool.coverage.report]

@@ -16,6 +16,16 @@ from apps.data_processor.tests.orchestration.test_coordinator import (
     _full_manifests,
     _processor,
 )
+from cnes_control_plane.billing.dynamodb_quota_items import encode_run_billing_state
+from cnes_control_plane.billing.settings import BillingSettings
+from cnes_control_plane.billing.wiring import (
+    BillingGateResources,
+    build_entitlement_gate,
+    build_execution_callbacks,
+)
+from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
+from cnes_control_plane.persistence.dynamodb_keys import outbox_key
+from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
 from cnes_domain.billing.commands import AuthorizedRunCommand
 from cnes_domain.billing.models import BillingEnforcementMode, RunAuthorization
 from cnes_domain.control_plane.commands import ClaimRunUnit, PutRunUnits, TransitionRun
@@ -30,28 +40,22 @@ from cnes_domain.ports.processing import (
     StartRunExecution,
 )
 from cnes_domain.profiles import BillingMode
-from cnes_infra.billing.dynamodb_quota_items import encode_run_billing_state
-from cnes_infra.billing.settings import BillingSettings
-from cnes_infra.billing.wiring import (
-    BillingGateResources,
-    build_entitlement_gate,
-    build_execution_callbacks,
-)
-from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
-from cnes_infra.control_plane.dynamodb_keys import outbox_key
-from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
 from data_processor.orchestration.coordinator import CoordinatorDependencies, PipelineCoordinator
 from data_processor.orchestration.publisher import DatasetPublisher
 from data_processor.orchestration.unit_worker import UnitWorker, UnitWorkerDependencies
-from packages.cnes_infra.tests.billing.billing_factories import NOW, TABLE_NAME, create_table
-from packages.cnes_infra.tests.billing.quota_support import (
+from packages.cnes_control_plane.tests.billing.billing_factories import (
+    NOW,
+    TABLE_NAME,
+    create_table,
+)
+from packages.cnes_control_plane.tests.billing.quota_support import (
     ACCOUNT,
     TENANT,
     make_quota_snapshot,
     make_run_request,
     seed_snapshot,
 )
-from packages.cnes_infra.tests.contracts.clock import MutableClock
+from packages.cnes_control_plane.tests.contracts.clock import MutableClock
 
 RUN_ID = "run-01"
 COMPETENCIA = "2026-01"

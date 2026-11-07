@@ -43,4 +43,4 @@ class TestMain:
         assert captured.get("sqlalchemy.url") == (
             "postgresql://test:test@localhost/test"
         )
-        assert captured.get("script_location") == "cnes_infra:alembic"
+        assert captured.get("script_location") == "cnes_data:alembic"

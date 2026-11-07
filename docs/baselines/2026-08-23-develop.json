@@ -8,7 +8,7 @@
       "exit_code": 2,
       "duration_seconds": 7.495,
       "waiver": {
-        "failure": "ModuleNotFoundError: No module named 'cnes_infra.storage.repositories.estabelecimento_repo' during collection of tests/perf/{macro,micro,soak,spike,stress}",
+        "failure": "ModuleNotFoundError: No module named 'cnes_data.storage.repositories.estabelecimento_repo' during collection of tests/perf/{macro,micro,soak,spike,stress}",
         "expected_exit_code": 2,
         "approved_by": "VINIClUS",
         "approved_at": "2026-08-26"
@@ -44,7 +44,7 @@
       "exit_code": 2,
       "duration_seconds": 4.09,
       "waiver": {
-        "failure": "ModuleNotFoundError: No module named 'cnes_infra.storage.repositories.estabelecimento_repo' during collection of tests/perf/{macro,micro,soak,spike,stress}",
+        "failure": "ModuleNotFoundError: No module named 'cnes_data.storage.repositories.estabelecimento_repo' during collection of tests/perf/{macro,micro,soak,spike,stress}",
         "expected_exit_code": 2,
         "approved_by": "VINIClUS",
         "approved_at": "2026-08-26"

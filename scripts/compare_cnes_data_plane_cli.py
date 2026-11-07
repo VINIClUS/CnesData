@@ -20,8 +20,8 @@ from uuid import uuid4
 if __package__ in (None, ""):  # `python scripts/compare_cnes_data_plane_cli.py` direto
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from cnes_infra import config
-from cnes_infra.object_store.filesystem import FilesystemObjectStore
+from cnes_data.object_store.filesystem import FilesystemObjectStore
+from cnes_runtime import config
 from scripts.compare_cnes_data_plane import (
     APPROVED_RULES,
     ComparisonDifference,
@@ -44,8 +44,8 @@ LOGGER = logging.getLogger(__name__)
 def _shadow_store(run_id: str) -> ObjectStorePort:
     from botocore.exceptions import ClientError
 
-    from cnes_infra.object_store.s3 import S3ObjectStore
-    from cnes_infra.storage.s3_presigned import build_s3_client
+    from cnes_data.object_store.s3 import S3ObjectStore
+    from cnes_data.storage.s3_presigned import build_s3_client
 
     # Este gate roda sempre contra um MinIO/LocalStack local (nunca AWS real),
     # por isso a região é fixa aqui, não herdada de config.S3_REGION

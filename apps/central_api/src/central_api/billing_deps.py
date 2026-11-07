@@ -22,10 +22,10 @@ if TYPE_CHECKING:
     from central_api.composition import AwsApiServices, RuntimeComponents
     from central_api.services.agent_admission import EdgeAgentRegistry
     from central_api.services.billing_gates import ApiBillingGates
+    from cnes_control_plane.billing import BillingStorage, StripeBillingComponents
+    from cnes_control_plane.billing.composition import SessionProtocol
     from cnes_domain.billing.ports import BillingMetricsPort, SecretProviderPort
     from cnes_domain.billing.revocation import ImmediateRevocationService
-    from cnes_infra.billing import BillingStorage, StripeBillingComponents
-    from cnes_infra.billing.composition import SessionProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -45,8 +45,8 @@ def install_billing(app: FastAPI, runtime: RuntimeComponents, session: Session) 
     Raises: BillingConfigurationError: Stripe sem DynamoDB ou configuração inválida.
     """
     from central_api.routes import billing, stripe_webhook
-    from cnes_infra.billing import BillingSettings, build_secret_provider
-    from cnes_infra.billing.metrics import build_billing_metrics
+    from cnes_control_plane.billing import BillingSettings, build_secret_provider
+    from cnes_control_plane.billing.metrics import build_billing_metrics
 
     settings = BillingSettings.from_mapping(os.environ)
     provider = build_secret_provider(settings.mode, cast("SessionProtocol", session))
@@ -89,7 +89,7 @@ def _install_stripe_billing(
     metrics: BillingMetricsPort,
 ) -> None:
     from central_api.routes import billing, stripe_webhook
-    from cnes_infra.billing import (
+    from cnes_control_plane.billing import (
         BillingConfigurationError,
         StripeRuntimeSettings,
         build_stripe_billing,
@@ -132,11 +132,11 @@ def _install_billing_admin(
 def _revocation_service(
     runtime: RuntimeComponents, components: StripeBillingComponents,
 ) -> ImmediateRevocationService:
+    from cnes_control_plane.billing.dynamodb_revocation import DynamoRevocationStore
     from cnes_domain.billing.revocation import (
         ImmediateRevocationService,
         RevocationDependencies,
     )
-    from cnes_infra.billing.dynamodb_revocation import DynamoRevocationStore
 
     services = cast("AwsApiServices", runtime.services)
     storage = cast("BillingStorage", services.billing_storage)

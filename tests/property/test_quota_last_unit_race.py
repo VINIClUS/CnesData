@@ -12,6 +12,11 @@ import boto3
 import pytest
 from moto import mock_aws
 
+from cnes_control_plane.billing.dynamodb_catalog import DynamoBillingCatalog
+from cnes_control_plane.billing.dynamodb_quota import DynamoQuotaReservations
+from cnes_control_plane.billing.keys import pending_capacity_key
+from cnes_control_plane.billing.settings import BillingSettings
+from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
 from cnes_domain.billing.errors import QuotaExceeded, RetryableBillingError
 from cnes_domain.billing.models import (
     AnalyticsAuthorization,
@@ -21,19 +26,14 @@ from cnes_domain.billing.models import (
     RunAuthorization,
 )
 from cnes_domain.profiles import BillingMode
-from cnes_infra.billing.dynamodb_catalog import DynamoBillingCatalog
-from cnes_infra.billing.dynamodb_quota import DynamoQuotaReservations
-from cnes_infra.billing.keys import pending_capacity_key
-from cnes_infra.billing.settings import BillingSettings
-from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
-from packages.cnes_infra.tests.billing.billing_factories import (
+from packages.cnes_control_plane.tests.billing.billing_factories import (
     NOW,
     TABLE_NAME,
     create_table,
     make_create_command,
     put_tenant,
 )
-from packages.cnes_infra.tests.billing.quota_support import (
+from packages.cnes_control_plane.tests.billing.quota_support import (
     ACCOUNT,
     TENANT,
     make_analytics_command,
@@ -44,7 +44,7 @@ from packages.cnes_infra.tests.billing.quota_support import (
     seed_snapshot,
     table_items,
 )
-from packages.cnes_infra.tests.contracts.clock import MutableClock
+from packages.cnes_control_plane.tests.contracts.clock import MutableClock
 
 pytestmark = pytest.mark.race
 

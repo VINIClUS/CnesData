@@ -11,7 +11,7 @@ _NOW = datetime(2026, 9, 27, 12, tzinfo=UTC)
 
 class TestSetupLogging:
     def test_setup_logging_cria_handlers(self, tmp_path, monkeypatch):
-        from cnes_infra import config as infra_config
+        from cnes_runtime import config as infra_config
         monkeypatch.setattr(infra_config, "LOGS_DIR", tmp_path)
         monkeypatch.setattr(
             infra_config, "LOG_FILE", tmp_path / "test.log",
@@ -28,7 +28,7 @@ class TestSetupLogging:
                     root.removeHandler(h)
 
     def test_setup_logging_verbose_false(self, tmp_path, monkeypatch):
-        from cnes_infra import config as infra_config
+        from cnes_runtime import config as infra_config
         monkeypatch.setattr(infra_config, "LOGS_DIR", tmp_path)
         monkeypatch.setattr(
             infra_config, "LOG_FILE", tmp_path / "test.log",
@@ -51,7 +51,7 @@ class TestMainProfileLocal:
     ):
         from unittest.mock import AsyncMock, patch
 
-        from cnes_infra import config as infra_config
+        from cnes_runtime import config as infra_config
         monkeypatch.setenv("PROFILE", "local")
         monkeypatch.setenv("TENANT_ID", "354130")
         monkeypatch.setenv("DATA_DIR", str(tmp_path))

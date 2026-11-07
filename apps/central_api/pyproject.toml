@@ -4,7 +4,14 @@ version = "0.1.0"
 description = "FastAPI application — HTTP ingestion + job status"
 requires-python = ">=3.13"
 dependencies = [
-    "cnes-infra[national]",
+    "cnes-contracts",
+    "cnes-domain",
+    "cnes-data[national]",
+    "cnes-identity",
+    "cnes-governance",
+    "cnes-control-plane",
+    "cnes-observability",
+    "cnes-runtime",
     "fastapi>=0.115",
     "uvicorn[standard]>=0.34",
     "httpx>=0.28",
@@ -12,8 +19,6 @@ dependencies = [
     "python-multipart>=0.0.12",
 ]
 
-[tool.uv.sources]
-cnes-infra = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]
@@ -21,3 +26,13 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/central_api"]
+
+[tool.uv.sources]
+cnes-contracts = { workspace = true }
+cnes-domain = { workspace = true }
+cnes-data = { workspace = true }
+cnes-identity = { workspace = true }
+cnes-governance = { workspace = true }
+cnes-control-plane = { workspace = true }
+cnes-observability = { workspace = true }
+cnes-runtime = { workspace = true }

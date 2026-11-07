@@ -30,6 +30,7 @@ from central_api.routes.billing_schemas import (
     PortalCreate,
 )
 from central_api.routes.raw_jobs import get_control_plane
+from cnes_control_plane.billing.disabled import LOCAL_UNMETERED_PLAN_VERSION_ID
 from cnes_domain.billing.commands import (
     CheckoutCommand,
     CreateBillingAccountCommand,
@@ -57,8 +58,7 @@ from cnes_domain.billing.ports import (
 )
 from cnes_domain.ports.control_plane import ControlPlanePort
 from cnes_domain.profiles import BillingMode
-from cnes_infra.auth.oidc import OidcPrincipal
-from cnes_infra.billing.disabled import LOCAL_UNMETERED_PLAN_VERSION_ID
+from cnes_identity.oidc import OidcPrincipal
 
 logger = logging.getLogger(__name__)
 

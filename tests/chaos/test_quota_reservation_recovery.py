@@ -10,6 +10,11 @@ from typing import Any
 
 from botocore.exceptions import ClientError
 
+from cnes_control_plane.billing.dynamodb_quota import DynamoQuotaReservations
+from cnes_control_plane.billing.dynamodb_quota_items import decode_reservation
+from cnes_control_plane.billing.keys import usage_key
+from cnes_control_plane.persistence.dynamodb_codec import item_key
+from cnes_control_plane.persistence.dynamodb_keys import run_entity_key
 from cnes_domain.billing.commands import ConsumeReservationCommand
 from cnes_domain.billing.errors import BillingDependencyError
 from cnes_domain.billing.inbox import (
@@ -18,13 +23,8 @@ from cnes_domain.billing.inbox import (
 )
 from cnes_domain.billing.models import ReservationStatus
 from cnes_domain.control_plane.enums import RunState
-from cnes_infra.billing.dynamodb_quota import DynamoQuotaReservations
-from cnes_infra.billing.dynamodb_quota_items import decode_reservation
-from cnes_infra.billing.keys import usage_key
-from cnes_infra.control_plane.dynamodb_codec import item_key
-from cnes_infra.control_plane.dynamodb_keys import run_entity_key
-from packages.cnes_infra.tests.billing.billing_factories import NOW, TABLE_NAME
-from packages.cnes_infra.tests.billing.quota_support import (
+from packages.cnes_control_plane.tests.billing.billing_factories import NOW, TABLE_NAME
+from packages.cnes_control_plane.tests.billing.quota_support import (
     ACCOUNT,
     RESERVATION_TTL,
     TENANT,

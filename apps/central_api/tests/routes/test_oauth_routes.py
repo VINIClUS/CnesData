@@ -2,7 +2,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from cnes_infra.auth import AccessTokenStore, DeviceCodeStore
+from cnes_identity import AccessTokenStore, DeviceCodeStore
 
 
 def _make_app(session_root_ca, monkeypatch, *, fixed_now=None):

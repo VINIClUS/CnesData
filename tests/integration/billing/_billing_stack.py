@@ -24,6 +24,19 @@ from central_api.routes.stripe_webhook import (
     get_webhook_inbox,
     router,
 )
+from cnes_control_plane.billing.dynamodb_catalog import DynamoBillingCatalog
+from cnes_control_plane.billing.dynamodb_items import (
+    encode_account,
+    encode_customer_map,
+    encode_plan,
+    encode_price_map,
+)
+from cnes_control_plane.billing.dynamodb_projection import DynamoEntitlementProjection
+from cnes_control_plane.billing.projector import ProjectorDependencies, StripeEventProjector
+from cnes_control_plane.billing.recovery import RecoveryDependencies, WebhookRecovery
+from cnes_control_plane.billing.recovery_cursor import DynamoRecoveryCursor
+from cnes_control_plane.billing.webhook_inbox import WebhookInbox
+from cnes_control_plane.billing.webhook_verifier import StripeWebhookVerifier
 from cnes_domain.billing.commands import (
     CreateRunRequest,
     ReserveRunCommand,
@@ -51,26 +64,13 @@ from cnes_domain.billing.models import (
     SubscriptionStatus,
 )
 from cnes_domain.control_plane.entities import RunDependency
-from cnes_infra.billing.dynamodb_catalog import DynamoBillingCatalog
-from cnes_infra.billing.dynamodb_items import (
-    encode_account,
-    encode_customer_map,
-    encode_plan,
-    encode_price_map,
-)
-from cnes_infra.billing.dynamodb_projection import DynamoEntitlementProjection
-from cnes_infra.billing.projector import ProjectorDependencies, StripeEventProjector
-from cnes_infra.billing.recovery import RecoveryDependencies, WebhookRecovery
-from cnes_infra.billing.recovery_cursor import DynamoRecoveryCursor
-from cnes_infra.billing.webhook_inbox import WebhookInbox
-from cnes_infra.billing.webhook_verifier import StripeWebhookVerifier
-from packages.cnes_infra.tests.billing.test_webhook_verifier import (
+from packages.cnes_control_plane.tests.billing.test_webhook_verifier import (
     SIGNING_KEY,
     SignatureVerificationError,
     StripeError,
     construct_event,
 )
-from packages.cnes_infra.tests.contracts.clock import MutableClock
+from packages.cnes_control_plane.tests.contracts.clock import MutableClock
 
 if TYPE_CHECKING:
     from cnes_domain.billing.ports import QuotaReservationPort, StripeGatewayPort

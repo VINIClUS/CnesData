@@ -14,9 +14,9 @@ from fastapi.testclient import TestClient
 
 from central_api.agent_auth import AgentCertIdentity, agent_identity_if_required
 from central_api.deps import get_engine, legacy_ingestion_retired
-from cnes_infra import config
-from cnes_infra.storage import extractions_repo
-from cnes_infra.storage.s3_presigned import S3PresignedStorage
+from cnes_data.storage import extractions_repo
+from cnes_data.storage.s3_presigned import S3PresignedStorage
+from cnes_runtime import config
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

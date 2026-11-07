@@ -20,16 +20,16 @@ import polars as pl
 from central_api.services.run_planning import RunPlanningDependencies, RunPlanningService
 from cnes_contracts.manifests.raw import RawManifest
 from cnes_contracts.manifests.validation import COMPETENCIA_PATTERN, manifest_sha256
+from cnes_control_plane.billing import (
+    LOCAL_BILLING_SETTINGS,
+    BillingGateResources,
+    build_execution_callbacks,
+)
 from cnes_domain.control_plane.entities import RawManifestRecord, Run
 from cnes_domain.control_plane.enums import RunStage, RunState
 from cnes_domain.orchestration.source_catalog import build_source_catalog
 from cnes_domain.ports.processing import ExecutionPolicyConfig, ExecutionStatus
 from cnes_domain.profiles import ProfileSettings
-from cnes_infra.billing import (
-    LOCAL_BILLING_SETTINGS,
-    BillingGateResources,
-    build_execution_callbacks,
-)
 from data_processor.composition import build_local_processor_runtime
 from data_processor.migration.equivalence import (
     ContractInvalid,
@@ -66,7 +66,7 @@ from data_processor.migration.report import (
 from data_processor.orchestration.coordinator import noop_execution_started
 
 if TYPE_CHECKING:
-    from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
+    from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
 
 logger = logging.getLogger(__name__)
 

@@ -10,14 +10,14 @@ from cnes_domain.billing.inbox import ReconciliationRequest
 from cnes_domain.billing.models import ReservationStatus, SubscriptionStatus
 from cnes_domain.billing.revocation import RevocationPhase
 from cnes_domain.control_plane.enums import RunState, RunUnitState
-from packages.cnes_infra.tests.billing.quota_support import ACCOUNT
-from packages.cnes_infra.tests.billing.revocation_support import (
+from packages.cnes_control_plane.tests.billing.quota_support import ACCOUNT
+from packages.cnes_control_plane.tests.billing.revocation_support import (
     RevEnv,
     open_env,
     stored_reservation,
     stored_run,
 )
-from packages.cnes_infra.tests.billing.test_dynamodb_revocation_service import (
+from packages.cnes_control_plane.tests.billing.test_dynamodb_revocation_service import (
     companion,
     snapshot_of,
     units_of,

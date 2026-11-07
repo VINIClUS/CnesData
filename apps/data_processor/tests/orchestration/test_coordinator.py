@@ -12,6 +12,7 @@ import pytest
 
 from cnes_contracts.manifests.outputs import OutputManifest
 from cnes_contracts.manifests.raw import SourceType
+from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
 from cnes_domain.control_plane.commands import (
     ClaimRunUnit,
     FinishRunDispatch,
@@ -44,7 +45,6 @@ from cnes_domain.ports.processing import (
     ExecutionStatus,
     StartRunExecution,
 )
-from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
 from data_processor.orchestration.coordinator import (
     CoordinatorDependencies,
     CoordinatorResult,

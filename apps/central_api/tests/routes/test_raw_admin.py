@@ -4,8 +4,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from central_api.routes import raw_admin
-from cnes_infra import config
-from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
+from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
+from cnes_runtime import config
 
 
 def test_enqueue_admin_exige_token_e_chave_e_reproduz(tmp_path, monkeypatch) -> None:

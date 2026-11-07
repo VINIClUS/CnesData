@@ -177,7 +177,7 @@ that fails against the pre-fix code:
 | H5 | State root moved from `%LOCALAPPDATA%\CnesAgent` (per-user) to `%ProgramData%\CnesAgent` (machine-wide) — interactive admin sessions and the LocalSystem service now resolve to the same path by construction | `internal/platform/paths.go` |
 | H6 | Runbook rewritten to use the `CNES_`/`SIHD_`/`BPA_`-prefixed env var names `resolveFB` actually reads; a Go test parses the runbook's `config.env` block and fails if it drifts from that prefix again | `docs/runbooks/dumpagent-install-windows.md`, `cmd/dumpagent/runbook_env_vars_test.go` (new) |
 | H8 | `Release()` now unlinks the POSIX lock file after unlocking (Windows uses a named mutex, no file involved — this defect was POSIX-only) | `internal/platform/lock_unix.go` |
-| H9 | Added `MINIO_PUBLIC_ENDPOINT` (defaults to `MINIO_ENDPOINT`), used only for the presigned-URL client so an edge agent on a different network than central_api's internal MinIO alias can still complete uploads | `packages/cnes_infra/src/cnes_infra/config.py`, `apps/central_api/src/central_api/deps.py` |
+| H9 | Added `MINIO_PUBLIC_ENDPOINT` (defaults to `MINIO_ENDPOINT`), used only for the presigned-URL client so an edge agent on a different network than central_api's internal MinIO alias can still complete uploads | `packages/cnes_runtime/config.py`, `apps/central_api/src/central_api/deps.py` |
 | H10 | Agent's default `INTENT`/`TIPO_EXTRACAO` corrected to `cnes_estabelecimentos`, matching central_api's `_FATO_SUBTYPE_FOR` map (the previous unprefixed default 422'd on every fresh install) | `cmd/dumpagent/cmd_run.go` |
 | H11 | All plain-string 422 `detail`s in agent-facing routes replaced with a `validation_error()` helper matching FastAPI's own `HTTPValidationError` schema (list of `{loc,msg,type}`) — the Go client only has a typed decode path for 422, and a bare string crashed it with an opaque secondary error, hiding the real message | `apps/central_api/src/central_api/validation_errors.py` (new), `routes/jobs.py`, `routes/extractions.py`, `routes/raw_jobs.py` |
 
@@ -207,7 +207,7 @@ a body the server always 422'd) — both fixed in that pass; see the PR for
 commits.
 
 Not fixed in this branch (documented, out of scope):
-- `packages/cnes_infra/src/cnes_infra/storage/s3_presigned.py`'s
+- `packages/cnes_data/storage/s3_presigned.py`'s
   `S3PresignedStorage` (successor to `object_storage.py`'s `MinioObjectStorage`,
   deleted in `ba49a34`) had the same internal-vs-public endpoint conflation as
   H9 on the `data_processor` side specifically — fixed 2026-09-22 (B4,

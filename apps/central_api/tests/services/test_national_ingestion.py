@@ -10,16 +10,16 @@ from central_api.services.national_ingestion import (
 )
 from central_api.services.raw_ingestion import RawAcceptance
 from cnes_contracts import RawManifest, SnapshotMode, SourceType, manifest_sha256
+from cnes_data.ingestion import DatasusCnesRequest
 from cnes_domain.control_plane.entities import Agent, Job, RawManifestRecord
 from cnes_domain.control_plane.enums import AgentState, JobState
 from cnes_domain.control_plane.errors import Conflict
 from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
-from cnes_infra.ingestion import DatasusCnesRequest
 
 if TYPE_CHECKING:
     from central_api.services.national_ingestion import _ControlPlane
     from central_api.services.raw_ingestion import RawIngestionService
-    from cnes_infra.ingestion.datasus_cnes_raw import DatasusCnesRawAdapter
+    from cnes_data.ingestion.datasus_cnes_raw import DatasusCnesRawAdapter
 
 NOW = datetime(2026, 1, 20, 9, tzinfo=UTC)
 TENANT = "354130"

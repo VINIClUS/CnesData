@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 import httpx
 import polars as pl
 
-from cnes_domain.observability import tracer
+from cnes_observability.tracer import tracer
 from data_processor.cdc_merger import (
     ApplyIU,
     has_op_column,

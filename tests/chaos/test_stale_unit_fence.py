@@ -66,6 +66,7 @@ def test_worker_atrasado_nao_sobrescreve_output_apos_supersede(tmp_path):
     try:
         from cnes_contracts.manifests.outputs import OutputManifest
         from cnes_contracts.manifests.raw import SourceType
+        from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
         from cnes_domain.control_plane.commands import (
             ClaimRunUnit,
             PutRunUnits,
@@ -74,7 +75,6 @@ def test_worker_atrasado_nao_sobrescreve_output_apos_supersede(tmp_path):
         from cnes_domain.control_plane.entities import ManifestRef, Run, RunDependency, RunUnit
         from cnes_domain.control_plane.enums import RunStage, RunState, RunUnitState
         from cnes_domain.control_plane.errors import FenceRejected, LeaseLost
-        from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
         from data_processor.orchestration.unit_worker import UnitWorker, UnitWorkerDependencies
     except ImportError:
         pytest.skip("control plane / orchestration modules not available")

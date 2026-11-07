@@ -12,12 +12,12 @@ from typing import TYPE_CHECKING, cast
 import pytest
 
 from cnes_contracts.manifests.outputs import OutputManifest
+from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
+from cnes_data.object_store.filesystem import FilesystemObjectStore
 from cnes_domain.control_plane.entities import ManifestRef, OutboxEvent, Run, RunDependency, RunUnit
 from cnes_domain.control_plane.enums import RunStage, RunState, RunUnitState
 from cnes_domain.outbox_dispatcher import DispatchResult, dispatch_once
-from cnes_infra.audit.local_sink import LocalAuditSink
-from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
-from cnes_infra.object_store.filesystem import FilesystemObjectStore
+from cnes_governance.local_sink import LocalAuditSink
 from data_processor.orchestration.attempt_store import attempt_object_key, unit_attempt_prefix
 from data_processor.orchestration.publisher import DatasetPublisher, PublishRequest
 

@@ -24,7 +24,7 @@ automaticamente após um merge.
 O stack roda em `/opt/cnesdata`, na mesma VPS do staging
 (`103.199.184.166`), com Postgres/MinIO/Keycloak próprios. Só o Caddy é
 compartilhado — o mesmo container que serve produção também serve
-`dev.cnesdata.com.br` (ver `deploy/prod/caddy/Caddyfile` e
+`dev.cnesdata.com.br` (ver `ops/deploy/vps/prod/caddy/Caddyfile` e
 `docs/runbooks/deploy-develop.md`).
 
 ## Migração do modelo antigo (contexto histórico)
@@ -32,9 +32,9 @@ compartilhado — o mesmo container que serve produção também serve
 Até 2026-09-18, produção era implantada manualmente: código copiado
 (git-archive, não clone) para `/opt/cnesdata/src` e imagens buildadas
 localmente na VPS (`docker compose build`), sem tag versionada e sem
-GHCR. `deploy/prod/` traz produção para o mesmo modelo de `deploy/dev/` —
-pull de imagem por tag, com rollback automático. `deploy/prod/docker-compose.prod.yml`
-e `deploy/prod/caddy/Caddyfile` neste repo são a captura do que já rodava
+GHCR. `ops/deploy/vps/prod/` traz produção para o mesmo modelo de `ops/deploy/vps/dev/` —
+pull de imagem por tag, com rollback automático. `ops/deploy/vps/prod/docker-compose.prod.yml`
+e `ops/deploy/vps/prod/caddy/Caddyfile` neste repo são a captura do que já rodava
 na VPS em 2026-09-18, com `build:` trocado por `image: ...:${IMAGE_TAG}`.
 
 ## Provisionamento único (referência)
@@ -43,10 +43,10 @@ na VPS em 2026-09-18, com `build:` trocado por `image: ...:${IMAGE_TAG}`.
 # 1. Gerar a chave SSH da CI (uma vez, localmente)
 ssh-keygen -t ed25519 -f ~/.ssh/cnesdata_prod_ci -C cnesdata-prod-ci -N ""
 
-# 2. Copiar deploy/prod/{bootstrap.sh,deploy.sh} para a VPS e rodar como root.
+# 2. Copiar ops/deploy/vps/prod/{bootstrap.sh,deploy.sh} para a VPS e rodar como root.
 #    Diferente do bootstrap de dev, este NÃO cria .env, CA nem stack
 #    dir — /opt/cnesdata já existe e está servindo tráfego real.
-scp deploy/prod/{bootstrap.sh,deploy.sh} root@103.199.184.166:/root/deploy-prod/
+scp ops/deploy/vps/prod/{bootstrap.sh,deploy.sh} root@103.199.184.166:/root/deploy-prod/
 ssh root@103.199.184.166 '
   CI_PUBLIC_KEY="'"$(cat ~/.ssh/cnesdata_prod_ci.pub)"'" \
     bash /root/deploy-prod/bootstrap.sh
@@ -54,8 +54,8 @@ ssh root@103.199.184.166 '
 
 # 3. Trocar docker-compose.prod.yml (build local → pull GHCR) — passo
 #    supervisionado, não automatizado. Ver "Migração" acima.
-scp deploy/prod/docker-compose.prod.yml root@103.199.184.166:/opt/cnesdata/
-# NÃO faça `scp deploy/prod/caddy/Caddyfile` — o arquivo vivo em
+scp ops/deploy/vps/prod/docker-compose.prod.yml root@103.199.184.166:/opt/cnesdata/
+# NÃO faça `scp ops/deploy/vps/prod/caddy/Caddyfile` — o arquivo vivo em
 # /opt/cnesdata/caddy/Caddyfile carrega vhosts de um site de produção não
 # relacionado que compartilha o mesmo container Caddy; um scp sobrescreve e
 # derruba esse outro site. Editar in-place + diff + `caddy validate` +
@@ -144,7 +144,7 @@ usada, para uma migração equivalente futura:
 2. Adicionar em `/opt/cnesdata/.env` (chaves que não existiam antes, `docker-compose.prod.yml`
    passa a lê-las diretamente, sem indireção via `MINIO_ROOT_USER`/`PASSWORD` como em dev):
    `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `S3_REGION` (`sa-east-1`), `S3_BUCKET`. Ver
-   `deploy/prod/.env.example`. **Não** setar `S3_ENDPOINT_URL` em prod — vazio = S3 real.
+   `ops/deploy/vps/prod/.env.example`. **Não** setar `S3_ENDPOINT_URL` em prod — vazio = S3 real.
 3. `scp docker-compose.prod.yml` (passo já supervisionado — ver "Provisionamento único"
    acima) antes de disparar o workflow; ele não se autoatualiza no VPS.
 
@@ -152,7 +152,7 @@ usada, para uma migração equivalente futura:
 `S3_ENDPOINT_URL` vazio e `S3_ADDRESSING_STYLE` no default (`auto`), o boto3 assinava
 presigns contra o endpoint global (`s3.amazonaws.com`) em vez do regional — S3 devolvia
 `307 TemporaryRedirect` em todo PUT para um bucket fora de `us-east-1`. Corrigido em
-`packages/cnes_infra/src/cnes_infra/storage/s3_presigned.py` (`build_s3_client` força
+`packages/cnes_data/storage/s3_presigned.py` (`build_s3_client` força
 `addressing_style="virtual"` quando não há `endpoint_url`); ver o commit que introduziu
 esta seção do runbook.
 
@@ -203,9 +203,9 @@ credencial administrativa separada (ex.: a sua própria, via `aws s3api delete-o
 
 ## Migração de domínio (vinisantana.com → cnesdata.com.br, concluída em 2026-09-22)
 
-Trocou hostnames hardcoded em `deploy/prod/caddy/Caddyfile`,
+Trocou hostnames hardcoded em `ops/deploy/vps/prod/caddy/Caddyfile`,
 `.github/workflows/deploy-main.yml` (build-args OIDC, URL de smoke) e
-`deploy/prod/.env.example` de `vinisantana.com` para `cnesdata.com.br`. **Nenhum desses
+`ops/deploy/vps/prod/.env.example` de `vinisantana.com` para `cnesdata.com.br`. **Nenhum desses
 arquivos se autoaplica na VPS** — `deploy.sh` só troca `IMAGE_TAG`, nunca copia Caddyfile,
 compose ou `.env`. Sem os passos abaixo, a imagem nova builda com
 `VITE_OIDC_AUTHORITY=https://cnesdata.com.br/idp/realms/cnesdata` mas roda atrás do Caddy
@@ -213,7 +213,7 @@ antigo (ainda só serve `cnesdata.vinisantana.com`) e do Keycloak com client OID
 autoriza o redirect URI antigo — login quebra com invalid redirect URI mesmo com toda a
 infra HTTP funcionando. Sequência usada, para uma migração de domínio equivalente futura:
 
-1. **Nunca `scp deploy/prod/caddy/Caddyfile` para a VPS.** O arquivo vivo em
+1. **Nunca `scp ops/deploy/vps/prod/caddy/Caddyfile` para a VPS.** O arquivo vivo em
    `/opt/cnesdata/caddy/Caddyfile` tem, depois do bloco `storage.dev.cnesdata.com.br`, três
    vhosts de um site de produção não relacionado (`limnopulse.com` e afins) que compartilha
    o mesmo container Caddy — um `scp` sobrescreve e derruba esse outro site. Editar
@@ -315,7 +315,7 @@ autoaplica, siga o procedimento de edição in-place de "Migração de domínio"
 1. Pré-checar que as duas CAs existem como **arquivo** (senão o Docker monta diretório
    vazio e o Caddy não sobe): `test -f /opt/cnesdata/secrets/ca.crt && test -f
    /opt/cnesdata-dev/secrets/ca.crt`.
-2. `scp deploy/prod/docker-compose.prod.yml` (novos mounts `/etc/caddy/ca/*.crt`).
+2. `scp ops/deploy/vps/prod/docker-compose.prod.yml` (novos mounts `/etc/caddy/ca/*.crt`).
 3. Editar `/opt/cnesdata/caddy/Caddyfile` in-place: snippets `(agent_mtls)` e
    `(agent_upstream)` + os dois vhosts `api.*` do repo; `diff` contra o repo (só o
    apêndice de outro site pode divergir).
@@ -346,7 +346,7 @@ Mesma estrutura do dev (ver `deploy-develop.md`, seção "Host da API"): DNS A p
 bloco `api.cnesdata.com.br` no Caddyfile apontando para `central-api:8000` (só `/api/*`),
 `CORS_ALLOWED_ORIGINS=https://${PUBLIC_DOMAIN}` no `central-api` e `API_ORIGIN=https://${API_DOMAIN}`
 no `web-dashboard` (definir `API_DOMAIN` e `PRECOS_NOINDEX` em `/opt/cnesdata/.env`, ver
-`deploy/prod/.env.example`). A imagem do dashboard de `main` é compilada com
+`ops/deploy/vps/prod/.env.example`). A imagem do dashboard de `main` é compilada com
 `VITE_API_BASE_URL=https://api.cnesdata.com.br/api/v1`. Antes do primeiro deploy de `main` com
 essa mudança, `scp` o compose atualizado e aplicar o Caddyfile atualizado (edição in-place
 na VPS, nunca `scp` — ver "Migração de domínio" acima) e conferir

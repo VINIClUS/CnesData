@@ -57,7 +57,7 @@ def test_popula_request_state_user_quando_token_valido() -> None:
 
 
 def test_responde_401_quando_token_invalido_em_modo_required() -> None:
-    from cnes_infra.auth import TokenInvalid
+    from cnes_identity import TokenInvalid
     validator = MagicMock()
     validator.verify.side_effect = TokenInvalid("expired")
     app = _build_app(validator, MagicMock(), auth_required="required")
@@ -68,7 +68,7 @@ def test_responde_401_quando_token_invalido_em_modo_required() -> None:
 
 
 def test_passa_anonimo_quando_token_invalido_em_modo_optional() -> None:
-    from cnes_infra.auth import TokenInvalid
+    from cnes_identity import TokenInvalid
     validator = MagicMock()
     validator.verify.side_effect = TokenInvalid("expired")
     app = _build_app(validator, MagicMock(), auth_required="optional")
@@ -120,7 +120,7 @@ def test_pula_validacao_jwks_para_paths_oauth_e_provision() -> None:
 
     Agente usa Bearer opaco (não JWT); rota parseia header própria.
     """
-    from cnes_infra.auth import TokenInvalid
+    from cnes_identity import TokenInvalid
     validator = MagicMock()
     validator.verify.side_effect = TokenInvalid("not_jwt")
     app = _build_app(validator, MagicMock(), auth_required="required")

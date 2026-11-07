@@ -11,11 +11,11 @@ from typing import TYPE_CHECKING, Protocol
 
 from central_api.services.billing_gates import BillingAccountMissing
 from central_api.services.serving_access import ServingUnavailable
+from cnes_control_plane.billing.dynamodb_items import deterministic_id
 from cnes_domain.billing.commands import GateRequest
 from cnes_domain.billing.errors import BillingError, EntitlementDenied
 from cnes_domain.billing.models import AccessLevel, BillingAuditEvent, EntitlementAction
 from cnes_domain.billing.shadow import ShadowObservation
-from cnes_infra.billing.dynamodb_items import deterministic_id
 
 if TYPE_CHECKING:
     from collections.abc import Callable

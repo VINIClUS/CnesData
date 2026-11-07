@@ -8,6 +8,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from cnes_control_plane.execution.step_functions import ProcessorExecutionUnavailable
 from cnes_domain.control_plane.entities import Run, RunDependency, RunDispatch
 from cnes_domain.control_plane.enums import DispatchState, RunState
 from cnes_domain.ports.control_plane import ControlPlanePort
@@ -16,8 +17,7 @@ from cnes_domain.ports.processing import (
     ExecutionPolicyConfig,
     ProcessorExecutorPort,
 )
-from cnes_infra.executor.step_functions import ProcessorExecutionUnavailable
-from cnes_infra.observability import JsonLogFormatter
+from cnes_observability import JsonLogFormatter
 from data_processor.orchestration.coordinator import (
     CoordinatorDependencies,
     CoordinatorResult,

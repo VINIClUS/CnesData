@@ -10,10 +10,14 @@ import pytest
 from botocore.exceptions import ClientError
 from moto import mock_aws
 
+from cnes_control_plane.billing.dynamodb_catalog import DynamoBillingCatalog
 from cnes_domain.billing.commands import PendingCheckout, ReservePendingCheckoutCommand
 from cnes_domain.billing.errors import PermanentBillingError
-from cnes_infra.billing.dynamodb_catalog import DynamoBillingCatalog
-from packages.cnes_infra.tests.billing.billing_factories import NOW, TABLE_NAME, create_table
+from packages.cnes_control_plane.tests.billing.billing_factories import (
+    NOW,
+    TABLE_NAME,
+    create_table,
+)
 
 pytestmark = pytest.mark.race
 

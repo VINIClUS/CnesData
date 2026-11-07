@@ -15,9 +15,14 @@ members = [
     "billing-worker",
     "central-api",
     "cnes-contracts",
+    "cnes-control-plane",
+    "cnes-data",
     "cnes-db-migrator",
     "cnes-domain",
-    "cnes-infra",
+    "cnes-governance",
+    "cnes-identity",
+    "cnes-observability",
+    "cnes-runtime",
     "cnesdata-workspace",
     "data-processor",
 ]
@@ -190,11 +195,17 @@ name = "billing-worker"
 version = "0.1.0"
 source = { editable = "apps/billing_worker" }
 dependencies = [
-    { name = "cnes-infra" },
+    { name = "cnes-control-plane" },
+    { name = "cnes-domain" },
+    { name = "cnes-observability" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "cnes-infra", editable = "packages/cnes_infra" }]
+requires-dist = [
+    { name = "cnes-control-plane", editable = "packages/cnes_control_plane" },
+    { name = "cnes-domain", editable = "packages/cnes_domain" },
+    { name = "cnes-observability", editable = "packages/cnes_observability" },
+]
 
 [[package]]
 name = "boto3"
@@ -238,7 +249,14 @@ name = "central-api"
 version = "0.1.0"
 source = { editable = "apps/central_api" }
 dependencies = [
-    { name = "cnes-infra", extra = ["national"] },
+    { name = "cnes-contracts" },
+    { name = "cnes-control-plane" },
+    { name = "cnes-data", extra = ["national"] },
+    { name = "cnes-domain" },
+    { name = "cnes-governance" },
+    { name = "cnes-identity" },
+    { name = "cnes-observability" },
+    { name = "cnes-runtime" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "python-multipart" },
@@ -248,7 +266,14 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "cnes-infra", extras = ["national"], editable = "packages/cnes_infra" },
+    { name = "cnes-contracts", editable = "packages/cnes_contracts" },
+    { name = "cnes-control-plane", editable = "packages/cnes_control_plane" },
+    { name = "cnes-data", extras = ["national"], editable = "packages/cnes_data" },
+    { name = "cnes-domain", editable = "packages/cnes_domain" },
+    { name = "cnes-governance", editable = "packages/cnes_governance" },
+    { name = "cnes-identity", editable = "packages/cnes_identity" },
+    { name = "cnes-observability", editable = "packages/cnes_observability" },
+    { name = "cnes-runtime", editable = "packages/cnes_runtime" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.28" },
     { name = "python-multipart", specifier = ">=0.0.12" },
@@ -400,55 +425,47 @@ dependencies = [
 requires-dist = [{ name = "pydantic", specifier = ">=2.6" }]
 
 [[package]]
-name = "cnes-db-migrator"
+name = "cnes-control-plane"
 version = "0.1.0"
-source = { editable = "apps/cnes_db_migrator" }
+source = { editable = "packages/cnes_control_plane" }
 dependencies = [
-    { name = "cnes-infra" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "cnes-infra", editable = "packages/cnes_infra" }]
-
-[[package]]
-name = "cnes-domain"
-version = "0.1.0"
-source = { editable = "packages/cnes_domain" }
-dependencies = [
-    { name = "holidays" },
-    { name = "opentelemetry-api" },
-    { name = "pandera" },
-    { name = "polars" },
+    { name = "boto3" },
+    { name = "cnes-contracts" },
+    { name = "cnes-data" },
+    { name = "cnes-domain" },
+    { name = "cnes-observability" },
     { name = "pydantic" },
+    { name = "stripe" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "holidays", specifier = ">=0.46" },
-    { name = "opentelemetry-api", specifier = ">=1.25" },
-    { name = "pandera", specifier = ">=0.30" },
-    { name = "polars", specifier = ">=1.20" },
+    { name = "boto3", specifier = ">=1.43" },
+    { name = "cnes-contracts", editable = "packages/cnes_contracts" },
+    { name = "cnes-data", editable = "packages/cnes_data" },
+    { name = "cnes-domain", editable = "packages/cnes_domain" },
+    { name = "cnes-observability", editable = "packages/cnes_observability" },
     { name = "pydantic", specifier = ">=2.10" },
+    { name = "stripe", specifier = ">=15.6,<16" },
 ]
 
 [[package]]
-name = "cnes-infra"
+name = "cnes-data"
 version = "0.1.0"
-source = { editable = "packages/cnes_infra" }
+source = { editable = "packages/cnes_data" }
 dependencies = [
     { name = "alembic" },
     { name = "asyncpg" },
     { name = "boto3" },
     { name = "cnes-contracts" },
     { name = "cnes-domain" },
+    { name = "cnes-observability" },
     { name = "httpx" },
     { name = "polars" },
     { name = "psycopg", extra = ["binary"] },
     { name = "psycopg2-binary" },
     { name = "python-dotenv" },
-    { name = "python-jose", extra = ["cryptography"] },
     { name = "sqlalchemy" },
-    { name = "stripe" },
 ]
 
 [package.optional-dependencies]
@@ -473,12 +490,6 @@ national = [
     { name = "datasus-dbc" },
     { name = "dbfread" },
 ]
-otel = [
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-exporter-otlp-proto-grpc" },
-    { name = "opentelemetry-instrumentation-sqlalchemy" },
-    { name = "opentelemetry-sdk" },
-]
 
 [package.metadata]
 requires-dist = [
@@ -488,6 +499,7 @@ requires-dist = [
     { name = "boto3", specifier = ">=1.43" },
     { name = "cnes-contracts", editable = "packages/cnes_contracts" },
     { name = "cnes-domain", editable = "packages/cnes_domain" },
+    { name = "cnes-observability", editable = "packages/cnes_observability" },
     { name = "datasus-dbc", marker = "extra == 'national'", specifier = ">=0.1.3,<0.2" },
     { name = "dbfread", marker = "extra == 'national'", specifier = ">=2.0.7,<3" },
     { name = "fdb", marker = "extra == 'etl'", specifier = ">=2.0" },
@@ -500,10 +512,6 @@ requires-dist = [
     { name = "google-cloud-storage", marker = "extra == 'etl'", specifier = ">=3.10" },
     { name = "httpx", specifier = ">=0.28" },
     { name = "openpyxl", marker = "extra == 'etl'", specifier = ">=3.1" },
-    { name = "opentelemetry-api", marker = "extra == 'otel'", specifier = ">=1.25" },
-    { name = "opentelemetry-exporter-otlp-proto-grpc", marker = "extra == 'otel'", specifier = ">=1.25" },
-    { name = "opentelemetry-instrumentation-sqlalchemy", marker = "extra == 'otel'", specifier = ">=0.46b0" },
-    { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.25" },
     { name = "pandas", marker = "extra == 'etl'", specifier = ">=2.3" },
     { name = "pandas-gbq", marker = "extra == 'etl'", specifier = ">=0.34" },
     { name = "polars", specifier = ">=1.20" },
@@ -511,13 +519,136 @@ requires-dist = [
     { name = "psycopg2-binary", specifier = ">=2.9" },
     { name = "pyarrow", marker = "extra == 'etl'", specifier = ">=23.0" },
     { name = "python-dotenv", specifier = ">=1.2" },
-    { name = "python-jose", extras = ["cryptography"], specifier = ">=3.3" },
     { name = "requests", marker = "extra == 'etl'", specifier = ">=2.32" },
     { name = "sqlalchemy", specifier = ">=2.0" },
     { name = "sqlalchemy-firebird", marker = "extra == 'etl'", specifier = ">=2.1" },
-    { name = "stripe", specifier = ">=15.6,<16" },
 ]
-provides-extras = ["national", "etl", "otel"]
+provides-extras = ["national", "etl"]
+
+[[package]]
+name = "cnes-db-migrator"
+version = "0.1.0"
+source = { editable = "apps/cnes_db_migrator" }
+dependencies = [
+    { name = "cnes-data" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "cnes-data", editable = "packages/cnes_data" }]
+
+[[package]]
+name = "cnes-domain"
+version = "0.1.0"
+source = { editable = "packages/cnes_domain" }
+dependencies = [
+    { name = "cnes-contracts" },
+    { name = "holidays" },
+    { name = "pandera" },
+    { name = "polars" },
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "cnes-contracts", editable = "packages/cnes_contracts" },
+    { name = "holidays", specifier = ">=0.46" },
+    { name = "pandera", specifier = ">=0.30" },
+    { name = "polars", specifier = ">=1.20" },
+    { name = "pydantic", specifier = ">=2.10" },
+]
+
+[[package]]
+name = "cnes-governance"
+version = "0.1.0"
+source = { editable = "packages/cnes_governance" }
+dependencies = [
+    { name = "boto3" },
+    { name = "cnes-data" },
+    { name = "cnes-domain" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "boto3", specifier = ">=1.43" },
+    { name = "cnes-data", editable = "packages/cnes_data" },
+    { name = "cnes-domain", editable = "packages/cnes_domain" },
+]
+
+[[package]]
+name = "cnes-identity"
+version = "0.1.0"
+source = { editable = "packages/cnes_identity" }
+dependencies = [
+    { name = "boto3" },
+    { name = "cnes-contracts" },
+    { name = "cnes-data" },
+    { name = "cnes-domain" },
+    { name = "cryptography" },
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "python-jose", extra = ["cryptography"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "boto3", specifier = ">=1.43" },
+    { name = "cnes-contracts", editable = "packages/cnes_contracts" },
+    { name = "cnes-data", editable = "packages/cnes_data" },
+    { name = "cnes-domain", editable = "packages/cnes_domain" },
+    { name = "cryptography", specifier = ">=43" },
+    { name = "httpx", specifier = ">=0.28" },
+    { name = "pydantic", specifier = ">=2.10" },
+    { name = "python-jose", extras = ["cryptography"], specifier = ">=3.3" },
+]
+
+[[package]]
+name = "cnes-observability"
+version = "0.1.0"
+source = { editable = "packages/cnes_observability" }
+dependencies = [
+    { name = "opentelemetry-api" },
+]
+
+[package.optional-dependencies]
+otel = [
+    { name = "opentelemetry-api" },
+    { name = "opentelemetry-exporter-otlp-proto-grpc" },
+    { name = "opentelemetry-instrumentation-sqlalchemy" },
+    { name = "opentelemetry-sdk" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "opentelemetry-api", specifier = ">=1.25" },
+    { name = "opentelemetry-api", marker = "extra == 'otel'", specifier = ">=1.25" },
+    { name = "opentelemetry-exporter-otlp-proto-grpc", marker = "extra == 'otel'", specifier = ">=1.25" },
+    { name = "opentelemetry-instrumentation-sqlalchemy", marker = "extra == 'otel'", specifier = ">=0.46b0" },
+    { name = "opentelemetry-sdk", marker = "extra == 'otel'", specifier = ">=1.25" },
+]
+provides-extras = ["otel"]
+
+[[package]]
+name = "cnes-runtime"
+version = "0.1.0"
+source = { editable = "packages/cnes_runtime" }
+dependencies = [
+    { name = "boto3" },
+    { name = "cnes-control-plane" },
+    { name = "cnes-data" },
+    { name = "cnes-domain" },
+    { name = "cnes-governance" },
+    { name = "python-dotenv" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "boto3", specifier = ">=1.43" },
+    { name = "cnes-control-plane", editable = "packages/cnes_control_plane" },
+    { name = "cnes-data", editable = "packages/cnes_data" },
+    { name = "cnes-domain", editable = "packages/cnes_domain" },
+    { name = "cnes-governance", editable = "packages/cnes_governance" },
+    { name = "python-dotenv", specifier = ">=1.2" },
+]
 
 [[package]]
 name = "cnesdata-workspace"
@@ -706,13 +837,25 @@ name = "data-processor"
 version = "0.1.0"
 source = { editable = "apps/data_processor" }
 dependencies = [
-    { name = "cnes-infra", extra = ["etl"] },
+    { name = "cnes-contracts" },
+    { name = "cnes-control-plane" },
+    { name = "cnes-data", extra = ["etl"] },
+    { name = "cnes-domain" },
+    { name = "cnes-governance" },
+    { name = "cnes-observability" },
+    { name = "cnes-runtime" },
     { name = "httpx" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "cnes-infra", extras = ["etl"], editable = "packages/cnes_infra" },
+    { name = "cnes-contracts", editable = "packages/cnes_contracts" },
+    { name = "cnes-control-plane", editable = "packages/cnes_control_plane" },
+    { name = "cnes-data", extras = ["etl"], editable = "packages/cnes_data" },
+    { name = "cnes-domain", editable = "packages/cnes_domain" },
+    { name = "cnes-governance", editable = "packages/cnes_governance" },
+    { name = "cnes-observability", editable = "packages/cnes_observability" },
+    { name = "cnes-runtime", editable = "packages/cnes_runtime" },
     { name = "httpx", specifier = ">=0.27" },
 ]
 

@@ -6,7 +6,7 @@ on:
     paths:
       - 'apps/**'
       - 'packages/**'
-      - 'deploy/**'
+      - 'ops/**'
       - 'docs/contracts/**'
       - 'pyproject.toml'
       - 'uv.lock'

@@ -7,7 +7,7 @@
 
 ## Convenções
 
-- Alembic script_location: `packages/cnes_infra/src/cnes_infra/alembic/versions/`
+- Alembic script_location: `packages/cnes_data/alembic/versions/`
 - Revision numerada sequencial (próxima = `010`, já que 009 é agent_version de Plan C)
 - Cada rev é atômica; rollback via `alembic downgrade`
 

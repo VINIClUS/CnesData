@@ -199,7 +199,7 @@ services:
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: admin
     volumes:
-    - ./docker-compose.keycloak:/opt/keycloak/data/import:ro
+    - ./ops/identity/keycloak:/opt/keycloak/data/import:ro
     profiles:
     - dev
   dynamodb-local:
@@ -250,7 +250,7 @@ services:
       TENANT_ID: '354130'
       DATA_DIR: /data
       CORS_ALLOWED_ORIGINS: http://localhost:5173
-      # cnes_infra.config exige DB_URL no import do módulo; nunca conectado no profile local.
+      # cnes_runtime.config exige DB_URL no import do módulo; nunca conectado no profile local.
       DB_URL: postgresql+psycopg://unused:unused@unused/unused
       ADMIN_TOKEN: ${ADMIN_TOKEN:-local-admin}
     volumes:

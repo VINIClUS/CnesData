@@ -11,7 +11,7 @@ from slowapi.errors import RateLimitExceeded
 
 from central_api.ratelimit import limiter, rate_limit_handler
 from central_api.routes import local_auth
-from cnes_infra.auth.local_auth import (
+from cnes_identity.local_auth import (
     AuthenticatedPrincipal,
     AuthenticationRejected,
     AuthRejectionCode,

@@ -15,6 +15,7 @@ from central_api.routes.billing import (
 )
 from central_api.routes.billing_errors import mapped_errors
 from central_api.routes.stripe_webhook import get_billing_metrics
+from cnes_control_plane.billing.metrics import BillingMetricName, billing_metric
 from cnes_domain.billing.errors import BillingDisabledError, PermanentBillingError
 from cnes_domain.billing.ports import BillingMetricsPort
 from cnes_domain.billing.revocation_models import (
@@ -22,7 +23,6 @@ from cnes_domain.billing.revocation_models import (
     ImmediateRevocationCommand,
     RevocationResult,
 )
-from cnes_infra.billing.metrics import BillingMetricName, billing_metric
 
 logger = logging.getLogger(__name__)
 

@@ -104,7 +104,7 @@ def test_install_cert_authority_avisa_quando_mtls_desligado(monkeypatch, caplog)
     from central_api.deps import _install_cert_authority
 
     monkeypatch.delenv("AUTH_CA_CERT_PATH", raising=False)
-    monkeypatch.setattr("cnes_infra.config.AGENT_MTLS_REQUIRED", False)
+    monkeypatch.setattr("cnes_runtime.config.AGENT_MTLS_REQUIRED", False)
     app = MagicMock()
     with caplog.at_level("WARNING", logger="central_api.deps"):
         _install_cert_authority(app)
@@ -116,7 +116,7 @@ def test_install_cert_authority_nao_avisa_quando_mtls_obrigatorio(monkeypatch, c
     from central_api.deps import _install_cert_authority
 
     monkeypatch.delenv("AUTH_CA_CERT_PATH", raising=False)
-    monkeypatch.setattr("cnes_infra.config.AGENT_MTLS_REQUIRED", True)
+    monkeypatch.setattr("cnes_runtime.config.AGENT_MTLS_REQUIRED", True)
     with caplog.at_level("WARNING", logger="central_api.deps"):
         _install_cert_authority(MagicMock())
     assert "agent_mtls" not in caplog.text

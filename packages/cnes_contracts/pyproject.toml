@@ -12,4 +12,6 @@ dependencies = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/cnes_contracts"]
+only-include = ["__init__.py", "api.py", "columns.py", "dims.py", "export.py", "extraction.py", "fatos.py", "jobs.py", "landing.py", "manifests", "sihd_columns.py"]
+sources = { "" = "cnes_contracts" }
+dev-mode-dirs = [".."]

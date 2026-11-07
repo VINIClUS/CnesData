@@ -8,6 +8,9 @@ from unittest.mock import Mock
 
 import pytest
 
+from cnes_control_plane.billing import BillingConfigurationError
+from cnes_control_plane.billing.wiring import ChainedExecutionStarted
+from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
 from cnes_domain.billing import (
     BillingConcurrencyPolicy,
     BillingExecutionStarted,
@@ -15,16 +18,13 @@ from cnes_domain.billing import (
 )
 from cnes_domain.billing.publication import BillingPublicationPolicy
 from cnes_domain.profiles import BillingMode
-from cnes_infra.billing import BillingConfigurationError
-from cnes_infra.billing.wiring import ChainedExecutionStarted
-from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
 from data_processor.composition import build_processor_runtime
 from data_processor.orchestration.coordinator import noop_execution_started
 
 STATE_MACHINE_ARN = "arn:aws:states:us-east-1:000000000000:stateMachine:cnesdata-test"
 STATE_MACHINE_FIXTURE = (
     Path(__file__).parents[3]
-    / "packages/cnes_infra/tests/fixtures/step_functions/standard_inline_ecs.json"
+    / "packages/cnes_control_plane/tests/fixtures/step_functions/standard_inline_ecs.json"
 )
 
 

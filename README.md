@@ -12,11 +12,10 @@ O repositorio e um monorepo com pacotes compartilhados e apps implantaveis.
 
 | Path | Tipo | Responsabilidade |
 |---|---|---|
-| `packages/cnes_contracts/` | Biblioteca | Contratos Pydantic, Protocols e JSON Schema |
-| `packages/cnes_domain/` | Biblioteca | Ports, modelos, pipeline primitives, tenant context |
-| `packages/cnes_infra/` | Biblioteca | Postgres, MinIO, ingestion clients, migrations, telemetry |
+| `packages/` | Bibliotecas | Oito capabilities; código diretamente na pasta de cada pacote |
 | `apps/dump_agent_go/` | Edge agent | Extrai CNES, SIHD, BPA e SIA no ambiente municipal |
 | `apps/central_api/` | FastAPI | Orquestra jobs, dashboard API, device flow e provisionamento |
+| `apps/billing_worker/` | CLI | Ciclos agendados de billing |
 | `apps/data_processor/` | Worker | Consome `landing.extractions` e aplica rotas Gold v2 |
 | `apps/cnes_db_migrator/` | Init container | Executa Alembic `upgrade head` |
 | `apps/web_dashboard/` | SPA | Dashboard Bun, React, OIDC, ativacao de agentes e overview |
@@ -137,3 +136,10 @@ duas nao ficarem dessincronizadas.
 Ver `.env.example` (fonte unica — nao duplicar valores aqui nem em
 `CLAUDE.md`). Credenciais de Firebird, MinIO, OIDC e certificados ficam nos
 apps ou no ambiente de deploy. Nao hardcode caminhos ou segredos no codigo.
+
+## Pacotes e operação
+
+As oito bibliotecas expõem código diretamente em `packages/cnes_*/`, ao lado de
+`tests/`, sem o nível redundante `src/cnes_*`. Fronteiras e responsabilidades:
+[arquitetura](docs/architecture.md#fronteiras-do-monorepo). Deploys, configuração
+operacional e infraestrutura legada: [Ops](ops/README.md).

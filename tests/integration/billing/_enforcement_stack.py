@@ -6,6 +6,12 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
+from cnes_control_plane.billing.audit_outbox import DynamoBillingAudit
+from cnes_control_plane.billing.dynamodb_projection import DynamoEntitlementProjection
+from cnes_control_plane.billing.dynamodb_quota_items import decode_reservation
+from cnes_control_plane.billing.dynamodb_revocation import DynamoRevocationStore
+from cnes_control_plane.billing.keys import reservation_key
+from cnes_control_plane.billing.wiring import BillingGateResources, build_entitlement_gate
 from cnes_domain.billing.models import QuotaReservation
 from cnes_domain.billing.publication import BillingPublicationPolicy, PublicationPolicyDependencies
 from cnes_domain.billing.revocation import (
@@ -31,21 +37,15 @@ from cnes_domain.control_plane.entities import (
 )
 from cnes_domain.control_plane.enums import RunState
 from cnes_domain.ports.processing import CancelRunExecution
-from cnes_infra.billing.audit_outbox import DynamoBillingAudit
-from cnes_infra.billing.dynamodb_projection import DynamoEntitlementProjection
-from cnes_infra.billing.dynamodb_quota_items import decode_reservation
-from cnes_infra.billing.dynamodb_revocation import DynamoRevocationStore
-from cnes_infra.billing.keys import reservation_key
-from cnes_infra.billing.wiring import BillingGateResources, build_entitlement_gate
 from data_processor.orchestration.publisher import (
     DatasetPublisher,
     PublicationPolicy,
     PublishRequest,
     PublishResult,
 )
-from packages.cnes_infra.tests.billing.billing_factories import NOW, TABLE_NAME
-from packages.cnes_infra.tests.billing.quota_support import ACCOUNT
-from packages.cnes_infra.tests.billing.revocation_support import (
+from packages.cnes_control_plane.tests.billing.billing_factories import NOW, TABLE_NAME
+from packages.cnes_control_plane.tests.billing.quota_support import ACCOUNT
+from packages.cnes_control_plane.tests.billing.revocation_support import (
     get_raw,
     lookup_period,
     usage_counters,
@@ -64,9 +64,9 @@ from tests.integration.billing._execution_stack import (
 )
 
 if TYPE_CHECKING:
+    from cnes_control_plane.persistence.dynamodb_codec import Item
     from cnes_domain.control_plane.entities import RunDispatch
-    from cnes_infra.control_plane.dynamodb_codec import Item
-    from packages.cnes_infra.tests.billing.revocation_support import RevEnv
+    from packages.cnes_control_plane.tests.billing.revocation_support import RevEnv
 
 SQLITE_DISABLED = Case("sqlite-disabled", dynamo=False, stripe=False)
 DYNAMO_DISABLED = Case("dynamodb-disabled", dynamo=True, stripe=False)

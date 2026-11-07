@@ -19,14 +19,14 @@ from starlette.requests import Request  # noqa: TC002 - needed at runtime by Fas
 from central_api.billing_deps import install_billing
 from central_api.composition import build_runtime
 from central_api.middleware import AuthenticatedUser
+from cnes_data.storage.query_counter import install_query_counter
+from cnes_data.storage.rls import install_rls_listener
 from cnes_domain.outbox_dispatcher import dispatch_once
 from cnes_domain.tenant import set_tenant_id
-from cnes_infra import config
-from cnes_infra.auth.oidc import OidcVerifier
-from cnes_infra.aws import AwsRuntimeConfigurationError, AwsRuntimeSettings
-from cnes_infra.storage.query_counter import install_query_counter
-from cnes_infra.storage.rls import install_rls_listener
-from cnes_infra.telemetry import instrument_engine
+from cnes_identity.oidc import OidcVerifier
+from cnes_observability.telemetry import instrument_engine
+from cnes_runtime import config
+from cnes_runtime.aws import AwsRuntimeConfigurationError, AwsRuntimeSettings
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable, Iterator, Mapping
@@ -39,7 +39,7 @@ if TYPE_CHECKING:
     from cnes_domain.outbox_dispatcher import DispatchResult
     from cnes_domain.ports.control_plane import ControlPlanePort, TypedRawQueryPort
     from cnes_domain.profiles import ProfileSettings
-    from cnes_infra.auth.local_auth import LocalAuthService
+    from cnes_identity.local_auth import LocalAuthService
 
     class _RawQueryControlPlane(ControlPlanePort, TypedRawQueryPort, Protocol):
         pass
@@ -122,8 +122,8 @@ def _build_local_state(app: FastAPI) -> None:
 
     from central_api.services.national_ingestion import NationalIngestionService
     from central_api.services.raw_upload import RawUploadService
+    from cnes_data.ingestion import DatasusCnesFtpTransport, DatasusCnesRawAdapter
     from cnes_domain.profiles import parse_profile
-    from cnes_infra.ingestion import DatasusCnesFtpTransport, DatasusCnesRawAdapter
 
     settings = parse_profile(os.environ)
     session = Session()
@@ -175,7 +175,7 @@ def _serving_principal_resolver(
 ) -> Callable[[Request], ServingPrincipal]:
     from central_api.routes.local_auth import SESSION_COOKIE_NAME
     from central_api.routes.serving import ServingPrincipal
-    from cnes_infra.auth.local_auth import AuthenticationRejected
+    from cnes_identity.local_auth import AuthenticationRejected
 
     def _resolve(request: Request) -> ServingPrincipal:
         token = request.cookies.get(SESSION_COOKIE_NAME)
@@ -235,8 +235,8 @@ def _install_local_auth_and_serving(
     from central_api.composition import entitled_serving_access
     from central_api.routes import local_auth, serving
     from central_api.services.serving_access import LocalServingAccess
-    from cnes_infra.auth.local_auth import LocalAuthDependencies, LocalAuthService
-    from cnes_infra.auth.local_credentials import LocalCredentialStore
+    from cnes_identity.local_auth import LocalAuthDependencies, LocalAuthService
+    from cnes_identity.local_credentials import LocalCredentialStore
 
     credentials = LocalCredentialStore(settings.state_db)
     credentials.initialize()
@@ -264,7 +264,7 @@ def _install_cert_authority(app: FastAPI) -> None:
     if ca_cert_path and ca_key_path:
         from pathlib import Path
 
-        from cnes_infra.auth import CertAuthority
+        from cnes_identity import CertAuthority
         app.state.cert_authority = CertAuthority(  # type: ignore[attr-defined]
             root_cert_pem=Path(ca_cert_path).read_bytes(),
             root_key_pem=Path(ca_key_path).read_bytes(),
@@ -350,7 +350,7 @@ def _build_legacy_state(app: FastAPI) -> Engine:
 
     from central_api.repositories.dashboard_repo import DashboardRepo
     from central_api.repositories.leads_repo import LeadsRepo
-    from cnes_infra.auth import (
+    from cnes_identity import (
         AccessTokenStore,
         DeviceCodeStore,
         JWKSValidator,

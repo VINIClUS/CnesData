@@ -12,7 +12,7 @@ from sqlalchemy.exc import OperationalError
 from central_api.ratelimit import limiter, rate_limit_handler
 from central_api.repositories.leads_repo import LeadRecord
 from central_api.routes import public_leads
-from cnes_infra import config
+from cnes_runtime import config
 
 if TYPE_CHECKING:
     from starlette.types import ExceptionHandler

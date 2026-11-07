@@ -6,13 +6,13 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from central_api.ratelimit import limiter
-from cnes_infra.auth.local_auth import (
+from cnes_identity.local_auth import (
     SESSION_TTL_SECONDS,
     AuthenticatedPrincipal,
     AuthenticationRejected,
     LocalAuthService,
 )
-from cnes_infra.auth.local_credentials import MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH
+from cnes_identity.local_credentials import MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth-local"])
 SESSION_COOKIE_NAME = "cnesdata_session"

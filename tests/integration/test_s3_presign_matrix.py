@@ -14,7 +14,7 @@ import pytest
 from botocore.config import Config
 from botocore.exceptions import ClientError
 
-from cnes_infra.storage.s3_presigned import S3PresignedStorage
+from cnes_data.storage.s3_presigned import S3PresignedStorage
 
 _BUCKET = "cnesdata-landing-test"
 
@@ -111,7 +111,7 @@ def test_presign_nao_cria_bucket() -> None:
 def test_object_exists_false_quando_chave_ausente() -> None:
     """LocalStack não aplica IAM, então devolve 404 aqui — o caso 403
     (bucket sem s3:ListBucket na raiz) é coberto no unit test via Stubber
-    em packages/cnes_infra/tests/storage/test_s3_presigned.py."""
+    em packages/cnes_data/tests/storage/test_s3_presigned.py."""
     client = _client()
     adapter = S3PresignedStorage(client)
     assert adapter.object_exists(_BUCKET, "definitely/not/there") is False

@@ -10,16 +10,16 @@ import pytest
 
 from central_api.composition import build_runtime, noop_execution_started
 from central_api.services.run_authorization import RunAuthorizationService
+from cnes_control_plane.billing import BillingConfigurationError
+from cnes_control_plane.billing.wiring import ChainedExecutionStarted
+from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
 from cnes_domain.billing import (
     BillingConcurrencyPolicy,
     BillingExecutionStarted,
     RunExecutionPermit,
 )
 from cnes_domain.profiles import BillingMode
-from cnes_infra.aws import AwsRuntimeSettings
-from cnes_infra.billing import BillingConfigurationError
-from cnes_infra.billing.wiring import ChainedExecutionStarted
-from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
+from cnes_runtime.aws import AwsRuntimeSettings
 
 if TYPE_CHECKING:
     from cnes_domain.control_plane.entities import Run, RunDispatch
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 STATE_MACHINE_ARN = "arn:aws:states:us-east-1:000000000000:stateMachine:cnesdata-test"
 STATE_MACHINE_FIXTURE = (
     Path(__file__).parents[3]
-    / "packages/cnes_infra/tests/fixtures/step_functions/standard_inline_ecs.json"
+    / "packages/cnes_control_plane/tests/fixtures/step_functions/standard_inline_ecs.json"
 )
 
 

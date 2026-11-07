@@ -13,7 +13,7 @@ from central_api.repositories.dashboard_repo import (
 from central_api.repositories.dashboard_repo_overview import (
     _build_faturamento_chart,
 )
-from cnes_infra.storage.dim_lookup import upsert_dim_municipio
+from cnes_data.storage.dim_lookup import upsert_dim_municipio
 
 
 @pytest.fixture

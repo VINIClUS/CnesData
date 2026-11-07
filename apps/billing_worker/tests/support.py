@@ -6,6 +6,7 @@ from typing import Any, Protocol, cast
 from unittest.mock import Mock
 
 from billing_worker.worker import BillingWorker, WorkerJobs
+from cnes_control_plane.billing.revocation_sweep import RevocationSweepResult
 from cnes_domain.billing.inbox import (
     ReconciliationResult,
     RecoveryRequest,
@@ -13,7 +14,6 @@ from cnes_domain.billing.inbox import (
     ReservationRecoveryResult,
 )
 from cnes_domain.billing.models import BillingMetric
-from cnes_infra.billing.revocation_sweep import RevocationSweepResult
 
 REGION = "sa-east-1"
 TABLE = "control-plane"

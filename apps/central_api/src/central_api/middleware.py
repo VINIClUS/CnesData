@@ -1,6 +1,5 @@
 """Middlewares: AuthMiddleware, QueryCounterMiddleware."""
 import logging
-from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
@@ -12,20 +11,16 @@ from starlette.responses import JSONResponse, Response
 
 from central_api.auth.aws_oidc import TenantAccessDenied
 from cnes_domain.tenant import set_tenant_id
-from cnes_infra.auth import TokenInvalid
+from cnes_identity import TokenInvalid
+from cnes_observability.query_count import count_queries
 
 if TYPE_CHECKING:
-    from cnes_infra.auth.oidc import OidcPrincipal, OidcVerifier
+    from cnes_identity.oidc import OidcPrincipal, OidcVerifier
 
 logger = logging.getLogger(__name__)
 
 _HEALTH_PATH = "/api/v1/system/health"
 _TENANT_SCOPED_PREFIX = "/api/v1/dashboard/"
-
-_query_count: ContextVar[list[int] | None] = ContextVar(
-    "query_count", default=None,
-)
-
 
 @dataclass
 class AuthenticatedUser:
@@ -136,17 +131,10 @@ class QueryCounterMiddleware(BaseHTTPMiddleware):
     async def dispatch(
         self, request: Request, call_next: RequestResponseEndpoint,
     ) -> Response:
-        counter = [0]
-        _query_count.set(counter)
-        response = await call_next(request)
-        count = counter[0]
+        with count_queries() as counter:
+            response = await call_next(request)
+            count = counter[0]
         response.headers["X-Query-Count"] = str(count)
         if count > 15:
             response.headers["X-Query-Count-Warn"] = "threshold-exceeded"
         return response
-
-
-def increment_query_count() -> None:
-    counter = _query_count.get()
-    if counter is not None:
-        counter[0] += 1

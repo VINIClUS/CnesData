@@ -1,0 +1,18 @@
+# cnes_observability — Logs, tracing e contadores
+
+## Responsabilidade
+
+Logs, tracing e contadores. Fronteiras canônicas: docs/architecture.md.
+
+## Dependências
+
+Dependências locais declaradas: nenhuma.
+Não importar apps, cnes_runtime ou implementações de outra capability fora
+do grafo aprovado. Exceção: cnes_runtime é a camada externa de composição.
+
+## Convenções
+
+- Preservar contratos, isolamento de tenant e semântica dos adapters existentes.
+- Testes em tests/; mocks somente em fronteiras de I/O.
+- Aplicam-se as regras e limites do CLAUDE.md raiz.
+- Variáveis de ambiente: .env.example; nunca registrar segredos.

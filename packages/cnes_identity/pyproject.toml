@@ -1,0 +1,29 @@
+[project]
+name = "cnes-identity"
+version = "0.1.0"
+description = "Identidade, autenticação e certificados"
+requires-python = ">=3.13"
+dependencies = [
+    "cnes-contracts",
+    "cnes-domain",
+    "cnes-data",
+    "python-jose[cryptography]>=3.3",
+    "cryptography>=43",
+    "httpx>=0.28",
+    "pydantic>=2.10",
+    "boto3>=1.43",
+]
+
+[tool.uv.sources]
+cnes-contracts = { workspace = true }
+cnes-domain = { workspace = true }
+cnes-data = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+only-include = ["__init__.py", "access_tokens.py", "ca.py", "device_codes.py", "dynamodb_memberships.py", "errors.py", "jwt.py", "local_auth.py", "local_credentials.py", "models.py", "oidc.py", "peer_cert.py", "provisioned_certs.py", "refresh_tokens.py"]
+sources = { "" = "cnes_identity" }
+dev-mode-dirs = [".."]

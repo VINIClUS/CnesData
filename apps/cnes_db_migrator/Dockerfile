@@ -3,12 +3,15 @@ RUN pip install --no-cache-dir --only-binary :all: uv==0.9.26
 WORKDIR /app
 COPY pyproject.toml pyproject.toml
 COPY packages/ packages/
-COPY apps/cnes_db_migrator/ apps/cnes_db_migrator/
-RUN uv build --wheel --out-dir /wheels packages/cnes_contracts && \
-    uv build --wheel --out-dir /wheels packages/cnes_domain && \
-    uv build --wheel --out-dir /wheels packages/cnes_infra && \
+COPY apps/ apps/
+RUN for package in packages/*; do uv build --wheel --out-dir /wheels "$package" || exit 1; done && \
     uv build --wheel --out-dir /wheels apps/cnes_db_migrator && \
-    uv pip install --system /wheels/*.whl
+    uv pip install --system \
+        /wheels/cnes_contracts-*.whl \
+        /wheels/cnes_domain-*.whl \
+        /wheels/cnes_data-*.whl \
+        /wheels/cnes_observability-*.whl \
+        /wheels/cnes_db_migrator-*.whl
 
 FROM python:3.13-slim
 RUN groupadd -r app && useradd -r -g app app

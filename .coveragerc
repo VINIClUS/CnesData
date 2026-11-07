@@ -1,7 +1,6 @@
 [run]
 branch = true
 source =
-    dump_agent
     data_processor
     central_api
     billing_worker

@@ -10,8 +10,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from cnes_infra.storage import extractions_repo
-from cnes_infra.storage.s3_presigned import S3PresignedStorage
+from cnes_data.storage import extractions_repo
+from cnes_data.storage.s3_presigned import S3PresignedStorage
 from data_processor.main import main
 
 if TYPE_CHECKING:

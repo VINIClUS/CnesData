@@ -11,7 +11,7 @@ O upload raw passa sempre por `central_api`; o agente não recebe chaves AWS.
 
 ## Infraestrutura AWS
 
-`deploy/aws/raw/main.tf` cria tabelas e buckets separados para `dev` e `prod`,
+`ops/infra/aws/raw-legacy/main.tf` cria tabelas e buckets separados para `dev` e `prod`,
 seis GSIs, TTL `expires_at`, versionamento, criptografia e IAM por ambiente.
 Aplicar com backend remoto de estado protegido; o estado contém as chaves IAM.
 Antes do apply, confirmar `aws sts get-caller-identity` = `836651842853` e
@@ -32,8 +32,8 @@ instalar explicitamente Compose e variáveis raw na VPS. Para cada stack:
 
 1. Salvar cópias de `docker-compose.{dev,prod}.yml`, `.env` e `.env.image`
    fora do diretório da stack, com timestamp e permissões de acesso restritas.
-2. Copiar o Compose versionado de `deploy/dev` para `/opt/cnesdata-dev` e o de
-   `deploy/prod` para `/opt/cnesdata`, preservando propriedade e modo.
+2. Copiar o Compose versionado de `ops/deploy/vps/dev` para `/opt/cnesdata-dev` e o de
+   `ops/deploy/vps/prod` para `/opt/cnesdata`, preservando propriedade e modo.
 3. Acrescentar as seis variáveis raw ao `.env` existente de cada stack,
    usando a chave IAM do ambiente correspondente. Não reescrever os segredos
    já existentes. Definir também `ADMIN_TOKEN` para permitir o enqueue

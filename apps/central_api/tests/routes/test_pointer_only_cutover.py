@@ -19,12 +19,12 @@ from central_api.routes import overview, serving
 from central_api.routes.serving import ServingPrincipal
 from central_api.services.serving_access import LocalServingAccess
 from cnes_contracts.manifests.outputs import OutputManifest, RunManifest
+from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
+from cnes_data.object_store import FilesystemObjectStore
 from cnes_domain.control_plane.commands import PublicationPermit, PublishDataset
 from cnes_domain.control_plane.entities import DatasetVersion, Membership, OutboxEvent, Run
 from cnes_domain.control_plane.enums import RunState
 from cnes_domain.orchestration.source_catalog import build_source_catalog
-from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
-from cnes_infra.object_store import FilesystemObjectStore
 
 if TYPE_CHECKING:
     from pathlib import Path

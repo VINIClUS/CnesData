@@ -20,9 +20,9 @@ from central_api.routes.stripe_webhook import (
     get_webhook_inbox,
     router,
 )
+from cnes_control_plane.billing.webhook_verifier import StripeWebhookVerifier
 from cnes_domain.billing.errors import BillingDependencyError, PermanentBillingError
 from cnes_domain.billing.inbox import InboxAcceptResult, InboxDisposition, StripeEvent
-from cnes_infra.billing.webhook_verifier import StripeWebhookVerifier
 
 URL = "/api/v1/billing/webhooks/stripe"
 PAYLOAD = b'{"id":"evt_01","type":"invoice.paid"}'

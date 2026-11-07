@@ -3,71 +3,71 @@
 > Visão sistêmica do monorepo. Para contexto histórico/narrativa ver `docs/project-context.md`.
 > Para roadmap ver `docs/roadmap.md`.
 
-## Visão macro
+## Runtime atual
 
-Plataforma distribuída edge/central para reconciliação de dados de saúde
-pública. Edge Agents (`dump_agent_go`) rodam próximo às fontes municipais
-(CNES Firebird, SIHD, BPA-Mag Firebird 1.5 e SIA DBF), extraem Parquet e
-registram manifests no `central_api`. O `central_api` (FastAPI) orquestra
-`landing.extractions`, dashboard, device flow e provisionamento mTLS. O
-`data_processor` (worker) consome a fila Gold v2, aplica rotas de delta e
-integridade quando recebe artefatos e persiste no Postgres com isolamento por
-tenant (RLS). Regras de auditoria são aplicadas por serviço externo via SQL
-JOINs contra o Gold.
+O edge Go extrai CNES, SIHD, BPA e SIA e registra manifests raw na API. O perfil
+`local` usa SQLite e filesystem; `aws` usa DynamoDB e S3, com execução por
+Step Functions. O worker transforma artefatos e publica serving por pointer.
+Rotas e fila de ingestão `landing.extractions` estão aposentadas (MIG-012).
+Postgres permanece para superfícies existentes da API e para recursos legados;
+não é uma alternativa de fallback para serving nem uma fila ativa do worker.
 
-## Data flow
-
+```mermaid
+flowchart LR
+    Edge[Agente Go] --> API[central_api]
+    API --> Control[Control plane: SQLite ou DynamoDB]
+    Control --> Worker[data_processor]
+    Worker --> Objects[Artefatos: filesystem ou S3]
+    Objects --> Serving[API de serving por pointer]
 ```
-┌───────────────────────────────────────────────────────────────┐
-│ EDGE (município)                                              │
-│                                                               │
-│  [CNES.GDB] [SIHD DB] [BPAMAG.GDB] [SIA DBF]                 │
-│         │        │          │           │                    │
-│         └────────┴──────────┴───────────┘                    │
-│                ▼                                              │
-│          dump_agent_go (daemon)                               │
-│          - discovery + per-source secrets                     │
-│          - row-fingerprint delta (CNES/SIHD/BPA)              │
-│          - full extract SIA DBF                               │
-│          - outbox + circuit breaker                           │
-│                │                                              │
-│                │ HTTPS API                                    │
-└────────────────┼──────────────────────────────────────────────┘
-                 │
-┌────────────────┼──────────────────────────────────────────────┐
-│ CENTRAL        ▼                                              │
-│         central_api (FastAPI)                                 │
-│          - /extractions/enqueue                               │
-│          - /jobs/register                                     │
-│          - /oauth/device_authorization + /oauth/token         │
-│          - /provision/cert + /provision/cert/rotate           │
-│          - tenant via Bearer ou cert mTLS (#260)              │
-│          - lease reaper (background task)                     │
-│                │                                              │
-│       ┌────────┴────────┐                                     │
-│       ▼                 ▼                                     │
-│  [Postgres landing] [MinIO]                                   │
-│       │                 ▲                                     │
-│       │                 │                                     │
-│       ▼                 │                                     │
-│   data_processor ───────┘                                     │
-│   - claim landing.extractions                                 │
-│   - verify SHA-256 when provided                              │
-│   - route _op delta rows                                      │
-│   - mark completed/failed                                     │
-│                │                                              │
-│                ▼                                              │
-│       [Postgres Gold]                                         │
-│        gold.dim_estabelecimento                               │
-│        gold.dim_profissional                                  │
-│        gold.fato_vinculo                                      │
-│        (RLS per tenant)                                       │
-│                │                                              │
-│                │ SQL JOINs                                    │
-│                ▼                                              │
-│       [Rules service — OUT OF SCOPE, repo externo]            │
-└───────────────────────────────────────────────────────────────┘
-```
+
+## Fronteiras do monorepo
+
+O código de cada biblioteca fica diretamente em `packages/<nome>/`, junto de
+`tests/` e `pyproject.toml`. Wheels preservam os imports `cnes_*`; não há nível
+`src/<nome>` nas bibliotecas. Os apps mantêm seus layouts próprios.
+
+| Pacote | Responsabilidade | Dependências locais permitidas |
+|---|---|---|
+| Contracts | DTOs, manifests, colunas | nenhuma |
+| Domain/Core | entidades, regras, ports e processamento puro | Contracts |
+| Observability | logs, tracer, OTel e contador de queries | nenhuma |
+| Data | persistência, RLS, ingestão, object stores e migrações | Contracts, Domain, Observability |
+| Identity | JWT/OIDC, credenciais, device flow e mTLS | Contracts, Domain, Data |
+| Governance | eventos/sinks de auditoria operacional | Domain, Data |
+| Control Plane | adapters de controle, billing, quotas e execução | Contracts, Domain, Data, Observability |
+| Runtime | configuração e composição cross-app | demais capacidades |
+
+Nenhuma biblioteca importa apps. Os testes em `tests/architecture` verificam o
+layout e o grafo, incluindo imports sob `TYPE_CHECKING`. Ports portáveis ficam no
+Core; o protocolo SQL legado dependente de Engine pertence a Data. Pandera fica
+no Core, sem tornar Contracts dependente do stack de DataFrames.
+
+Billing e persistência do control plane permanecem na mesma capability para
+preservar transações de quota, criação de tenants, publicação e revogação.
+Primitivas genéricas DynamoDB usadas por Identity pertencem a Data.
+
+Sec tem donos explícitos: Identity aplica autenticação/certificados; Data aplica
+RLS; billing protege seus segredos; os workflows existentes executam scanners.
+Reliability fica nas primitivas puras do Core e nos mecanismos de recovery,
+leases e outbox dos componentes responsáveis. Governance não implementa as
+regras de auditoria de saúde do serviço externo.
+
+Configuração compartilhada pertence a Runtime. Migrações usam `cnes_data:alembic`
+e resolvem override explícito antes de `DB_URL`, sem importar Runtime.
+O contador de queries pertence a Observability, compartilhado pelo middleware
+HTTP e pelo listener SQLAlchemy de Data; nenhum adapter depende da API.
+
+Operação: [ops/README.md](../ops/README.md). Runbooks continuam canônicos em
+`docs/runbooks/`. Compose de desenvolvimento fica na raiz. VPS permanece no
+caminho de deploy existente; Helm e Terraform raw estão identificados como legados.
+A organização do código não provisiona o alvo AWS nem reativa fluxos aposentados.
+
+## Referências legadas de ingestão
+
+As descrições abaixo de landing, leases e Gold registram a arquitetura anterior.
+Para o contrato raw atual, usar a spec Phase 3 e os CLAUDE.md dos apps; nenhuma
+referência histórica abaixo autoriza restaurar o worker ou rotas aposentadas.
 
 ## BPA + SIA edge flow (2026-04)
 
@@ -150,7 +150,7 @@ mTLS: o Caddy (`client_auth verify_if_given`) prova a posse da chave e sobrescre
 ### Processor → Postgres
 
 O loop atual consome `landing.extractions` diretamente por
-`cnes_infra.storage.extractions_repo.claim_next`, define `tenant_id` com
+`cnes_data.storage.extractions_repo.claim_next`, define `tenant_id` com
 `set_tenant_id()` e marca `completed` ou `failed`. Rotas auxiliares de
 `data_processor.processor` validam SHA-256 e roteiam deltas `_op` para
 callbacks/upserts quando usadas por ingestões específicas.
@@ -247,7 +247,7 @@ Fluxo do `tenant_id` em cada request:
 [Postgres Gold]
 ```
 
-Instalação do listener RLS: `cnes_infra.storage.rls.install_rls_listener(engine)`
+Instalação do listener RLS: `cnes_data.storage.rls.install_rls_listener(engine)`
 no bootstrap do engine (em `central_api.deps` e `data_processor.main`).
 
 **Estado atual (#266):** os apps conectam com `POSTGRES_USER`, que a imagem
@@ -260,7 +260,7 @@ explícitos dos repositórios. Não será endurecido antes do cutover (Postgres 
 - **Logs:** structured `key=value` via `logging` stdlib (sem prose). Root
   handler escreve em stdout (container) e `logs/` (local).
 - **Tracing:** OTel opcional — se `OTEL_EXPORTER_OTLP_ENDPOINT` setado,
-  `cnes_infra.telemetry.init_telemetry("<service>")` exporta spans.
+  `cnes_observability.telemetry.init_telemetry("<service>")` exporta spans.
   Sem a env var, `tracer` é no-op (pragma no cover).
 - **Métricas:** via OTel quando ativo; senão, nenhuma coleta própria
   (CloudWatch no perfil AWS pode scrapar métricas do FastAPI via middleware
@@ -272,7 +272,7 @@ explícitos dos repositórios. Não será endurecido antes do cutover (Postgres 
 Não é Kubernetes. Dois perfis, sem sobreposição:
 
 - **VPS (perfil ativo):** Hostinger VPS via Docker Compose
-  (`deploy/prod/docker-compose.prod.yml` — postgres, minio, migrator,
+  (`ops/deploy/vps/prod/docker-compose.prod.yml` — postgres, minio, migrator,
   central-api, web-dashboard, keycloak, caddy; o `data-processor` legado saiu no
   MIG-012, ver `docs/runbooks/vps-processor-retirement.md`). Deploy via
   `deploy-main.yml`/`deploy-develop.yml` em self-hosted runners (homelab
@@ -302,7 +302,7 @@ de download, com o GitHub Release como fallback. Workflow
 check / self-update no agente ainda não existe — hoje a instalação/atualização é manual
 (`docs/runbooks/dumpagent-install-windows.md`).
 
-Dockerfiles existem em cada `apps/*/Dockerfile`. `charts/web-dashboard/` é um
+Dockerfiles existem em cada `apps/*/Dockerfile`. `ops/legacy/helm/web-dashboard/` é um
 Helm chart legado do frontend, não usado pelo caminho de deploy ativo.
 
 ## Fixtures (git-lfs)
@@ -374,11 +374,11 @@ download, roteamento, heartbeat e transição `UPLOADED` permanecem pendentes.
   recharts ≤ 100KB, qualquer rota ≤ 100KB
 
 Servida por container Nginx próprio (build estático, `apps/web_dashboard/Dockerfile`)
-atrás de Caddy — único entrypoint público na VPS (`deploy/prod/caddy/Caddyfile`),
+atrás de Caddy — único entrypoint público na VPS (`ops/deploy/vps/prod/caddy/Caddyfile`),
 que termina TLS e roteia `cnesdata.com.br` para `web-dashboard` e
 `api.cnesdata.com.br` para `central-api`. JWT validado
 em `central_api.middleware.AuthMiddleware` via
-`cnes_infra.auth.jwt.JWKSValidator`. Mapping user→tenant via
+`cnes_identity.jwt.JWKSValidator`. Mapping user→tenant via
 `dashboard.user_tenants`. Audit em `dashboard.audit_log` (RLS por
 `app.tenant_id`, FORCE) — actions estendidas em v1.1: `request_access`,
 `approve_access`, `reject_access`, `view_overview`, `view_faturamento`.

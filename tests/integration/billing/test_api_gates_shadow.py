@@ -8,12 +8,12 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from cnes_control_plane.billing.keys import capacity_usage_key, tenant_account_key
 from cnes_domain.billing.models import BillingEnforcementMode, SubscriptionStatus
 from cnes_domain.control_plane.entities import Membership, OutboxEvent
-from cnes_infra.billing.keys import capacity_usage_key, tenant_account_key
-from packages.cnes_infra.tests.billing.billing_factories import NOW, TABLE_NAME
-from packages.cnes_infra.tests.billing.quota_support import ACCOUNT, TENANT
-from packages.cnes_infra.tests.billing.shadow_support import (
+from packages.cnes_control_plane.tests.billing.billing_factories import NOW, TABLE_NAME
+from packages.cnes_control_plane.tests.billing.quota_support import ACCOUNT, TENANT
+from packages.cnes_control_plane.tests.billing.shadow_support import (
     seed_capacity,
     shadow_attributes,
     shadow_events,

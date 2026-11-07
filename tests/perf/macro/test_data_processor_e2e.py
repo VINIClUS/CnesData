@@ -5,7 +5,7 @@ from sqlalchemy import text
 from cnes_domain.processing.transformer import transformar
 
 EstabelecimentoRepository = pytest.importorskip(
-    "cnes_infra.storage.repositories.estabelecimento_repo",
+    "cnes_data.storage.repositories.estabelecimento_repo",
     reason="repositório ausente do develop reconciliado",
 ).EstabelecimentoRepository
 

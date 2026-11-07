@@ -25,16 +25,19 @@ from central_api.composition import (
 from central_api.services.raw_ingestion import RawIngestionService
 from central_api.services.run_planning import RunPlanningService
 from central_api.serving import S3SignedServingAccess
+from cnes_control_plane.billing import BillingSettings
+from cnes_control_plane.execution.step_functions import (
+    IncompatibleStateMachine,
+    StepFunctionsExecutor,
+)
+from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
+from cnes_data.object_store import S3ObjectStore
 from cnes_domain.orchestration.source_catalog import SourceCatalog
 from cnes_domain.outbox_dispatcher import DispatchResult
 from cnes_domain.profiles import parse_profile
-from cnes_infra.audit.s3_object_lock_sink import S3ObjectLockAuditSink
-from cnes_infra.auth import OidcVerifier
-from cnes_infra.aws import AwsRuntimeConfigurationError
-from cnes_infra.billing import BillingSettings
-from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
-from cnes_infra.executor.step_functions import IncompatibleStateMachine, StepFunctionsExecutor
-from cnes_infra.object_store import S3ObjectStore
+from cnes_governance.s3_object_lock_sink import S3ObjectLockAuditSink
+from cnes_identity import OidcVerifier
+from cnes_runtime.aws import AwsRuntimeConfigurationError
 
 if TYPE_CHECKING:
     from starlette.requests import Request
@@ -42,7 +45,7 @@ if TYPE_CHECKING:
 STATE_MACHINE_ARN = "arn:aws:states:us-east-1:000000000000:stateMachine:cnesdata-test"
 STATE_MACHINE_FIXTURE = (
     Path(__file__).parents[3]
-    / "packages/cnes_infra/tests/fixtures/step_functions/standard_inline_ecs.json"
+    / "packages/cnes_control_plane/tests/fixtures/step_functions/standard_inline_ecs.json"
 )
 API_COMPOSITION = Path(composition.__file__)
 LOCAL_FIELDS = (

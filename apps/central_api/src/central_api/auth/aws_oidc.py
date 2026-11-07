@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Protocol
 if TYPE_CHECKING:
     from cnes_domain.control_plane.entities import Membership
     from cnes_domain.ports.control_plane import ControlPlanePort
-    from cnes_infra.auth.oidc import OidcPrincipal
+    from cnes_identity.oidc import OidcPrincipal
 
 
 class MembershipCandidateSource(Protocol):

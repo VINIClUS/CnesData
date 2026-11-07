@@ -5,7 +5,7 @@ import unicodedata
 
 import polars as pl
 
-from cnes_domain.contracts.columns import (
+from cnes_contracts.columns import (
     SCHEMA_EQUIPE,
     SCHEMA_ESTABELECIMENTO,
     SCHEMA_PROFISSIONAL,

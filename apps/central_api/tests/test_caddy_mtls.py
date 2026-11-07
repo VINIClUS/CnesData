@@ -2,7 +2,7 @@
 import re
 from pathlib import Path
 
-_CADDYFILE = Path(__file__).resolve().parents[3] / "deploy/prod/caddy/Caddyfile"
+_CADDYFILE = Path(__file__).resolve().parents[3] / "ops/deploy/vps/prod/caddy/Caddyfile"
 
 
 def _site_block(config: str, host: str) -> str:

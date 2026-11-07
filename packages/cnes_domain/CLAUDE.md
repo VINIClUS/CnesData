@@ -3,44 +3,43 @@
 ## Executive Summary
 
 Biblioteca de tipos, protocolos e primitivas do domínio. **Zero dependências
-de infra** (nada de SQLAlchemy, MinIO, httpx, fdb). Define o contrato entre
-os 4 apps via PEP 544 Protocols e modelos Pydantic. É consumida por
-`cnes_infra` (implementações concretas) e direta ou indiretamente por todos
+de infra** (nada de SQLAlchemy, MinIO, httpx, fdb). Define regras e ports usados pelos
+apps via PEP 544 Protocols e modelos Pydantic. É consumida por
+adapters das capabilities (implementações concretas) e direta ou indiretamente por todos
 os apps deployáveis.
 
 ## Scope
 
 - **Ports (Protocols):** `ObjectStoragePort`, `UnitOfWork`,
   `EstabelecimentoRepository`, `ProfissionalRepository`, `VinculoRepository`
-- **Models:** `ExtractionIntent`, `ExtractionParams`, request/response de API
+- **DTOs externos:** ver `cnes_contracts.api` e `cnes_contracts.extraction`
 - **Contracts:** sets de colunas canônicas (CNES + SIHD)
 - **Pipeline primitives:** `CircuitBreaker` (sync + async, thread-safe)
 - **Processing:** `transformer.transformar()` (pipeline CPF),
   `row_mapper` (raw→dims/fato)
 - **Tenant context:** `set_tenant_id()` / `get_tenant_id()` via ContextVar
 - **Competência:** parsing YYYY-MM + validação
-- **Observability:** `tracer` OTel (no-op se SDK não instalado)
 
 ## Conventions
 
-- **Nada aqui pode importar de `cnes_infra`, `sqlalchemy`, `httpx`, `minio`, `fdb`**
+- **Nada aqui pode importar de adapters das capabilities, `sqlalchemy`, `httpx`, `minio`, `fdb`**
 - Ports são Protocols (PEP 544), não ABCs — `@runtime_checkable` em
   `object_storage.py` e `repository.py` para suporte a `isinstance`
 - Funções de processing recebem/retornam `polars.DataFrame`
 - 100% branch coverage é gate de CI para este pacote
-- `_LAZY_ATTRS` em `cnes_infra.config` não tem equivalente aqui — domínio
+- `_LAZY_ATTRS` em `cnes_runtime.config` não tem equivalente aqui — domínio
   não lê env vars diretamente (receber via parâmetro)
 
 ## Module Map
 
 | Path | Responsabilidade |
 |---|---|
-| `contracts/columns.py` | Colunas canônicas CNES (set + listas) |
-| `contracts/sihd_columns.py` | Colunas canônicas SIHD / AIH |
+| `cnes_contracts.columns` | Colunas canônicas CNES (set + listas) |
+| `cnes_contracts.sihd_columns` | Colunas canônicas SIHD / AIH |
 | `orchestration/source_definitions/sihd.py` | Pipeline SIHD: `SIHD_DEFINITION`, `SIHD_LAYOUT` |
-| `contracts/schemas.py` | PEP 544 Protocols para DataFrames canônicos |
-| `models/api.py` | Pydantic: `JobCreate`, `JobStatus`, `LeaseResponse` etc. |
-| `models/extraction.py` | `ExtractionIntent` enum + `ExtractionParams` (regex CNES/IBGE) |
+| `validation/dataframes.py` | PEP 544 Protocols para DataFrames canônicos |
+| `cnes_contracts.api` | Pydantic: `JobCreate`, `JobStatus`, `LeaseResponse` etc. |
+| `cnes_contracts.extraction` | `ExtractionIntent` enum + `ExtractionParams` (regex CNES/IBGE) |
 | `pipeline/circuit_breaker.py` | Thread-safe CB com `call()` + `call_async()` |
 | `ports/object_storage.py` | `ObjectStoragePort` Protocol + `NullObjectStoragePort` |
 | `ports/repository.py` | 3 Repository Protocols runtime_checkable |
@@ -49,8 +48,7 @@ os apps deployáveis.
 | `processing/row_mapper.py` | DataFrame → row dicts (`mapear_estabelecimentos`, `mapear_profissionais`, `mapear_vinculos`, `extrair_fonte`) |
 | `competencia.py` | YYYY-MM parsing + range |
 | `tenant.py` | ContextVar + `set_tenant_id` / `get_tenant_id` |
-| `observability.py` | `tracer` no-op ou wrapper OTel |
-| `config.py` | `validar_formato` (regex) + `_exigir` / `_exigir_inteiro` (usados por `cnes_infra`) |
+| `config.py` | `validar_formato` (regex) + `_exigir` / `_exigir_inteiro` (usados por adapters das capabilities) |
 | `billing/models.py`, `commands.py`, `execution.py` | Domínio de billing imutável (snapshot, quotas, companion `RunBillingState`) |
 | `billing/policy.py`, `gate.py` | `EntitlementPolicy(mode)` + `EntitlementGate` (leitura forte, nega com `EntitlementDenied`) |
 | `billing/shadow.py` | `ShadowEntitlementObserver`: negação hipotética de shadow vira audit; nunca levanta |
@@ -78,3 +76,6 @@ os apps deployáveis.
 - **Protocol + `@runtime_checkable`:** só adicionar a decorator quando
   precisa de `isinstance()` check. Custo em performance é desprezível mas
   expõe atributos não-públicos em `dir()`.
+
+Código diretamente nesta pasta, ao lado de tests/. Empacotamento wheel mantém
+o namespace público. Fronteiras atuais: docs/architecture.md.

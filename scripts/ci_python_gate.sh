@@ -12,11 +12,12 @@ uv run --no-build python scripts/gen_contracts.py --output "$gate_contracts/"
 diff -ru docs/contracts/schemas/ "$gate_contracts/"
 uv run --no-build ruff check .
 uv run --no-build pyright
+uv run --no-build pytest -q tests/architecture
 (
-  cd packages/cnes_infra
+  cd packages/cnes_data
   uv run alembic -c alembic.ini upgrade head
 )
-timeout --signal=INT 480 uv run --no-build pytest packages/cnes_domain packages/cnes_infra \
+timeout --signal=INT 480 uv run --no-build pytest packages/ \
   -m "not bigquery and not e2e and not stress and not soak and not spike" \
   --cov --cov-config=pyproject.toml --cov-report=term-missing \
   --cov-report=xml:coverage-packages.xml
@@ -25,3 +26,4 @@ timeout --signal=INT 300 uv run --no-build pytest apps/ \
 and not windows_only" \
   --cov --cov-config=.coveragerc --cov-report=term-missing \
   --cov-report=xml:coverage-apps.xml
+bash scripts/ci_package_artifacts.sh

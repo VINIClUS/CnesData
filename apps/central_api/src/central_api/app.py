@@ -33,9 +33,9 @@ from central_api.routes import (
     stripe_webhook,
     tenants,
 )
-from cnes_infra import config
-from cnes_infra.auth.errors import OAuthError
-from cnes_infra.telemetry import init_telemetry
+from cnes_identity.errors import OAuthError
+from cnes_observability.telemetry import init_telemetry
+from cnes_runtime import config
 
 if TYPE_CHECKING:
     from starlette.types import ExceptionHandler

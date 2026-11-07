@@ -24,6 +24,18 @@ from central_api.services.agent_admission import AgentAdmission
 from central_api.services.billing_gates import ApiBillingGates
 from central_api.serving.aws_signed import S3SignedServingAccess, SignedServingSettings
 from cnes_contracts.manifests.outputs import OutputManifest, RunManifest
+from cnes_control_plane.billing.audit_outbox import DynamoBillingAudit
+from cnes_control_plane.billing.dynamodb_catalog import DynamoBillingCatalog
+from cnes_control_plane.billing.dynamodb_projection import DynamoEntitlementProjection
+from cnes_control_plane.billing.dynamodb_quota_items import decode_capacity_reservation
+from cnes_control_plane.billing.dynamodb_revocation import DynamoRevocationStore
+from cnes_control_plane.billing.keys import capacity_usage_key
+from cnes_control_plane.billing.wiring import BillingGateResources
+from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
+from cnes_control_plane.persistence.dynamodb_codec import encode_model
+from cnes_control_plane.persistence.dynamodb_keys import pointer_key, version_key
+from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
+from cnes_data.object_store.filesystem import FilesystemObjectStore
 from cnes_domain.billing.models import (
     BillingEnforcementMode,
     CapacityReservation,
@@ -37,20 +49,8 @@ from cnes_domain.billing.revocation import (
     RevocationSettings,
 )
 from cnes_domain.control_plane.entities import DatasetPointer, DatasetVersion
-from cnes_infra.auth.oidc import OidcPrincipal
-from cnes_infra.billing.audit_outbox import DynamoBillingAudit
-from cnes_infra.billing.dynamodb_catalog import DynamoBillingCatalog
-from cnes_infra.billing.dynamodb_projection import DynamoEntitlementProjection
-from cnes_infra.billing.dynamodb_quota_items import decode_capacity_reservation
-from cnes_infra.billing.dynamodb_revocation import DynamoRevocationStore
-from cnes_infra.billing.keys import capacity_usage_key
-from cnes_infra.billing.wiring import BillingGateResources
-from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
-from cnes_infra.control_plane.dynamodb_codec import encode_model
-from cnes_infra.control_plane.dynamodb_keys import pointer_key, version_key
-from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
-from cnes_infra.object_store.filesystem import FilesystemObjectStore
-from packages.cnes_infra.tests.billing.billing_factories import (
+from cnes_identity.oidc import OidcPrincipal
+from packages.cnes_control_plane.tests.billing.billing_factories import (
     NOW,
     TABLE_NAME,
     create_table,
@@ -59,19 +59,19 @@ from packages.cnes_infra.tests.billing.billing_factories import (
     put_tenant,
     table_items,
 )
-from packages.cnes_infra.tests.billing.quota_support import (
+from packages.cnes_control_plane.tests.billing.quota_support import (
     ACCOUNT,
     TENANT,
     make_limits,
     seed_snapshot,
 )
-from packages.cnes_infra.tests.billing.revocation_support import get_raw
-from packages.cnes_infra.tests.contracts.clock import MutableClock
+from packages.cnes_control_plane.tests.billing.revocation_support import get_raw
+from packages.cnes_control_plane.tests.contracts.clock import MutableClock
 from tests.integration.billing._enforcement_stack import RawView
 from tests.integration.billing._execution_stack import Case
 
 if TYPE_CHECKING:
-    from packages.cnes_infra.tests.billing.revocation_support import RevEnv
+    from packages.cnes_control_plane.tests.billing.revocation_support import RevEnv
 
 OWNER = "user-owner"
 MANAGER = "manager-1"

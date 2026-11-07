@@ -20,7 +20,7 @@ from cnes_contracts.manifests.outputs import OutputManifest
 from cnes_domain.control_plane.entities import ManifestRef, Membership, Run, RunDependency, RunUnit
 from cnes_domain.control_plane.enums import RunStage, RunState, RunUnitState
 from cnes_domain.profiles import ProfileNotImplemented, parse_profile
-from cnes_infra.auth.local_credentials import LocalCredentialStore, build_user
+from cnes_identity.local_credentials import LocalCredentialStore, build_user
 from data_processor.composition import build_local_processor_runtime
 from data_processor.orchestration.attempt_store import attempt_object_key, unit_attempt_prefix
 from data_processor.orchestration.publisher import DatasetPublisher, PublishRequest

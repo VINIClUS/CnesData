@@ -18,7 +18,7 @@ def main() -> None:
 
     cfg = Config()
     cfg.set_main_option(
-        "script_location", "cnes_infra:alembic",
+        "script_location", "cnes_data:alembic",
     )
     cfg.set_main_option("sqlalchemy.url", db_url)
     command.upgrade(cfg, "head")

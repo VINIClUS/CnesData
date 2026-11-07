@@ -29,18 +29,18 @@ from central_api.routes.billing import (
     get_stripe_gateway,
     router,
 )
+from cnes_control_plane.billing.dynamodb_catalog import DynamoBillingCatalog
+from cnes_control_plane.billing.stripe_gateway import StripeClientProtocol, StripeGateway
 from cnes_domain.profiles import BillingMode
-from cnes_infra.auth.oidc import OidcPrincipal
-from cnes_infra.billing.dynamodb_catalog import DynamoBillingCatalog
-from cnes_infra.billing.stripe_gateway import StripeClientProtocol, StripeGateway
-from packages.cnes_infra.tests.billing.billing_factories import (
+from cnes_identity.oidc import OidcPrincipal
+from packages.cnes_control_plane.tests.billing.billing_factories import (
     NOW,
     TABLE_NAME,
     create_table,
     put_tenant,
 )
-from packages.cnes_infra.tests.billing.stripe_fakes import make_config
-from packages.cnes_infra.tests.contracts.clock import MutableClock
+from packages.cnes_control_plane.tests.billing.stripe_fakes import make_config
+from packages.cnes_control_plane.tests.contracts.clock import MutableClock
 from tests.chaos.test_stripe_customer_orphan_recovery import FakeStripeCustomers, FaultyDynamo
 
 pytestmark = [pytest.mark.chaos]

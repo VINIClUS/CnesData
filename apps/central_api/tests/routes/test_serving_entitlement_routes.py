@@ -20,6 +20,7 @@ from central_api.routes.serving import (
 from central_api.services.billing_gates import ApiBillingGates, TenantAccountResolver
 from central_api.services.serving_entitlement import EntitledServingAccess
 from central_api.serving.aws_signed import S3SignedServingAccess, SignedServingSettings
+from cnes_control_plane.billing.disabled import DisabledQuotaReservations
 from cnes_domain.billing.errors import BillingDependencyError
 from cnes_domain.billing.gate import (
     EntitlementGate,
@@ -31,7 +32,6 @@ from cnes_domain.billing.policy import EntitlementPolicy
 from cnes_domain.ports.object_store import ObjectStorePort
 from cnes_domain.ports.serving import ServingAccessPort, ServingGrant
 from cnes_domain.profiles import BillingMode
-from cnes_infra.billing.disabled import DisabledQuotaReservations
 
 from .billing_fakes import QUOTAS, make_snapshot
 

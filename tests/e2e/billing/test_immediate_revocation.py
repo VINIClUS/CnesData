@@ -4,6 +4,8 @@ from typing import Any, cast
 
 import pytest
 
+from cnes_control_plane.billing.settings import BillingSettings
+from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
 from cnes_domain.billing.errors import EntitlementDenied, PublishDenied
 from cnes_domain.billing.models import (
     AccessLevel,
@@ -26,10 +28,8 @@ from cnes_domain.control_plane.enums import RunState
 from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost
 from cnes_domain.ports.processing import CancelRunExecution, ProcessorExecutorPort
 from cnes_domain.profiles import BillingMode
-from cnes_infra.billing.settings import BillingSettings
-from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
-from packages.cnes_infra.tests.billing.quota_support import ACCOUNT, TENANT
-from packages.cnes_infra.tests.billing.revocation_support import (
+from packages.cnes_control_plane.tests.billing.quota_support import ACCOUNT, TENANT
+from packages.cnes_control_plane.tests.billing.revocation_support import (
     RUN_ID,
     claim_unit,
     event_of,
@@ -40,7 +40,7 @@ from packages.cnes_infra.tests.billing.revocation_support import (
     start_wave,
     stored_run,
 )
-from packages.cnes_infra.tests.billing.test_dynamodb_publication_fence import (
+from packages.cnes_control_plane.tests.billing.test_dynamodb_publication_fence import (
     guard,
     publish_command,
 )

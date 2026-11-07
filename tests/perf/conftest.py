@@ -79,7 +79,7 @@ def pg_perf_engine(perf_stack):
     from alembic import command
     from alembic.config import Config
     cfg = Config()
-    cfg.set_main_option("script_location", "cnes_infra:alembic")
+    cfg.set_main_option("script_location", "cnes_data:alembic")
     cfg.set_main_option("sqlalchemy.url", _PG_PERF_URL)
     command.upgrade(cfg, "head")
     engine = create_engine(_PG_PERF_URL)

@@ -19,8 +19,8 @@ from central_api.agent_auth import (
 )
 from central_api.schemas.raw_api import EdgeIdentity
 from cnes_domain.tenant import get_tenant_id
-from cnes_infra.auth import CertAuthority
-from cnes_infra.auth.errors import OAuthError
+from cnes_identity import CertAuthority
+from cnes_identity.errors import OAuthError
 
 _PROXY = "172.20.0.2"
 
@@ -152,14 +152,14 @@ def test_rejeita_agente_sem_refresh_token_ativo():
 def test_identidade_opcional_retorna_none_quando_mtls_desligado(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    monkeypatch.setattr("cnes_infra.config.AGENT_MTLS_REQUIRED", False)
+    monkeypatch.setattr("cnes_runtime.config.AGENT_MTLS_REQUIRED", False)
     assert agent_identity_if_required(_request(None, None, peer="203.0.113.7")) is None
 
 
 def test_identidade_opcional_exige_cert_quando_mtls_ligado(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    monkeypatch.setattr("cnes_infra.config.AGENT_MTLS_REQUIRED", True)
+    monkeypatch.setattr("cnes_runtime.config.AGENT_MTLS_REQUIRED", True)
     with pytest.raises(OAuthError):
         agent_identity_if_required(_request(_authority(), None))
 

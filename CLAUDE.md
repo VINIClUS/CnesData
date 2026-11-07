@@ -21,11 +21,12 @@ SIHD hospitalar. Roadmap: BPA, Esus PEC, HR PIS→CPF cross-walking.
 </project_context>
 
 <project_architecture>
-Monorepo uv workspace. 3 shared packages + 5 apps.
+Monorepo uv workspace. 8 bibliotecas + 6 apps; módulos diretamente em packages/<pacote>/,
+ao lado de tests/, sem src/<pacote> redundante.
 
-- **Data flow:** `[Edge: FB/SIHD] → dump_agent_go → MinIO (raw Parquet) →
-  central_api (queue) → data_processor (transform + upsert) →
-  Postgres Gold (dim_*, fato_*, RLS) → [External audit — out of scope]`
+- **Data flow atual:** Edge → manifests raw → central_api → control plane
+  (SQLite local / DynamoDB aws) → data_processor → artefatos/serving em
+  filesystem local / S3. Landing/Gold são legado aposentado (MIG-012).
 
 - **Deploy target:** não é Kubernetes. VPS (produção atual, Docker Compose
   via SSH forced-command) ou AWS (alvo, EPIC #94: Step Functions/ECS
@@ -117,46 +118,30 @@ Before code: wrap analysis in `<thinking>`. Tests first, implementation second.
 
 ## Commands
 
-```bash
-# Lint + type check (global; pyright strict em packages/*/src e apps/*/src)
-.venv/Scripts/ruff.exe check .
-.venv/Scripts/pyright.exe
-
-# Tests — rápidos (sem docker)
-.venv/Scripts/python.exe -m pytest \
-  -m "not integration and not postgres and not bigquery and not e2e and not stress and not soak \
-  and not spike and not windows_only and not s3_integration and not dynamodb_local" -q
-
-# Tests — single package/app
-.venv/Scripts/python.exe -m pytest packages/cnes_domain -q
-.venv/Scripts/python.exe -m pytest apps/data_processor -q
-
-# Tests — integration (requer docker compose up -d postgres)
-.venv/Scripts/python.exe -m pytest -m postgres -q
-
-# Coverage gates
-.venv/Scripts/python.exe -m pytest packages/ --cov --cov-config=pyproject.toml   # 100% branch
-.venv/Scripts/python.exe -m pytest apps/   --cov --cov-config=.coveragerc        # 90% line
-
-# Perf micro (todo PR)
-.venv/Scripts/python.exe -m pytest tests/perf/micro -m perf_micro --benchmark-only
-```
-
-Go agent tests + `central_api` local run: ver `apps/dump_agent_go/CLAUDE.md` e
-`apps/central_api/CLAUDE.md`.
+Validação local em série: `uv run ruff check .` → `uv run pyright` → pytest
+sem serviços. Comandos e exclusões canônicas: docs/development.md.
+Cobertura: packages 100% branch (pyproject.toml), apps 90% line (.coveragerc).
+Integrações e imagens no CI. Go: apps/dump_agent_go/CLAUDE.md.
 
 ## Monorepo map
 
 | Path | Type | Purpose |
 |---|---|---|
-| `packages/cnes_contracts/` | library | Canonical pydantic contracts + Protocols + JSON Schema export |
-| `packages/cnes_domain/` | library | Ports, models, pipeline, processing — domain core |
-| `packages/cnes_infra/` | library | Storage, ingestion, telemetry, migrations |
+| `packages/cnes_contracts/` | library | Contratos públicos: DTOs, manifests e colunas |
+| `packages/cnes_domain/` | library | Core: regras, entidades, ports e processamento puro |
+| `packages/cnes_data/` | library | Storage, RLS, ingestão, object stores e Alembic |
+| `packages/cnes_identity/` | library | JWT/OIDC, device flow, credenciais locais e mTLS |
+| `packages/cnes_governance/` | library | Auditoria operacional local e S3 Object Lock |
+| `packages/cnes_control_plane/` | library | Controle, billing transacional, execução e recuperação |
+| `packages/cnes_observability/` | library | Logging, tracing e contador de queries |
+| `packages/cnes_runtime/` | library | Configuração compartilhada e composição AWS |
 | `apps/central_api/` | FastAPI | Job orchestration, presigned URLs, health |
+| `apps/billing_worker/` | CLI | Ciclos agendados de billing |
 | `apps/data_processor/` | worker | Parquet → transform → Postgres Gold (CNES + SIHD + BPA + SIA adapters) |
 | `apps/dump_agent_go/` | edge agent | Go edge extractor (CNES FB + SIHD + BPA GDB + SIA DBF) |
 | `apps/cnes_db_migrator/` | init-container | Alembic `upgrade head` |
 | `apps/web_dashboard/` | SPA (Bun/React) | Dashboard, OIDC, ativação de agentes |
+| `ops/` | operation | Deploy VPS, configuração operacional e legado Infra |
 | `docs/` | documentation | Dictionaries, architecture, roadmap, perf |
 | `tests/perf/` | perf suite | micro / macro / stress / soak / spike tiers |
 
@@ -168,7 +153,7 @@ FIREBIRD_DLL, etc): ver `apps/<app>/CLAUDE.md`.
 
 ## Global conventions
 
-- No hardcoded paths/credentials — all via `cnes_infra.config` + `.env`.
+- No hardcoded paths/credentials — all via `cnes_runtime.config` + `.env`.
 - No `print()` — use `logging` with structured `key=value`.
 - DataFrames: columns novas via `with_columns`; nunca mutar input in-place.
 - DB connections em `finally` ou context managers (UoW pattern).

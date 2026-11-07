@@ -16,37 +16,41 @@ from uuid import uuid4
 
 import pytest
 
+from cnes_control_plane.billing import dynamodb_items as items
+from cnes_control_plane.billing.audit_outbox import DynamoBillingAudit
+from cnes_control_plane.billing.composition import BillingStorage, build_webhook_recovery
+from cnes_control_plane.billing.dynamodb_catalog import DynamoBillingCatalog
+from cnes_control_plane.billing.dynamodb_projection import DynamoEntitlementProjection
+from cnes_control_plane.billing.dynamodb_quota import DynamoQuotaReservations
+from cnes_control_plane.billing.dynamodb_revocation import DynamoRevocationStore
+from cnes_control_plane.billing.keys import usage_key
+from cnes_control_plane.billing.projector import ProjectorDependencies
+from cnes_control_plane.billing.settings import BillingSettings
+from cnes_control_plane.billing.stripe_gateway import StripeGateway, StripeGatewayConfig
+from cnes_control_plane.billing.webhook_inbox import WebhookInbox
+from cnes_control_plane.billing.webhook_inbox_items import INBOX_ENTITY, STRIPE_WEBHOOK_EVENT_TYPES
+from cnes_control_plane.billing.wiring import BillingGateResources, build_entitlement_gate
+from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
 from cnes_domain.billing import models
 from cnes_domain.billing.errors import RetryableBillingError
 from cnes_domain.billing.inbox import InboxProcessingState, RecoveryRequest
 from cnes_domain.billing.policy import EntitlementPolicy
 from cnes_domain.control_plane.entities import OutboxEvent
 from cnes_domain.profiles import BillingMode
-from cnes_infra.billing import dynamodb_items as items
-from cnes_infra.billing.audit_outbox import DynamoBillingAudit
-from cnes_infra.billing.composition import BillingStorage, build_webhook_recovery
-from cnes_infra.billing.dynamodb_catalog import DynamoBillingCatalog
-from cnes_infra.billing.dynamodb_projection import DynamoEntitlementProjection
-from cnes_infra.billing.dynamodb_quota import DynamoQuotaReservations
-from cnes_infra.billing.dynamodb_revocation import DynamoRevocationStore
-from cnes_infra.billing.keys import usage_key
-from cnes_infra.billing.projector import ProjectorDependencies
-from cnes_infra.billing.settings import BillingSettings
-from cnes_infra.billing.stripe_gateway import StripeGateway, StripeGatewayConfig
-from cnes_infra.billing.webhook_inbox import WebhookInbox
-from cnes_infra.billing.webhook_inbox_items import INBOX_ENTITY, STRIPE_WEBHOOK_EVENT_TYPES
-from cnes_infra.billing.wiring import BillingGateResources, build_entitlement_gate
-from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
-from packages.cnes_infra.tests.billing.billing_factories import make_account, make_plan
-from packages.cnes_infra.tests.billing.quota_support import ACCOUNT, make_limits, make_run_request
-from packages.cnes_infra.tests.billing.revocation_support import (
+from packages.cnes_control_plane.tests.billing.billing_factories import make_account, make_plan
+from packages.cnes_control_plane.tests.billing.quota_support import (
+    ACCOUNT,
+    make_limits,
+    make_run_request,
+)
+from packages.cnes_control_plane.tests.billing.revocation_support import (
     RevEnv,
     create_named_table,
     get_raw,
     lookup_period,
 )
-from packages.cnes_infra.tests.billing.test_control_plane_extensions import SpyClient
-from packages.cnes_infra.tests.contracts.clock import MutableClock
+from packages.cnes_control_plane.tests.billing.test_control_plane_extensions import SpyClient
+from packages.cnes_control_plane.tests.contracts.clock import MutableClock
 
 CLOCK_NAME = "cnesdata-bil-024"
 WEBHOOK_PATH = "/api/v1/billing/webhooks/stripe"
@@ -380,7 +384,7 @@ def _build_webhook_app(webhook_secret: str, target: InboxTarget) -> Any:
     from fastapi import FastAPI, HTTPException
 
     from central_api.routes import stripe_webhook as routes
-    from cnes_infra.billing.webhook_verifier import StripeWebhookVerifier
+    from cnes_control_plane.billing.webhook_verifier import StripeWebhookVerifier
 
     verifier = StripeWebhookVerifier(webhook_secret)
 

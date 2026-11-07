@@ -11,10 +11,10 @@ import pytest
 from central_api.composition import LocalRuntime, build_local_runtime
 from central_api.services.raw_ingestion import RawIngestionService
 from central_api.services.run_planning import RunPlanningService
+from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
+from cnes_data.object_store import FilesystemObjectStore
 from cnes_domain.profiles import ProfileNotImplemented, parse_profile
-from cnes_infra.audit.local_sink import LocalAuditSink
-from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
-from cnes_infra.object_store import FilesystemObjectStore
+from cnes_governance.local_sink import LocalAuditSink
 
 
 def _utc_now() -> datetime:

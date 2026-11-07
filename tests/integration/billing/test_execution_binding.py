@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, cast
 import pytest
 
 from apps.data_processor.tests.orchestration.test_coordinator import _processor
+from cnes_control_plane.persistence.dynamodb_billing import CLAIM_BIND_BACKOFF_SECONDS
 from cnes_domain.billing.errors import EntitlementDenied, PermanentBillingError
 from cnes_domain.control_plane.commands import BindRunDispatch, ReserveRunDispatch
 from cnes_domain.control_plane.entities import RunDispatch
@@ -15,7 +16,6 @@ from cnes_domain.control_plane.enums import DispatchState
 from cnes_domain.control_plane.errors import LeaseLost
 from cnes_domain.orchestration.planner import RunPlan, logical_wave_id, ready_units
 from cnes_domain.ports.processing import CancelRunExecution
-from cnes_infra.control_plane.dynamodb_billing import CLAIM_BIND_BACKOFF_SECONDS
 from data_processor.orchestration.unit_worker import UnitWorker, UnitWorkerDependencies
 from tests.integration.billing._execution_stack import (
     LEASE_SECONDS,
@@ -59,7 +59,7 @@ def stack(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[Stack]:
 @pytest.fixture(autouse=True)
 def sleeps(monkeypatch: pytest.MonkeyPatch) -> list[float]:
     delays: list[float] = []
-    monkeypatch.setattr("cnes_infra.control_plane.dynamodb_billing.sleep", delays.append)
+    monkeypatch.setattr("cnes_control_plane.persistence.dynamodb_billing.sleep", delays.append)
     return delays
 
 

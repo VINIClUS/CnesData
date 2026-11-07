@@ -18,9 +18,9 @@ from central_api.services.national_ingestion import (
     NationalRefreshRequest,
 )
 from cnes_contracts import SnapshotMode, SourceType
+from cnes_data.ingestion import DatasusCnesRawAdapter, DatasusCnesRequest
 from cnes_domain.control_plane.enums import JobState
 from cnes_domain.control_plane.queries import RawIdentity, RawManifestChainQuery
-from cnes_infra.ingestion import DatasusCnesRawAdapter, DatasusCnesRequest
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

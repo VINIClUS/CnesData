@@ -4,7 +4,7 @@ import logging
 
 import polars as pl
 
-from cnes_domain.contracts.sihd_columns import SCHEMA_AIH
+from cnes_contracts.sihd_columns import SCHEMA_AIH
 
 logger = logging.getLogger(__name__)
 

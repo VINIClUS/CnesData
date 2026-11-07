@@ -3,8 +3,8 @@
 ## Executive Summary
 
 Single source of truth for domain contracts: pydantic v2 models for every
-Gold dim/fato, `landing.extractions`, job status enum, and PEP 544
-Protocols for storage/mapper ports. JSON Schema exported to
+Gold dim/fato, `landing.extractions`, job status enum, e DTOs públicos. Ports pertencem ao Core; o protocolo SQL legado pertence
+a Data. JSON Schema exported to
 `docs/contracts/schemas/` for consumption by non-Python agents
 (oapi-codegen Go). Zero infra dependency — pure types.
 
@@ -16,12 +16,13 @@ Protocols for storage/mapper ports. JSON Schema exported to
 | `fatos.py` | `VinculoCNES`, `ProducaoAmbulatorial`, `Internacao`, `ProcedimentoAIH` |
 | `landing.py` | `Extraction`, `ExtractionRegisterPayload`, `FileManifest`, `UploadUrlRequest`, `UploadUrlResponse`, `ExtractionFailPayload` |
 | `jobs.py` | `JobStatus` enum, `JobTransitionEvent` |
-| `protocols.py` | `DimLookupPort`, `RowMapperPort`, `ExtractionRepoPort`, `ExtractorPort` |
+| `cnes_domain.ports.extraction` / `cnes_data.storage.protocols` | `DimLookupPort`, `RowMapperPort`, `ExtractionRepoPort`, `ExtractorPort` |
 | `export.py` | `export_all(target_dir)` JSON Schema generator |
 
 ## Conventions
 
-- All pydantic models use `ConfigDict(frozen=True, strict=True)`.
+- Preservar `ConfigDict` dos modelos existentes. DTOs HTTP migrados mantêm
+  suas validações e mutabilidade; não aplicar frozen/strict por padronização.
 - Field constraints mirror SQL CHECK constraints (`pattern=`, `ge=`, `le=`, `Literal`).
 - Surrogate key fields: `sk_*: int = Field(gt=0)`.
 - Monetary: `BIGINT` cents via `int = Field(ge=0)`, name suffix `_cents`.
@@ -30,3 +31,6 @@ Protocols for storage/mapper ports. JSON Schema exported to
 
 - `strict=True` rejects `1.0` for `int` fields — always pass `int`.
 - `frozen=True` means `.model_copy(update=...)` is required for mutations.
+
+Código diretamente nesta pasta, ao lado de tests/. Empacotamento wheel mantém
+o namespace público. Fronteiras atuais: docs/architecture.md.

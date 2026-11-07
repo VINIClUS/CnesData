@@ -6,7 +6,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 
 from central_api.repositories.dashboard_repo import DashboardRepo
-from cnes_infra.storage.dim_lookup import upsert_dim_municipio
+from cnes_data.storage.dim_lookup import upsert_dim_municipio
 
 
 @pytest.fixture

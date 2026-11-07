@@ -6,8 +6,8 @@ from fastapi.testclient import TestClient
 
 from central_api.middleware import (
     QueryCounterMiddleware,
-    increment_query_count,
 )
+from cnes_observability.query_count import increment_query_count
 
 
 def _build_app(n_queries: int) -> FastAPI:

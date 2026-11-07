@@ -15,6 +15,8 @@ from central_api.services.serving_entitlement import (
     DatasetVersionReader,
     EntitledServingAccess,
 )
+from cnes_control_plane.billing.cache import LocalEntitlementCache
+from cnes_control_plane.billing.disabled import DisabledQuotaReservations, disabled_snapshot
 from cnes_domain.billing.errors import (
     BillingDependencyError,
     EntitlementDenied,
@@ -36,8 +38,6 @@ from cnes_domain.billing.policy import EntitlementPolicy
 from cnes_domain.control_plane.entities import DatasetVersion
 from cnes_domain.ports.serving import ServingAccessPort, ServingGrant, ServingRequest
 from cnes_domain.profiles import BillingMode
-from cnes_infra.billing.cache import LocalEntitlementCache
-from cnes_infra.billing.disabled import DisabledQuotaReservations, disabled_snapshot
 
 if TYPE_CHECKING:
     from cnes_domain.billing.ports import EntitlementProjectionPort

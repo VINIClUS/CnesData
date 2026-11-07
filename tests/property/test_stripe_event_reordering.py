@@ -13,8 +13,8 @@ from moto import mock_aws
 
 from cnes_domain.billing.inbox import InboxProcessingState
 from cnes_domain.billing.models import SubscriptionStatus
-from packages.cnes_infra.tests.billing.billing_factories import create_table
-from packages.cnes_infra.tests.billing.test_projector import (
+from packages.cnes_control_plane.tests.billing.billing_factories import create_table
+from packages.cnes_control_plane.tests.billing.test_projector import (
     PRICE_V1,
     PRICE_V2,
     ProjectorEnv,

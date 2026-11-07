@@ -15,14 +15,7 @@ from central_api.services.run_planning import RunPlanningDependencies, RunPlanni
 from central_api.services.serving_access import LocalServingAccess
 from central_api.services.serving_entitlement import EntitledServingAccess
 from central_api.serving.aws_signed import S3SignedServingAccess, SignedServingSettings
-from cnes_domain.control_plane.entities import Tenant
-from cnes_domain.orchestration.source_catalog import build_source_catalog
-from cnes_domain.ports.processing import ExecutionPolicyConfig
-from cnes_domain.profiles import ProfileNotImplemented, RuntimeProfile, parse_profile
-from cnes_infra.audit.local_sink import LocalAuditSink
-from cnes_infra.auth.dynamodb_memberships import DynamoDBMembershipCandidates
-from cnes_infra.aws import AwsRuntimeSettings, build_aws_runtime, create_aws_clients
-from cnes_infra.billing import (
+from cnes_control_plane.billing import (
     LOCAL_BILLING_SETTINGS,
     BillingGateResources,
     BillingSettings,
@@ -30,11 +23,21 @@ from cnes_infra.billing import (
     build_billing_enforcement,
     build_execution_callbacks,
 )
-from cnes_infra.billing.dynamodb_catalog import DynamoBillingCatalog
-from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
-from cnes_infra.executor.local_pool import LocalWorkerPool
-from cnes_infra.executor.step_functions import StepFunctionsExecutor, validate_state_machine
-from cnes_infra.object_store import FilesystemObjectStore
+from cnes_control_plane.billing.dynamodb_catalog import DynamoBillingCatalog
+from cnes_control_plane.execution.local_pool import LocalWorkerPool
+from cnes_control_plane.execution.step_functions import (
+    StepFunctionsExecutor,
+    validate_state_machine,
+)
+from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
+from cnes_data.object_store import FilesystemObjectStore
+from cnes_domain.control_plane.entities import Tenant
+from cnes_domain.orchestration.source_catalog import build_source_catalog
+from cnes_domain.ports.processing import ExecutionPolicyConfig
+from cnes_domain.profiles import ProfileNotImplemented, RuntimeProfile, parse_profile
+from cnes_governance.local_sink import LocalAuditSink
+from cnes_identity.dynamodb_memberships import DynamoDBMembershipCandidates
+from cnes_runtime.aws import AwsRuntimeSettings, build_aws_runtime, create_aws_clients
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -53,7 +56,7 @@ if TYPE_CHECKING:
         StartRunExecution,
     )
     from cnes_domain.profiles import ProfileSettings
-    from cnes_infra.aws import AwsClients, AwsRuntimeComponents
+    from cnes_runtime.aws import AwsClients, AwsRuntimeComponents
 
     class _RawQueryControlPlane(ControlPlanePort, TypedRawQueryPort, Protocol):
         pass

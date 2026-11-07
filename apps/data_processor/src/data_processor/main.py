@@ -14,9 +14,9 @@ from typing import TYPE_CHECKING
 from boto3.session import Session
 
 from cnes_domain.outbox_dispatcher import dispatch_once
-from cnes_infra import config
-from cnes_infra.observability import configure_json_stdout
-from cnes_infra.telemetry import init_telemetry
+from cnes_observability import configure_json_stdout
+from cnes_observability.telemetry import init_telemetry
+from cnes_runtime import config
 from data_processor.aws_entrypoint import run_aws_entrypoint
 from data_processor.composition import build_processor_runtime
 

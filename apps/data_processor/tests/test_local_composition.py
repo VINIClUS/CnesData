@@ -8,6 +8,8 @@ import pytest
 
 from cnes_contracts.manifests.processing import NormalizeRequest
 from cnes_contracts.manifests.raw import SourceType
+from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
+from cnes_data.object_store import FilesystemObjectStore
 from cnes_domain.control_plane.entities import RunDependency
 from cnes_domain.orchestration.source_catalog import (
     PipelineLayout,
@@ -15,9 +17,7 @@ from cnes_domain.orchestration.source_catalog import (
     build_source_catalog,
 )
 from cnes_domain.profiles import ProfileNotImplemented, parse_profile
-from cnes_infra.audit.local_sink import LocalAuditSink
-from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
-from cnes_infra.object_store import FilesystemObjectStore
+from cnes_governance.local_sink import LocalAuditSink
 from data_processor.composition import (
     LocalProcessorRuntime,
     UnsupportedSourceType,

@@ -4,9 +4,9 @@ from typing import TYPE_CHECKING, cast
 import pytest
 
 from central_api.services.raw_enqueue import RawEnqueueRequest, RawEnqueueService
+from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
 from cnes_domain.control_plane.enums import JobState
 from cnes_domain.control_plane.errors import Conflict
-from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
 
 if TYPE_CHECKING:
     from cnes_domain.control_plane.entities import Job

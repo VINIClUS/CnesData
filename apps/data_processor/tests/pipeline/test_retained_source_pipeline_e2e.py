@@ -17,6 +17,13 @@ from apps.data_processor.tests.sources.sihd import raw_spec as sihd_spec
 from central_api.services.run_planning import RunPlanningDependencies, RunPlanningService
 from cnes_contracts.manifests.outputs import RunManifest
 from cnes_contracts.manifests.raw import RawManifest, SourceType
+from cnes_control_plane.billing import (
+    LOCAL_BILLING_SETTINGS,
+    BillingGateResources,
+    build_execution_callbacks,
+)
+from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
+from cnes_data.object_store import FilesystemObjectStore
 from cnes_domain.control_plane.entities import RawManifestRecord, Run, RunUnit, Tenant
 from cnes_domain.control_plane.enums import RunStage, RunState, RunUnitState
 from cnes_domain.orchestration.planner import PlanRequest, RawManifestRef, plan_run
@@ -28,13 +35,6 @@ from cnes_domain.ports.processing import (
     RunUnitMessage,
     StartRunExecution,
 )
-from cnes_infra.billing import (
-    LOCAL_BILLING_SETTINGS,
-    BillingGateResources,
-    build_execution_callbacks,
-)
-from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
-from cnes_infra.object_store import FilesystemObjectStore
 from data_processor.composition import build_source_registry
 from data_processor.orchestration.coordinator import (
     CoordinatorDependencies,

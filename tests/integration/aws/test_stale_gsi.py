@@ -6,11 +6,11 @@ from typing import TYPE_CHECKING, cast
 import pytest
 
 from central_api.auth.aws_oidc import MembershipAuthorizer, TenantAccessDenied
+from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
+from cnes_control_plane.persistence.dynamodb_keys import entity_key
 from cnes_domain.control_plane.commands import ClaimJob
 from cnes_domain.control_plane.enums import JobState
-from cnes_infra.auth.dynamodb_memberships import DynamoDBMembershipCandidates
-from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
-from cnes_infra.control_plane.dynamodb_keys import entity_key
+from cnes_identity.dynamodb_memberships import DynamoDBMembershipCandidates
 from tests.integration.aws._doubles import QueryRecorder, StaleQueryClient
 from tests.integration.aws._harness import (
     NACIONAL,

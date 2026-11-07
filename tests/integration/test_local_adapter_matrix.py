@@ -70,13 +70,13 @@ class _InterruptedControlPlane:
 
 @pytest.mark.local_profile
 def test_exports_publicos_sao_unicos_e_dispatcher_permanece_no_dominio() -> None:
-    import cnes_infra
-    from cnes_infra import audit, control_plane, object_store
-    from cnes_infra.audit import LocalAuditSink, S3ObjectLockAuditSink
-    from cnes_infra.control_plane import DynamoDBControlPlane, SQLiteControlPlane
-    from cnes_infra.object_store import FilesystemObjectStore, S3ObjectStore, S3Retention
+    import cnes_governance as audit
+    from cnes_control_plane import persistence as control_plane
+    from cnes_control_plane.persistence import DynamoDBControlPlane, SQLiteControlPlane
+    from cnes_data import object_store
+    from cnes_data.object_store import FilesystemObjectStore, S3ObjectStore, S3Retention
+    from cnes_governance import LocalAuditSink, S3ObjectLockAuditSink
 
-    assert cnes_infra.__all__ == ("audit", "control_plane", "object_store")
     assert control_plane.__all__ == ("DynamoDBControlPlane", "SQLiteControlPlane")
     assert object_store.__all__ == ("FilesystemObjectStore", "S3ObjectStore", "S3Retention")
     assert audit.__all__ == ("LocalAuditSink", "S3ObjectLockAuditSink")
@@ -102,14 +102,19 @@ def test_exports_publicos_sao_unicos_e_dispatcher_permanece_no_dominio() -> None
         "S3ObjectLockAuditSink",
         "dispatch_once",
     }
-    assert aliases.isdisjoint(vars(cnes_infra))
+    owners = (audit, control_plane, object_store)
+    assert all(
+        sum(name in module.__all__ for module in owners) == 1
+        for name in aliases - {"dispatch_once"}
+    )
+    assert all("dispatch_once" not in module.__all__ for module in owners)
 
 
 @pytest.mark.local_profile
 def test_reabre_adapters_e_conclui_replay_sem_duplicar_efeitos(tmp_path: Path) -> None:
-    from cnes_infra.audit import LocalAuditSink
-    from cnes_infra.control_plane import SQLiteControlPlane
-    from cnes_infra.object_store import FilesystemObjectStore
+    from cnes_control_plane.persistence import SQLiteControlPlane
+    from cnes_data.object_store import FilesystemObjectStore
+    from cnes_governance import LocalAuditSink
 
     database_path = tmp_path / "control-plane.sqlite3"
     object_root = tmp_path / "objects"

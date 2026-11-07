@@ -302,9 +302,9 @@ dimensão ou unidade fora do contrato é descartada com log `billing_metric_reje
 | `ShadowEntitlementDenials` | Count | Observador de shadow dos gates de API, por `Reason` (negação hipotética auditada) |
 | `ShadowObserverFailures` | Count | Observador de shadow: dependência falhou (DynamoDB, timeout, erro inesperado); nunca vira audit |
 
-O sink é `CloudWatchBillingMetrics` (`cnes_infra.billing.metrics`), com `Environment` de
+O sink é `CloudWatchBillingMetrics` (`cnes_control_plane.billing.metrics`), com `Environment` de
 `BILLING_METRICS_ENVIRONMENT`; sem a variável as métricas são descartadas. O sink escreve no
-stdout por um logger próprio (`cnes_infra.billing.metrics.emf`, sem propagação) com o formatter
+stdout por um logger próprio (`cnes_control_plane.billing.metrics.emf`, sem propagação) com o formatter
 JSON, então o documento EMF sai numa linha JSON qualquer que seja a configuração de logging do
 processo (worker ou API).
 `QuotaReservationsActive` e `EntitlementSnapshotAgeSeconds` ainda não têm emissor (sem ponto
@@ -326,7 +326,7 @@ especificação de deploy separada; a lacuna está registrada no EPIC #95.
 ## Inventário de audit events
 
 Eventos duráveis (outbox), iguais ao `AUDIT_EVENT_INVENTORY` de
-`packages/cnes_infra/tests/billing/test_audit_inventory.py`.
+`packages/cnes_control_plane/tests/billing/test_audit_inventory.py`.
 
 | Categoria | Eventos |
 |---|---|

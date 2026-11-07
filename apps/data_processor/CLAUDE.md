@@ -40,14 +40,15 @@ do perfil (SQLite local ou DynamoDB), nunca em Postgres.
 ## Requirements
 
 **Runtime deps (apps/data_processor/pyproject.toml):** `sqlalchemy`, `psycopg`,
-`polars`, `httpx`, `boto3` (via `cnes_infra`), `cnes_domain`, `cnes_infra`.
+`polars`, `httpx`, `boto3`, `cnes_domain`, `cnes_data`, `cnes_control_plane`, `cnes_runtime` e
+`cnes_observability`.
 
 **Env vars:**
 
 | Var | Obrigatória | Descrição |
 |---|---|---|
 | `PROFILE` | sim | `local` ou `aws`; ausente/outro valor sai com 1 (`profile_required`) |
-| `DB_URL` | sim (import) | Exigida por `cnes_infra.config` no import; placeholder, nunca conectada |
+| `DB_URL` | sim (import) | Exigida por `cnes_runtime.config` no import; placeholder, nunca conectada |
 | `TENANT_ID` | sim (`local`) | Tenant semeado no control plane SQLite |
 | `DATA_DIR` | opcional (`local`) | Raiz do SQLite/filesystem; default em `cnes_domain.profiles` |
 | `PROCESSOR_POLL_INTERVAL` | opcional | Intervalo do loop de recuperação local, default `5.0` s |
@@ -83,7 +84,7 @@ do perfil (SQLite local ou DynamoDB), nunca em Postgres.
 ## Gotchas
 
 - **`fontes` JSONB merge + `vinculo_repo` upsert:** ver
-  `packages/cnes_infra/CLAUDE.md` (Gotchas) — regras únicas, não duplicar aqui.
+  `packages/cnes_data/CLAUDE.md` (Gotchas) — regras únicas, não duplicar aqui.
 - **CircuitBreaker é sync + async, APIs separadas:** use `.call()` para
   função síncrona, `.call_async()` para coroutine. Misturar dispara
   `TypeError` explícito (evita falha silenciosa que motivou o fix original).

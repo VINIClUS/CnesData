@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 import polars as pl
 import pytest
 
-from cnes_domain.contracts.columns import (
+from cnes_contracts.columns import (
     SCHEMA_ESTABELECIMENTO,
     SCHEMA_PROFISSIONAL,
 )
@@ -240,7 +240,7 @@ class TestSihdLocalAdapter:
         })
 
     def test_renomeia_colunas_raw_para_canonico(self):
-        from cnes_domain.contracts.sihd_columns import SCHEMA_AIH
+        from cnes_contracts.sihd_columns import SCHEMA_AIH
         from data_processor.adapters.sihd_local_adapter import SihdLocalAdapter
         df = SihdLocalAdapter(self._make_raw_aihs()).listar_aihs()
         assert "NUM_AIH" in df.columns

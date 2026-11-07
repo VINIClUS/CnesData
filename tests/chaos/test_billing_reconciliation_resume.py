@@ -10,6 +10,18 @@ from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Any
 
+from cnes_control_plane.billing.audit_outbox import DynamoBillingAudit
+from cnes_control_plane.billing.dynamodb_catalog import DynamoBillingCatalog
+from cnes_control_plane.billing.dynamodb_items import encode_snapshot
+from cnes_control_plane.billing.dynamodb_projection import DynamoEntitlementProjection
+from cnes_control_plane.billing.reconciliation import (
+    BillingReconciler,
+    ReconciliationDependencies,
+)
+from cnes_control_plane.billing.reconciliation_cursor import (
+    DynamoReconciliationCursor,
+    ReconciliationCursor,
+)
 from cnes_domain.billing.commands import StripeBillingState, StripeStateRequest
 from cnes_domain.billing.errors import RetryableBillingError
 from cnes_domain.billing.inbox import ReconciliationRequest, ReconciliationResult
@@ -20,32 +32,20 @@ from cnes_domain.billing.models import (
 )
 from cnes_domain.billing.revocation import RevocationPhase, RevocationSettings
 from cnes_domain.control_plane.enums import RunState
-from cnes_infra.billing.audit_outbox import DynamoBillingAudit
-from cnes_infra.billing.dynamodb_catalog import DynamoBillingCatalog
-from cnes_infra.billing.dynamodb_items import encode_snapshot
-from cnes_infra.billing.dynamodb_projection import DynamoEntitlementProjection
-from cnes_infra.billing.reconciliation import (
-    BillingReconciler,
-    ReconciliationDependencies,
-)
-from cnes_infra.billing.reconciliation_cursor import (
-    DynamoReconciliationCursor,
-    ReconciliationCursor,
-)
-from packages.cnes_infra.tests.billing.billing_factories import (
+from packages.cnes_control_plane.tests.billing.billing_factories import (
     NOW,
     make_create_command,
     make_plan,
     make_snapshot,
     put_tenant,
 )
-from packages.cnes_infra.tests.billing.dynamodb_catalog_support import attach
-from packages.cnes_infra.tests.billing.revocation_support import (
+from packages.cnes_control_plane.tests.billing.dynamodb_catalog_support import attach
+from packages.cnes_control_plane.tests.billing.revocation_support import (
     RevEnv,
     open_env,
     stored_run,
 )
-from packages.cnes_infra.tests.billing.test_dynamodb_revocation_service import (
+from packages.cnes_control_plane.tests.billing.test_dynamodb_revocation_service import (
     RecordingExecutor,
     ServiceOptions,
     build_service,

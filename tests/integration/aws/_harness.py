@@ -13,6 +13,13 @@ from central_api.services.raw_ingestion import RegisterRawManifest
 from central_api.serving.aws_signed import SignedServingRequest
 from cnes_contracts.manifests.outputs import OutputManifest, RunManifest
 from cnes_contracts.manifests.raw import RawManifest, SnapshotMode, SourceType
+from cnes_control_plane.persistence.dynamodb_codec import decode_model
+from cnes_control_plane.persistence.dynamodb_keys import (
+    dispatch_key,
+    entity_key,
+    idempotency_key,
+    item_key,
+)
 from cnes_domain.control_plane.commands import (
     ClaimJob,
     ClaimRunUnit,
@@ -39,14 +46,7 @@ from cnes_domain.ports.processing import (
     StartRunExecution,
 )
 from cnes_domain.ports.serving import ServingRequest
-from cnes_infra.auth.oidc import OidcPrincipal
-from cnes_infra.control_plane.dynamodb_codec import decode_model
-from cnes_infra.control_plane.dynamodb_keys import (
-    dispatch_key,
-    entity_key,
-    idempotency_key,
-    item_key,
-)
+from cnes_identity.oidc import OidcPrincipal
 from data_processor.orchestration.attempt_store import attempt_object_key, unit_attempt_prefix
 from data_processor.orchestration.coordinator import (
     CoordinatorDependencies,
@@ -64,7 +64,7 @@ if TYPE_CHECKING:
     from cnes_domain.ports.control_plane import ControlPlanePort
     from data_processor.composition import ProcessorRuntimeComponents
     from data_processor.orchestration.publisher import PublishResult
-    from packages.cnes_infra.tests.contracts.clock import MutableClock
+    from packages.cnes_control_plane.tests.contracts.clock import MutableClock
     from tests.integration.aws._doubles import RecordingS3Client, RecordingStepFunctionsClient
 
 TENANT = "354130"

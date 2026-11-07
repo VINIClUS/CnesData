@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
+from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
+from cnes_data.object_store.filesystem import FilesystemObjectStore
 from cnes_domain.control_plane.commands import (
     ClaimRunUnit,
     CommitRunUnit,
@@ -30,8 +32,6 @@ from cnes_domain.control_plane.entities import (
 )
 from cnes_domain.control_plane.enums import RunStage, RunState, RunUnitState
 from cnes_domain.control_plane.errors import Conflict, ControlPlaneErrorCode
-from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
-from cnes_infra.object_store.filesystem import FilesystemObjectStore
 
 if TYPE_CHECKING:
     from collections.abc import Callable

@@ -7,6 +7,7 @@ from hashlib import sha256
 from typing import TYPE_CHECKING, Protocol
 from uuid import uuid4
 
+from cnes_control_plane.persistence.edge_registration import EntitlementFence, NewEdgeAgent
 from cnes_domain.billing.commands import (
     CapacityReservationCommand,
     ConsumeCapacityCommand,
@@ -19,7 +20,6 @@ from cnes_domain.billing.shadow import ShadowObservation
 from cnes_domain.control_plane.enums import AgentState
 from cnes_domain.control_plane.errors import Conflict
 from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
-from cnes_infra.control_plane.edge_registration import EntitlementFence, NewEdgeAgent
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -27,9 +27,9 @@ if TYPE_CHECKING:
 
     from central_api.schemas.raw_api import EdgeIdentity
     from central_api.services.billing_gates import ApiBillingGates
+    from cnes_control_plane.persistence.edge_registration import EdgeAgentCreation
     from cnes_domain.billing.models import EntitlementDecision
     from cnes_domain.control_plane.entities import Agent
-    from cnes_infra.control_plane.edge_registration import EdgeAgentCreation
 
 
 class EdgeAgentRegistry(Protocol):

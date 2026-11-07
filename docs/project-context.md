@@ -85,7 +85,7 @@ state, and deploy target.
 
 ## Source Contracts
 
-Landing source types are defined in `packages/cnes_contracts/src/cnes_contracts/landing.py`.
+Landing source types are defined in `packages/cnes_contracts/landing.py`.
 
 | Source type | Meaning | File subtypes |
 |---|---|---|

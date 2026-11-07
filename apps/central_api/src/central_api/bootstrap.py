@@ -18,10 +18,10 @@ from datetime import UTC, datetime
 from getpass import getpass
 from typing import TYPE_CHECKING, cast
 
+from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
 from cnes_domain.control_plane.entities import Membership
 from cnes_domain.profiles import ProfileSettings, parse_local_profile
-from cnes_infra.auth.local_credentials import LocalCredentialStore, build_user
-from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
+from cnes_identity.local_credentials import LocalCredentialStore, build_user
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

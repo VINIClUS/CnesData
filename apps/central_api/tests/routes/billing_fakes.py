@@ -38,7 +38,7 @@ from cnes_domain.billing.ports import (
 from cnes_domain.control_plane.entities import Membership
 from cnes_domain.ports.control_plane import ControlPlanePort
 from cnes_domain.profiles import BillingMode
-from cnes_infra.auth.oidc import OidcPrincipal
+from cnes_identity.oidc import OidcPrincipal
 
 NOW = datetime(2026, 9, 30, 12, tzinfo=UTC)
 CLIENT_KEY = "client-key-0123456789"

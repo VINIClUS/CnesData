@@ -5,7 +5,7 @@ from sqlalchemy import text
 from tests.perf.soak._harness import run_soak
 
 EstabelecimentoRepository = pytest.importorskip(
-    "cnes_infra.storage.repositories.estabelecimento_repo",
+    "cnes_data.storage.repositories.estabelecimento_repo",
     reason="repositório ausente do develop reconciliado",
 ).EstabelecimentoRepository
 

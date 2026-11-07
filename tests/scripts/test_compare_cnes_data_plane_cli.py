@@ -19,7 +19,7 @@ def _make_client() -> MagicMock:
     return client
 
 
-@patch("cnes_infra.storage.s3_presigned.build_s3_client")
+@patch("cnes_data.storage.s3_presigned.build_s3_client")
 def test_shadow_store_isola_prefixo_por_run(mock_build_client):
     from scripts.compare_cnes_data_plane_cli import _shadow_store
 

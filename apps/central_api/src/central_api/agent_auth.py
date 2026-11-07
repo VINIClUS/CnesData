@@ -11,15 +11,15 @@ from fastapi import Request  # noqa: TC002
 from central_api.ratelimit import is_trusted_proxy_peer
 from central_api.schemas.raw_api import EdgeIdentity
 from cnes_domain.tenant import set_tenant_id
-from cnes_infra import config
-from cnes_infra.auth import (
+from cnes_identity import (
     extract_peer_cert,
     read_agent_id,
     read_machine_id,
     read_tenant_id,
     verify_peer_cert,
 )
-from cnes_infra.auth.errors import OAuthError
+from cnes_identity.errors import OAuthError
+from cnes_runtime import config
 
 
 @dataclass(frozen=True, slots=True)

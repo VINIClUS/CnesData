@@ -156,7 +156,7 @@ class TestLocalCompositionDependencies:
         from starlette.requests import Request
 
         from central_api.deps import _serving_principal_resolver
-        from cnes_infra.auth.local_auth import AuthenticationRejected, AuthRejectionCode
+        from cnes_identity.local_auth import AuthenticationRejected, AuthRejectionCode
 
         auth_service = MagicMock()
         auth_service.resolve_session.side_effect = AuthenticationRejected(
@@ -179,7 +179,7 @@ _ENQUEUE_BODY = {
 
 @pytest.fixture
 def admin_token(monkeypatch):
-    from cnes_infra import config
+    from cnes_runtime import config
     monkeypatch.setattr(config, "ADMIN_TOKEN", _ADMIN_KEY)
     return _ADMIN_KEY
 
@@ -188,13 +188,13 @@ class TestAdminTokenGuard:
     @pytest.fixture
     def reap_expired(self):
         with patch(
-            "cnes_infra.storage.extractions_repo.reap_expired", return_value=0,
+            "cnes_data.storage.extractions_repo.reap_expired", return_value=0,
         ) as m:
             yield m
 
     @pytest.fixture
     def enqueue(self):
-        with patch("cnes_infra.storage.extractions_repo.enqueue") as m:
+        with patch("cnes_data.storage.extractions_repo.enqueue") as m:
             yield m
 
     @pytest.mark.parametrize("headers", [
@@ -234,7 +234,7 @@ class TestAdminTokenGuard:
     def test_rotas_admin_desativadas_sem_token_configurado(
         self, app, monkeypatch, reap_expired, enqueue, path,
     ):
-        from cnes_infra import config
+        from cnes_runtime import config
         monkeypatch.setattr(config, "ADMIN_TOKEN", "")
         with TestClient(app) as c:
             resp = c.post(path, json=_ENQUEUE_BODY, headers={"X-Admin-Token": ""})

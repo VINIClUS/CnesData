@@ -8,6 +8,10 @@ from unittest.mock import patch
 
 import pytest
 
+from cnes_control_plane.billing.disabled import (
+    DisabledEntitlementProjection,
+    DisabledQuotaReservations,
+)
 from cnes_domain.billing.commands import CreateRunRequest, GateRequest, ReserveRunCommand
 from cnes_domain.billing.gate import (
     EntitlementGate,
@@ -18,7 +22,6 @@ from cnes_domain.billing.models import ReadConsistency
 from cnes_domain.billing.policy import EntitlementPolicy
 from cnes_domain.control_plane.entities import RunDependency
 from cnes_domain.profiles import BillingMode
-from cnes_infra.billing.disabled import DisabledEntitlementProjection, DisabledQuotaReservations
 
 if TYPE_CHECKING:
     from cnes_domain.billing.models import EntitlementSnapshot
@@ -98,7 +101,7 @@ def test_gate_local_disabled_autoriza_run_sem_rede(monkeypatch: pytest.MonkeyPat
 @pytest.mark.negative
 def test_import_do_modo_disabled_nao_carrega_sdk_remoto() -> None:
     probe = (
-        "import sys, cnes_infra.billing.disabled; "
+        "import sys, cnes_control_plane.billing.disabled; "
         f"print(','.join(m for m in {_REMOTE_MODULES!r} if m in sys.modules))"
     )
     loaded = subprocess.run(  # noqa: S603

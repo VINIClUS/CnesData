@@ -6,12 +6,12 @@ from central_api.deps import require_auth
 from central_api.middleware import AuthenticatedUser
 from central_api.ratelimit import limiter
 from cnes_domain.tenant import set_tenant_id
-from cnes_infra.auth import (
+from cnes_identity import (
     DeviceAuthorizationRequest,
     DeviceAuthorizationResponse,
     TokenResponse,
 )
-from cnes_infra.auth.errors import OAuthError
+from cnes_identity.errors import OAuthError
 
 router = APIRouter(tags=["oauth"])
 

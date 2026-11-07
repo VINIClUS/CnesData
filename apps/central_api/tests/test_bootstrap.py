@@ -7,13 +7,13 @@ from typing import TYPE_CHECKING
 import pytest
 
 from central_api.bootstrap import _resolve_password, bootstrap_user, main
+from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
 from cnes_domain.profiles import parse_profile
-from cnes_infra.auth.local_credentials import (
+from cnes_identity.local_credentials import (
     CredentialRejected,
     LocalCredentialStore,
     hash_password,
 )
-from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
 
 if TYPE_CHECKING:
     from pathlib import Path

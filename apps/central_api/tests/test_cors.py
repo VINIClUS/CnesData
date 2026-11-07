@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import pytest
 
-from cnes_infra import config
+from cnes_runtime import config
 
 
 def _make_app():
