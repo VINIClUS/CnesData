@@ -363,7 +363,42 @@ def test_recusa_evidencia_de_check_sem_autoridade(github, failure) -> None:
     assert github.downloads == []
 
 
-@pytest.mark.parametrize("failure", ["payload", "unchecked", "path", "symlink", "lock"])
+@pytest.mark.parametrize("check", CHECKS)
+@pytest.mark.parametrize("outcome", ["pending", "failed_after_merge", "unknown_start"])
+def test_recusa_execucao_mais_recente_nao_verde_no_merge(github, check, outcome) -> None:
+    checks = github.routes["commits/" + PR_SHA + "/check-runs"]["check_runs"]
+    newer = copy.deepcopy(next(item for item in checks if item["name"] == check))
+    newer.update(id=999, status="in_progress", conclusion=None,
+                 started_at="2026-11-07T18:30:00Z", completed_at=None)
+    if outcome == "failed_after_merge":
+        newer.update(status="completed", conclusion="failure", completed_at="2026-11-07T19:30:00Z")
+    elif outcome == "unknown_start":
+        newer.update(status="queued", started_at=None)
+    checks.append(newer)
+    with pytest.raises(ValueError, match="pull=not_green"):
+        _collect(github)
+    assert github.downloads == []
+
+
+@pytest.mark.parametrize("check", CHECKS)
+@pytest.mark.parametrize("outcome", ["pending", "failed"])
+def test_preserva_evidencia_historica_para_execucao_posterior_ao_merge(
+    github, check, outcome,
+) -> None:
+    checks = github.routes["commits/" + PR_SHA + "/check-runs"]["check_runs"]
+    original = next(item for item in checks if item["name"] == check)
+    newer = copy.deepcopy(original)
+    newer.update(id=999, status="in_progress", conclusion=None,
+                 started_at="2026-11-07T19:30:00Z", completed_at=None)
+    if outcome == "failed":
+        newer.update(status="completed", conclusion="failure", completed_at="2026-11-07T20:00:00Z")
+    checks.append(newer)
+    assert _collect(github)["pull_request"]["checks"][check]["id"] == original["id"]
+
+
+@pytest.mark.parametrize("failure", [
+    "payload", "unchecked", "path", "symlink", "lock", "directory",
+])
 def test_recusa_payload_ou_archive_adulterado(github, failure) -> None:
     name = "production-config"
     files = github.payloads[name]
@@ -379,17 +414,21 @@ def test_recusa_payload_ou_archive_adulterado(github, failure) -> None:
             contents["../outside"] = b"escape"
         elif failure == "lock":
             del contents["infra/opentofu/env/prod/.terraform.lock.hcl"]
+        elif failure == "directory":
+            del contents["uv.lock"]
         data = _tar(contents)
-        if failure == "symlink":
+        if failure in {"symlink", "directory"}:
             stream = io.BytesIO(data)
             with tarfile.open(fileobj=stream, mode="a") as archive:
-                link = tarfile.TarInfo("unsafe")
-                link.type, link.linkname = tarfile.SYMTYPE, "/etc/passwd"
-                archive.addfile(link)
+                member = tarfile.TarInfo("unsafe" if failure == "symlink" else "uv.lock")
+                member.type = tarfile.SYMTYPE if failure == "symlink" else tarfile.DIRTYPE
+                member.linkname = "/etc/passwd"
+                archive.addfile(member)
             data = stream.getvalue()
         github.payloads[name] = _payload({"config.tar": data})
     github.refresh(name)
-    with pytest.raises(ValueError):
+    reason = "config=missing_content" if failure == "directory" else None
+    with pytest.raises(ValueError, match=reason):
         _collect(github)
 
 

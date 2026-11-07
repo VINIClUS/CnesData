@@ -142,13 +142,14 @@ def _pull_request(api: Any, sha: str, repository: str) -> dict[str, Any]:
             and pr["base"]["repo"]["full_name"].lower() == repository.lower(), "pull=identity")
     checks = _pages(api, f"commits/{pr['head']['sha']}/check-runs?filter=all", "check_runs")
     merged = timestamp(pr["merged_at"])
-    eligible = [item for item in checks if item.get("completed_at")
-                and timestamp(item["completed_at"]) <= merged
+    eligible = [item for item in checks
+                if (not item.get("started_at") or timestamp(item["started_at"]) <= merged)
                 and (not required.get(item["name"])
                      or item.get("app", {}).get("id") == required[item["name"]])]
     latest = {item["name"]: item for item in sorted(eligible, key=lambda item: item["id"])}
     require(latest.keys() >= REQUIRED_CHECKS, "pull=checks_missing")
-    require(all(_green(latest[name], pr["head"]["sha"]) for name in REQUIRED_CHECKS),
+    require(all(_green(latest[name], pr["head"]["sha"]) and latest[name].get("completed_at")
+                and timestamp(latest[name]["completed_at"]) <= merged for name in REQUIRED_CHECKS),
             "pull=not_green")
     return {"number": pr["number"], "head_sha": pr["head"]["sha"], "merged_at": pr["merged_at"],
             "checks": {name: {"id": latest[name]["id"],
@@ -257,12 +258,13 @@ def _config_hashes(stream: IO[bytes]) -> dict[str, str]:
             names.add(member.name)
             require(member.isdir() or member.isfile(), "config=unsafe_type")
             require(len(names) <= 1000 and member.size <= MAX_METADATA_BYTES, "config=member_size")
-            if member.name in CONFIG_PATHS.values():
-                payload = archive.extractfile(member)
-                if payload is None:
-                    raise ValueError("config=missing_content")
-                with payload:
-                    result[member.name] = _hash(payload)
+            if member.name not in CONFIG_PATHS.values():
+                continue
+            payload = archive.extractfile(member)
+            if payload is None:
+                raise ValueError("config=missing_content")
+            with payload:
+                result[member.name] = _hash(payload)
     require(set(result) == set(CONFIG_PATHS.values()), "config=lock_missing")
     return result
 
