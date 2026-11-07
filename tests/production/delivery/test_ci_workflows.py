@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import subprocess
+import tarfile
 from pathlib import Path
 from shlex import split
 from typing import Any
@@ -114,19 +115,6 @@ def test_artifacts_tem_contrato_duravel_para_candidato() -> None:
         "production-dashboard",
         "production-config",
         "production-published-${{ matrix.app }}",
-        "source.sha",
-        "run.id",
-        "run.attempt",
-        "manifest.json",
-        "image.id",
-        "SHA256SUMS",
-        "deploy/compose.production.yaml",
-        "deploy/aws/config",
-        "uv.lock",
-        "bun.lock",
-        ".terraform.lock.hcl",
-        "schema_version",
-        "sbom.cdx.json",
     ):
         assert token in text, f"artifact_contract_missing={token}"
 
@@ -152,6 +140,21 @@ def test_dashboard_de_producao_recusa_api_relativa() -> None:
     assert "bun run build" in _commands(job)
     assert "-k test_dist_" in _commands(job)
     assert job["env"]["PRODUCTION_DIST"] == "apps/web_dashboard/dist"
+
+
+def test_dashboard_preserva_browser_do_lock_em_sistema_suportado() -> None:
+    job = _workflow()["jobs"]["dashboard"]
+    lock = (ROOT / "apps/web_dashboard/bun.lock").read_text()
+    versions = set(re.findall(r"@playwright/test@([\d.]+)", lock))
+    assert len(versions) == 1
+    version = versions.pop()
+    assert re.fullmatch(
+        rf"mcr\.microsoft\.com/playwright:v{re.escape(version)}-noble@sha256:[a-f0-9]{{64}}",
+        job["container"]["image"],
+    )
+    assert "PLAYWRIGHT_CHANNEL" not in job["env"]
+    assert "playwright install" not in _commands(job)
+    assert "PLAYWRIGHT_CHANNEL" not in DIST_ORACLE
 
 
 def test_emuladores_derrubados_com_always() -> None:
@@ -402,14 +405,10 @@ def test_publisher_so_publica_os_bytes_vinculados_ao_run(tmp_path: Path, case: s
         assert manifest["run_attempt"] == "1"
         assert manifest["config_digest"] == environment["LOADED_CONFIG"]
         assert manifest["image"] == "ghcr.io/viniclus/cnesdata/central_api"
-        assert (
-            manifest["image_archive_sha256"]
-            == hashlib.sha256((tmp_path / "image.tar").read_bytes()).hexdigest()
-        )
-        assert (
-            manifest["sbom_sha256"]
-            == hashlib.sha256((tmp_path / "sbom.cdx.json").read_bytes()).hexdigest()
-        )
+        files = {"image.tar": "image_archive_sha256", "sbom.cdx.json": "sbom_sha256"}
+        for name, field in files.items():
+            assert manifest[field] == hashlib.sha256((tmp_path / name).read_bytes()).hexdigest()
+        assert re.fullmatch(r"sha256:[0-9a-f]{64}", manifest["digest"])
 
 
 def _assert_no_image_build(calls: str) -> None:
@@ -452,3 +451,48 @@ def test_contrato_de_bytes_rejeita_comandos_efetivos_de_rebuild(
     assert result.returncode == 0, result.stderr
     with pytest.raises(AssertionError, match="image_rebuild_forbidden"):
         _assert_no_image_build((tmp_path / "docker.calls").read_text())
+
+
+def test_config_empacota_fontes_existentes_e_checksums_reais(tmp_path: Path) -> None:
+    paths = (
+        "deploy/compose.production.yaml",
+        "deploy/aws/config",
+        "uv.lock",
+        "apps/web_dashboard/bun.lock",
+        "infra/opentofu/env/prod/.terraform.lock.hcl",
+        "infra/opentofu/modules/observability/cost-manifest.json",
+        "policies",
+        "schemas/cost-manifest.schema.json",
+    )
+    for relative in paths:
+        source, target = ROOT / relative, tmp_path / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if source.is_dir():
+            shutil.copytree(source, target)
+        else:
+            shutil.copyfile(source, target)
+    job = _workflow()["jobs"]["opentofu-policy-cost"]
+    body = next(
+        s["run"]
+        for s in job["steps"]
+        if s.get("name") == "Package validated configuration and locks"
+    )
+    environment = dict(os.environ, GITHUB_SHA="a" * 40, GITHUB_RUN_ID="123", GITHUB_RUN_ATTEMPT="1")
+    result = subprocess.run(  # noqa: S603 -- Executes the checked-in artifact packaging step.
+        [require_tool("bash"), "-euo", "pipefail", "-c", body],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=5,
+    )
+    assert result.returncode == 0, result.stderr
+    with tarfile.open(tmp_path / "config-artifact/config.tar") as archive:
+        assert set(paths) <= set(archive.getnames())
+    sums = (tmp_path / "config-artifact/SHA256SUMS").read_text().splitlines()
+    for line in sums:
+        digest, name = line.split()
+        assert (
+            hashlib.sha256((tmp_path / "config-artifact" / name).read_bytes()).hexdigest() == digest
+        )

@@ -14,7 +14,7 @@
 # production-config: config.tar preserves repo-relative deploy/compose.production.yaml,
 # deploy/aws/config, uv.lock, apps/web_dashboard/bun.lock,
 # infra/opentofu/env/prod/.terraform.lock.hcl, infra/opentofu/modules/observability/cost-manifest.json,
-# infra/opentofu/policies and schemas/cost-manifest.schema.json.
+# policies and schemas/cost-manifest.schema.json.
 # source.sha, run.id, run.attempt, SHA256SUMS identify that archive. No rendered env or secret.
 # Verify every SHA256SUMS/manifest.sha256 before consumption. Retention: 30 days; expired
 # artifacts require a new successful verification run, never reconstruction from mutable tags.
@@ -89,6 +89,8 @@ jobs:
 
   dashboard:
     runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.59.1-noble@sha256:b0ab6f3cb99aa7803adbc14d9027ec1785fc6e433b97e134e0f8fe61683b6b53
     timeout-minutes: 15
     env:
       VITE_RUNTIME_POLICY: production
@@ -116,7 +118,7 @@ jobs:
         run: |
           bun run codegen
           bun run build --minify false
-          bunx --no-install playwright install --with-deps chromium
+          bunx --no-install playwright --version
       - name: Exercise compiled production client at HTTP boundary
         run: |
           uv run --no-build pytest -q tests/production/delivery/test_ci_workflows.py -k test_dist_ \
@@ -267,7 +269,7 @@ jobs:
           mkdir -p config-artifact
           tar -cf config-artifact/config.tar deploy/compose.production.yaml deploy/aws/config \
             uv.lock apps/web_dashboard/bun.lock infra/opentofu/env/prod/.terraform.lock.hcl \
-            infra/opentofu/modules/observability/cost-manifest.json infra/opentofu/policies \
+            infra/opentofu/modules/observability/cost-manifest.json policies \
             schemas/cost-manifest.schema.json
           cd config-artifact
           printf '%s\n' "$GITHUB_SHA" > source.sha
