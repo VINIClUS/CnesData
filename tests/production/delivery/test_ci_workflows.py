@@ -155,6 +155,8 @@ def test_dashboard_preserva_browser_do_lock_em_sistema_suportado() -> None:
     assert "PLAYWRIGHT_CHANNEL" not in job["env"]
     assert "playwright install" not in _commands(job)
     assert "PLAYWRIGHT_CHANNEL" not in DIST_ORACLE
+    steps = yaml.safe_dump(job["steps"])
+    assert steps.index("install -y --no-install-recommends unzip") < steps.index("oven-sh/")
 
 
 def test_emuladores_derrubados_com_always() -> None:
