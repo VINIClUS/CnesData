@@ -3,12 +3,13 @@
 # Download artifacts from that run only; never use deploy-* images or rebuild a candidate.
 # Names are stable; all paths below are relative to each downloaded artifact root.
 # production-oci-<central_api|data_processor>: image.tar (docker save, linux/amd64),
-# image.id (sha256 Docker config identity), sbom.cdx.json (CycloneDX), scan.json,
+# image.id (local Docker identity), sbom.cdx.json (CycloneDX), scan.json,
 # source.sha, run.id, run.attempt, SHA256SUMS (all payload files, sha256sum -c).
 # production-published-<app> (push/develop only): manifest.json with schema_version=1,
 # source_sha, run_id, run_attempt, image, digest (registry manifest sha256), config_digest,
 # image_archive_sha256, sbom_sha256; plus manifest.sha256. Registry tags are transport only.
-# Consumers must match config_digest to image.id, hashes to the OCI artifact, and use image@digest.
+# Consumers match config_digest to scan.json.Metadata.ImageID, hashes to the OCI artifact,
+# and use image@digest. image.id binds the loaded local image; it can be a manifest digest.
 # production-dashboard: dist.tar (dist contents at archive root), source.sha, run.id,
 # run.attempt, SHA256SUMS. This is the exact production build exercised by the dist gate.
 # production-config: config.tar preserves repo-relative deploy/compose.production.yaml,
@@ -311,6 +312,8 @@ jobs:
           test "$(cat source.sha)" = "$GITHUB_SHA"
           test "$(cat run.id)" = "$GITHUB_RUN_ID"
           test "$(cat run.attempt)" = "$GITHUB_RUN_ATTEMPT"
+          scanned_config="$(jq -er '.Metadata.ImageID' scan.json)"
+          [[ "$scanned_config" =~ ^sha256:[0-9a-f]{64}$ ]]
           docker load --input image.tar
           image_id="$(cat image.id)"
           test "$(docker image inspect --format '{{.Id}}' \
@@ -325,13 +328,16 @@ jobs:
           [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
           remote_config="$(docker buildx imagetools inspect "${image}@${digest}" --raw \
             | jq -r '.config.digest')"
-          test "$remote_config" = "$image_id"
+          [[ "$remote_config" =~ ^sha256:[0-9a-f]{64}$ ]]
+          printf 'action=verify_oci_identity local_id=%s scanned_config=%s remote_config=%s\n' \
+            "$image_id" "$scanned_config" "$remote_config"
+          test "$remote_config" = "$scanned_config"
           archive_sha="$(sha256sum image.tar | cut -d ' ' -f 1)"
           sbom_sha="$(sha256sum sbom.cdx.json | cut -d ' ' -f 1)"
           mkdir -p published
           jq -n --arg sha "$GITHUB_SHA" --arg run "$GITHUB_RUN_ID" \
             --arg attempt "$GITHUB_RUN_ATTEMPT" --arg image "$image" --arg digest "$digest" \
-            --arg config "$image_id" --arg archive "$archive_sha" --arg sbom "$sbom_sha" \
+            --arg config "$scanned_config" --arg archive "$archive_sha" --arg sbom "$sbom_sha" \
             '{schema_version:1,source_sha:$sha,run_id:$run,run_attempt:$attempt,image:$image,
               digest:$digest,config_digest:$config,image_archive_sha256:$archive,sbom_sha256:$sbom}' \
             > published/manifest.json
