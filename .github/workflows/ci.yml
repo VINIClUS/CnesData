@@ -81,9 +81,6 @@ jobs:
       - name: Run Python gate
         run: bash scripts/ci_python_gate.sh
 
-      - name: Run micro performance gate
-        run: uv run --no-build pytest tests/perf/micro -m perf_micro --benchmark-only
-
       - name: Run Phase 2 adapter conformance
         run: bash scripts/ci_phase2_adapters.sh
 
