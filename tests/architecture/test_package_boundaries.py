@@ -102,3 +102,18 @@ def test_dependencias_locais_declaradas_respeitam_o_grafo():
         assert dependencies.intersection(ALLOWED) <= allowed, package
         assert _package_dependencies(package).intersection(ALLOWED) <= dependencies, package
         assert (manifest.parent / "CLAUDE.md").exists(), package
+
+
+def test_sonar_classifica_testes_de_todas_capabilities_e_backup():
+    properties = dict(
+        line.split("=", 1) for line in (ROOT / "sonar-project.properties").read_text().splitlines()
+        if line.startswith(("sonar.sources=", "sonar.tests="))
+    )
+    test_roots = [ROOT / value for value in properties["sonar.tests"].split(",")]
+    source_roots = [ROOT / value for value in properties["sonar.sources"].split(",")]
+    for package in ALLOWED:
+        path = ROOT / "packages" / package / "tests"
+        assert any(path.is_relative_to(root) for root in test_roots), package
+    backup = ROOT / "ops" / "backup"
+    assert any(backup.is_relative_to(root) for root in source_roots)
+    assert any(backup.is_relative_to(root) for root in test_roots)

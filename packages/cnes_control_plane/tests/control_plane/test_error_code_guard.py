@@ -141,9 +141,18 @@ message = "Conflict('only_text')"
     assert _literal_error_calls(source) == []
 
 
+def _source_paths(root: Path) -> tuple[Path, ...]:
+    paths = tuple(
+        path for path in root.rglob("*.py")
+        if root.name != "cnes_domain" or "tests" not in path.relative_to(root).parts
+    )
+    assert paths, f"source_files_missing root={root}"
+    return paths
+
+
 def test_plano_de_controle_nao_introduz_codigos_literais_nos_construtores() -> None:
     roots = (
-        ROOT / "packages/cnes_domain/src",
+        ROOT / "packages/cnes_domain",
         ROOT / "packages/cnes_control_plane/persistence",
         ROOT / "packages/cnes_control_plane/tests/control_plane",
         ROOT / "packages/cnes_control_plane/tests/contracts",
@@ -152,7 +161,7 @@ def test_plano_de_controle_nao_introduz_codigos_literais_nos_construtores() -> N
     violations = [
         (str(path.relative_to(ROOT)), line, code)
         for root in roots
-        for path in root.rglob("*.py")
+        for path in _source_paths(root)
         if path.name not in excluded
         for line, code in _literal_error_calls(path.read_text(encoding="utf-8"), path)
     ]

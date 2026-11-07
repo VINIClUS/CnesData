@@ -467,10 +467,12 @@ def test_execution_request_rejeita_limites_nao_positivos(
 
 
 def test_modulos_de_orchestration_nao_importam_infra_ou_frameworks() -> None:
-    root = Path(__file__).parents[2] / "src/cnes_domain/orchestration"
+    root = Path(__file__).parents[2] / "orchestration"
     forbidden = {"boto3", "fastapi", "sqlalchemy", "cnes_infra"}
     imported: set[str] = set()
-    for path in root.glob("*.py"):
+    paths = tuple(root.glob("*.py"))
+    assert paths, f"source_files_missing root={root}"
+    for path in paths:
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
@@ -483,9 +485,11 @@ def test_modulos_de_orchestration_nao_importam_infra_ou_frameworks() -> None:
 def test_planner_nao_hardcoda_nomes_de_dataset_cnes() -> None:
     # source_catalog.py e frozen por design (CND-060) para conter a definicao
     # CNES; a genericidade protegida aqui e a do DAG em planner.py/fan_in.py.
-    root = Path(__file__).parents[2] / "src/cnes_domain/orchestration"
+    root = Path(__file__).parents[2] / "orchestration"
     forbidden = ("CNES_LOCAL", "CNES_NACIONAL", "SIHD", "BPA", "SIA")
-    for path in root.glob("*.py"):
+    paths = tuple(root.glob("*.py"))
+    assert paths, f"source_files_missing root={root}"
+    for path in paths:
         if path.name == "source_catalog.py":
             continue
         content = path.read_text(encoding="utf-8")

@@ -277,10 +277,12 @@ def test_degradacao_rejeita_contexto_invalido(
 
 
 def test_modulos_do_dominio_nao_importam_infra_ou_frameworks() -> None:
-    root = Path(__file__).parents[2] / "src/cnes_domain/control_plane"
+    root = Path(__file__).parents[2] / "control_plane"
     forbidden = {"boto3", "fastapi", "sqlalchemy", "cnes_infra"}
     imported: set[str] = set()
-    for path in root.glob("*.py"):
+    paths = tuple(root.glob("*.py"))
+    assert paths, f"source_files_missing root={root}"
+    for path in paths:
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
