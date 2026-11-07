@@ -1,0 +1,54 @@
+name: release-candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: SHA completo de commit verde contido em develop
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+  checks: read
+  pull-requests: read
+
+concurrency:
+  group: release-candidate-${{ inputs.source_sha }}
+  cancel-in-progress: false
+
+jobs:
+  candidate:
+    if: github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+      - name: Vincular os artefatos verificados
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          CANDIDATE: ${{ runner.temp }}/candidate/candidate.json
+        run: |
+          set -euo pipefail
+          python -m release.build_candidate --repository "$REPOSITORY" \
+            --source-sha "$SOURCE_SHA" --output "$CANDIDATE"
+          python -m release.verify_candidate "$CANDIDATE"
+          test "$(wc -c < "$CANDIDATE")" -le 65536
+          test "$(wc -c < "$CANDIDATE.sha256")" -eq 65
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: production-candidate-${{ inputs.source_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/candidate/candidate.json
+            ${{ runner.temp }}/candidate/candidate.json.sha256
+          if-no-files-found: error
+          retention-days: 30
