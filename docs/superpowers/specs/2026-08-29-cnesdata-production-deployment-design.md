@@ -28,6 +28,10 @@ profile.
 
 ## 2. Governing designs and precedence
 
+[Ownership amendment](2026-11-07-prod-delivery-external-ownership-amendment.md) governs the
+2026-11-07 external producer assignments, DNS/CA ownership and execution gates, superseding
+conflicting ownership statements in §§3.1, 5 and 13. Other resource/domain contracts remain.
+
 This document composes, rather than replaces:
 
 - `2026-08-16-parquet-data-plane-orchestration-design.md`;

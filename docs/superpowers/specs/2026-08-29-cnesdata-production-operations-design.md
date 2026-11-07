@@ -15,6 +15,10 @@ the architecture, resources, identity, network and serving contracts.
 
 ## 2. CI/CD
 
+[Ownership amendment](2026-11-07-prod-delivery-external-ownership-amendment.md) governs the
+external producers and execution gates. Its infra-ansible producers supply delivery OIDC,
+signing/evidence and host gates; personal-infra-live supplies only backend and Budget/freeze.
+
 ### 2.1 Continuous integration
 
 Pull requests to `develop` run the existing locked Python/CND/AWS gates plus:
