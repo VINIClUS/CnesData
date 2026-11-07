@@ -281,3 +281,11 @@ uv run pytest tests/perf/stress -m stress -v
 uv run pytest tests/perf/soak -m soak -v
 uv run pytest tests/perf/spike -m spike -v
 ```
+
+Actionlint local/CI (Linux amd64): **1.7.7**, archive
+`actionlint_1.7.7_linux_amd64.tar.gz`, SHA256
+`023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757`.
+Download from `https://github.com/rhysd/actionlint/releases/download/v1.7.7/`,
+verify with `sha256sum -c` before extraction and add the binary to `PATH`.
+The inline installer in `.github/workflows/verify-production.yml` is the CI equivalent.
+`CI=true` fails delivery tool checks when actionlint is absent.
