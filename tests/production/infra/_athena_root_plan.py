@@ -61,6 +61,24 @@ CANARY_ROLES = (
 )
 
 
+def canary_policy_sources() -> dict[str, bytes]:
+    root = Path(__file__).resolve().parents[3]
+    paths = {
+        "env/prod": ("main.tf", "variables.tf", "providers.tf"),
+        "modules/runtime-iam": ("canary.tf", "promotion.tf", "outputs.tf", "step-functions.tf"),
+        "modules/processing": ("ecs.tf", "canary.tf", "step_functions.tf", "outputs.tf"),
+        "modules/processor-registry": ("main.tf", "outputs.tf"),
+        "modules/control-plane": ("main.tf", "outputs.tf"),
+    }
+    return {
+        f"infra/opentofu/{directory}/{name}": (
+            root / "infra/opentofu" / directory / name
+        ).read_bytes()
+        for directory, names in paths.items()
+        for name in names
+    }
+
+
 def _canary_overrides() -> list[Node]:
     table = f"arn:aws:dynamodb:us-east-2:{ACCOUNT}:table/{PREFIX}-canary"
     bucket = f"arn:aws:s3:::{PREFIX}-canary"

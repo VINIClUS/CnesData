@@ -304,7 +304,8 @@ def function(name: str, args: list[Any]) -> Any:
 
 
 def collection_function(name: str, args: list[Any]) -> Any:
-    require(all(type(item) is list and len(item) <= 64 for item in args), "iam=collection_type")
+    limit = 128 if name in {"sort", "setunion"} else 64
+    require(all(type(item) is list and len(item) <= limit for item in args), "iam=collection_type")
     if name == "one":
         require(len(args[0]) <= 1, "iam=one_count")
         return args[0][0] if args[0] else None
@@ -312,10 +313,10 @@ def collection_function(name: str, args: list[Any]) -> Any:
         require(all(type(item) is str for item in args[0]), "iam=sort_type")
         return sorted(args[0])
     result = [item for values in args for item in values]
-    require(len(result) <= 64, "iam=collection_size")
     if name == "setunion":
         require(all(type(item) is str for item in result), "iam=set_type")
         result = list(dict.fromkeys(result))
+    require(len(result) <= limit, "iam=collection_size")
     return result
 
 

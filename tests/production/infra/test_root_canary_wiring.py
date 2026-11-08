@@ -2,6 +2,8 @@
 
 import json
 
+import pytest
+
 from tests.production.infra._athena_root_plan import (
     CANARY_ID,
     CANARY_PRINCIPAL,
@@ -100,8 +102,7 @@ def test_raiz_liga_grant_run_task_do_verifier(canary_plan):
 
 def test_resolver_prova_cadeia_real_e_policy_integra_do_canary(canary_plan):
     from scripts.promotion._iam_source import SourceResolver
-    from tests.production.delivery._phase_a_symbolic_fixtures import _symbolic_sources
-    from tests.production.infra._athena_root_plan import ACCOUNT
+    from tests.production.infra._athena_root_plan import ACCOUNT, canary_policy_sources
 
     inputs = {
         "image_digest": "sha256:" + "a" * 64,
@@ -113,7 +114,7 @@ def test_resolver_prova_cadeia_real_e_policy_integra_do_canary(canary_plan):
     }
     resolver = SourceResolver(
         canary_plan,
-        _symbolic_sources(),
+        canary_policy_sources(),
         {
             "generated_inputs": inputs,
             "account_id": ACCOUNT,
@@ -139,3 +140,45 @@ def test_resolver_prova_cadeia_real_e_policy_integra_do_canary(canary_plan):
         assert resolver.role_producer(policy) == f"module.runtime_iam.aws_iam_role.{role}[0]"
         expected = json.loads(after_of(canary_plan, policy)["policy"])
         assert resolver.policy(policy) == expected
+
+
+@pytest.mark.parametrize(
+    ("count", "candidate", "expected_count"),
+    [(63, 999, 64), (64, 999, 65), (127, 999, 128), (128, 128, 128), (128, 999, None)],
+)
+def test_uniao_ordenada_preserva_ate_128_revisoes_retidas(count, candidate, expected_count):
+    from scripts.promotion._iam_expression import Budget, Evaluator, parse
+
+    prefix = REVISION.split("%s:%d")[0] + "unit:"
+    values = {
+        "candidate": [prefix + str(candidate)],
+        "retained": [prefix + str(index) for index in range(1, count + 1)],
+    }
+    budget = Budget()
+    expression = parse("sort(setunion(var.candidate, var.retained))", budget)
+    evaluator = Evaluator(lambda path, scope: values[path[1]], budget)
+    if expected_count is None:
+        with pytest.raises(ValueError, match="iam=collection_size"):
+            evaluator.value(expression)
+    else:
+        expected = sorted(set(values["candidate"] + values["retained"]))
+        assert evaluator.value(expression) == expected
+        assert len(expected) == expected_count
+
+
+@pytest.mark.parametrize(
+    ("expression", "count", "error"),
+    [
+        ("sort(var.retained)", 129, "iam=collection_type"),
+        ("concat(var.retained, [])", 65, "iam=collection_type"),
+        ("[for item in var.retained : item]", 65, "iam=iterations"),
+    ],
+)
+def test_operacoes_de_colecao_preservam_os_limites_aprovados(expression, count, error):
+    from scripts.promotion._iam_expression import Budget, Evaluator, parse
+
+    budget = Budget()
+    node = parse(expression, budget)
+    evaluator = Evaluator(lambda path, scope: [str(index) for index in range(count)], budget)
+    with pytest.raises(ValueError, match=error):
+        evaluator.value(node)
