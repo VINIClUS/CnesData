@@ -58,11 +58,22 @@ activation manifest is finalized and signed only after phase A below.
 
 Mutable tags may aid discovery but are never deployment authority.
 
+The [Phase A contract amendment](2026-11-07-phase-a-contract-amendment.md) is authoritative
+for provenance, canary identity and pre-signature evidence. Its `canary_id` is a derived
+32-hex binding and does not replace the full `release_id`; activation and evidence retain
+both IDs, the complete binding and candidate digest.
+
 ### 2.3 Infrastructure plan/apply
 
 Plan and apply are separate manual workflows. Apply downloads and verifies the
 exact unexpired binary plan; it does not replan. GitHub OIDC supplies temporary
 AWS credentials. The paid Actions spending limit is USD 0.
+
+The versioned plan/apply envelope and producer belong to #468. A planned artifact is never
+rewritten into an applied receipt: the receipt binds the exact plan, protected full-state
+hashes before/after, lineage/serial and allowlisted outputs. Artifact identity is external
+authenticated metadata, so no artifact hashes its own envelope. #469 validates consumed
+fields and compatibility before Production; this design does not invent a workflow dependency.
 
 ### 2.4 Application promotion
 
@@ -72,20 +83,25 @@ marker is absent.
 
 Order:
 
-1. copy/promote and verify the processor digest in the expected ECR repository,
-   yielding its exact `ECR_URI@sha256`;
+1. authenticate GitHub provenance and verify candidate/sidecar/run/attempt inputs,
+   then copy/promote and verify processor bytes in the expected ECR repository, yielding
+   its exact `ECR_URI@sha256`; checksum is not a signature;
 2. under a reviewed exact OpenTofu plan/apply, phase A registers immutable unit,
    recovery and audit-dispatch revisions pinned to exact `ECR_URI@sha256` and
    dual-authorizes old and new `ecs:RunTask` ARNs without routing changes;
    it creates canary task/execution/seeder/verifier roles plus a persistent canary
    table and bucket owned by OpenTofu;
-3. wait for and revalidate IAM propagation, prove all revisions authorized,
-   then output their ARNs and phase-A evidence;
-4. sign one activation manifest with candidate SHA-256, release ID, source SHA,
+3. perform two concordant typed readbacks of policy/trust/PassRole and authorization
+   evaluation by exact principals/context, at least 10 seconds apart within the D1-A deadline;
+   record `proof_kind="iam-readback-and-evaluation"`. This is a bounded stability observation,
+   not a simulation or proof of real propagation/runtime; timeout or divergence fails closed;
+4. sign one activation manifest with EXT-2 only after Phase A and that evidence, binding
+   candidate SHA-256, full release ID, 32-hex `canary_id`, source SHA,
    exact revisions, ECR digest and phase-A evidence; never re-register them. A seeder
    restricted to `PutItem` on the exact canary table writes one bound pending event.
    The verifier polls the exact canary GSI until that event is visible, bounded to
-   60 seconds and fail-closed; then run promotion `RunTask`, overriding roles/resource
+   60 seconds and fail-closed; the bound canary is a real execution after signed activation;
+   then run promotion `RunTask`, overriding roles/resource
    variables to canary-only values. It passes only canary task/execution roles with
    ECS PassedToService. Verifier gets exact-GSI `Query`, conditioned `GetItem` and
    bound `GetObject`/`GetObjectRetention`; require retention/delivered proof;
@@ -283,10 +299,11 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   and expected ECR destination/repository while rejecting ECS revision ARNs and
   a promoted ECR digest. Phase-A exact OpenTofu plan/apply registers each
   revision once from verified `ECR_URI@sha256`, dual-authorizes old/new
-  `ecs:RunTask` ARNs without routing changes, waits for/revalidates IAM
-  propagation and proves both authorized. One signed activation manifest binds
-  candidate manifest SHA-256, release ID, source SHA, revision ARNs, verified
-  digest and phase-A evidence;
+  `ecs:RunTask` ARNs without routing changes, then records two concordant typed
+  policy/trust/PassRole readbacks and authorization evaluations. This is not a
+  simulation or claim of real propagation. One signed activation manifest binds
+  candidate manifest SHA-256, full release ID, `canary_id`, source SHA, revision
+  ARNs, verified digest and phase-A evidence;
 - phase-B exact OpenTofu plan/apply consumes that signed manifest and switches
   only the state-machine target while both Schedulers remain prior.
   API/frontend verify the binding. Tests reject artifact
@@ -380,10 +397,12 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - a Step Functions execution starts only the approved Fargate task definition,
   uses only the exact source account/state-machine trust, event rule and pass
   roles above, and fails when any scope drifts;
-- phase-A promotion evidence proves propagated old/new `ecs:RunTask`
-  authorization without routing changes, then the signed activation manifest
-  binds candidate manifest SHA-256, release ID, source SHA, exact ARNs/digest
-  and phase-A evidence. Phase-B OpenTofu evidence verifies that binding and
+- phase-A promotion evidence records two concordant typed IAM readbacks/evaluations
+  (`proof_kind="iam-readback-and-evaluation"`) for old/new `ecs:RunTask`
+  authorization without routing changes; it does not claim simulated propagation.
+  The signed activation manifest then binds candidate SHA-256, full release ID,
+  32-hex `canary_id`, source SHA, exact ARNs/digest and phase-A evidence. Phase-B
+  OpenTofu evidence verifies that binding and
   proves phase B selected unit while both Schedulers remained prior. After both
   canaries, separate phase-C applies accept recovery then audit while fenced. Partial
   applies converge that route; both accepted to reopen. Executions keep revisions;

@@ -12,6 +12,11 @@ Os drafts históricos permanecem intactos. Esta revisão incorpora as erratas do
 o preflight v4 e a correção de observação v5 aceitos; preserva normalização, oráculos e histórico.
 Readback de implementação: HEAD `610970bbb63fdcb17503c22da90a7173af0241a4` (Slice 2 integrado).
 
+O [contrato Phase A de 2026-11-07](2026-11-07-phase-a-contract-amendment.md) prevalece
+quando este texto tratar de procedência, assinatura, identidade canary, retained ou prova
+IAM. O resultado histórico deste amendment permanece intacto; esta nota só explicita o
+handoff futuro e não executa cloud.
+
 ## Efeito sobre o plano anterior
 
 Este amendment prevalece sobre qualquer trecho do plano anterior que trate `candidate` como
@@ -31,7 +36,11 @@ O contrato agora separa três coisas:
   e, portanto, já fica coberta sem ser uma fonte separada de ARN. Não há ARN de família, `latest`,
   revisão recovery/audit ou ARN estrangeiro.
 
-`active` e `retained` são inputs da raiz, provenientes da activation manifest/revisão de promoção.
+`active` e `retained` são inputs da raiz, provenientes do handoff pré/apply e da activation
+manifest/revisão de promoção. O receipt conserva `retained_before` e `retained_after`; uma
+revisão nova só entra no conjunto depois do apply/readback que prova seu ARN real. A
+activation manifest traz o conjunto pós-Phase A e o binding canary, sem alterar o domínio
+de grants.
 A candidata unit é produzida diretamente pelo `image_digest` através de
 `module.processing.task_definition_arns["unit"]`; ela não é input adicional, não é descoberta AWS
 e não precisa estar no manifest antes da Phase A. A raiz passa os dois inputs ao módulo processing;
@@ -102,7 +111,9 @@ produzido pela machine `STANDARD` chamada `cnesdata-prod`, ou `null` no bootstra
 **Phase A — register/authorize.** Sem exigir fechamento do fence, registra as três revisões do
 digest aprovado, inclui a nova revisão unit no conjunto `retained` e dual-autoriza old/new pela
 policy. Mantém a ASL, `TaskDefinition` active, schedulers e routes exatamente iguais. Nenhum
-recurso de scheduler é criado ou ativado por #385.
+recurso de scheduler é criado ou ativado por #385. O bootstrap mantém `active=null` e
+`retained_before=[]`; o handoff registra `retained_after` apenas com ARNs reais lidos após
+o apply. A assinatura EXT-2 e o canary real permanecem posteriores à Phase A.
 
 **Phase B — route.** Depois da mesma activation manifest, drain e fence, altera active para uma
 revisão registrada e já presente em retained. Há dois oráculos distintos:

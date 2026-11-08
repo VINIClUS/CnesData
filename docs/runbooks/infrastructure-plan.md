@@ -108,12 +108,24 @@ Procedimento e matriz de divergências em `docs/runbooks/floci-and-aws-capabilit
 
 #### IAM de serviço do Step Functions
 
-- Aprovação: dono, depois do primeiro apply da role `step-functions`.
-- Retenção mínima: uma execução da state machine de teste; apagar a execução ao fim.
-- Procedimento: `aws stepfunctions start-execution` com entrada mínima válida, e conferir que
-  `ecs:RunTask` só tem sucesso na revisão ativa e que `iam:PassRole` recusa outra role.
-- Evidência: status da execução e códigos de erro das negações, sem ARNs.
+- Este item é capability check posterior, não o gate pré-assinatura da Phase A. O contrato
+  [Phase A](../superpowers/specs/2026-11-07-phase-a-contract-amendment.md) exige antes da
+  EXT-2 duas leituras concordantes de policy/trust/PassRole e avaliação tipada por principal,
+  registradas como `proof_kind="iam-readback-and-evaluation"`. Isso não é simulação de
+  propagação nem prova runtime.
+- Aprovação: dono, depois do primeiro apply da role `step-functions` e somente quando o
+  controller abrir o handoff real. A execução é real, com o principal/contexto governado,
+  e não pode ser usada para antecipar assinatura, alterar trust/rota ou criar máquina.
+  Este check posterior é acompanhado pelas issues operacionais #473 (dispatcher/host),
+  #474 (capability IAM/runtime) e #476 (aceite de Produção).
+- Retenção mínima: uma execução real da state machine de teste; apagar a execução ao fim.
+- Procedimento: `aws stepfunctions start-execution` com entrada mínima válida, conferindo
+  `ecs:RunTask` somente na revisão ativa e `iam:PassRole` recusando outra role. Usar o
+  principal, state machine e revisão governados pelo handoff; não inventar trust, máquina,
+  rota ou principal alternativo.
+- Evidência: status da execução e códigos de erro das negações, sem ARNs, segredos ou state.
 - Limpeza: `aws stepfunctions stop-execution` se houver execução aberta; sem recurso novo.
+  Canaries e gates reais das Phases B/C permanecem obrigatórios antes do aceite de Produção.
 
 #### Digest exato no ECR
 

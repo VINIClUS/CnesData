@@ -86,3 +86,12 @@ Prefixo comum dos arquivos: `tests/production/infra/`.
 
 Apply, ativação, scheduler, deploy e chamadas AWS permanecem bloqueados pelos gates
 operacionais de #386–#389.
+
+## Precedência do contrato Phase A
+
+O [amendment Phase A de 2026-11-07](2026-11-07-phase-a-contract-amendment.md) é a referência
+para o consumo de `retained_before`/`retained_after`, o binding `canary_id` e a evidência
+pré-assinatura. Esta closure continua sendo resultado histórico: não reescreve os testes ou
+o readback já aceitos. Antes de EXT-2, o gate é `iam-readback-and-evaluation`, com leituras
+tipadas de policy/trust/PassRole e positivos/negativos por principal; ele não é simulação de
+propagação nem substitui os canaries e as execuções reais obrigatórias nas Phases B/C.
