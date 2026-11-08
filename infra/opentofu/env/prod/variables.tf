@@ -125,6 +125,59 @@ variable "image_digest" {
   nullable    = true
 }
 
+variable "canary_release_id" {
+  description = "Derived 32-hex canary identity bound to the full candidate release."
+  type        = string
+  default     = null
+  nullable    = true
+
+  validation {
+    condition = var.canary_release_id == null ? true : can(regex(
+      "^[0-9a-f]{32}$", var.canary_release_id,
+    ))
+    error_message = "canary_release_id=expected_derived_32_hex"
+  }
+
+  validation {
+    condition = (
+      (var.canary_release_id == null) == (var.canary_trusted_principal_arn == null) &&
+      var.canary_storage_enabled == (var.canary_release_id != null)
+    )
+    error_message = "canary_inputs=expected_joint_activation_or_null_bootstrap"
+  }
+}
+
+variable "canary_trusted_principal_arn" {
+  description = "Governed same-account canary principal, or null before Phase A."
+  type        = string
+  default     = null
+  nullable    = true
+
+  validation {
+    condition = var.canary_trusted_principal_arn == null ? true : try(
+      can(regex(
+        "^arn:aws:iam::[0-9]{12}:role/([^/*?]+/)*[A-Za-z0-9_+=,.@-]{1,64}$",
+        var.canary_trusted_principal_arn,
+      )) &&
+      split(":", var.canary_trusted_principal_arn)[4] == var.shared_outputs.account_id,
+      false,
+    )
+    error_message = "canary_principal=expected_own_iam_role"
+  }
+}
+
+variable "canary_storage_enabled" {
+  description = "Explicit protected canary storage activation; disabled during bootstrap."
+  type        = bool
+  default     = false
+  nullable    = false
+
+  validation {
+    condition     = !var.canary_storage_enabled || var.image_digest != null
+    error_message = "canary_storage=requires_image_digest"
+  }
+}
+
 locals {
   processor_unit_revision_shape = join("", [
     "^arn:aws:ecs:[a-z0-9-]+:[0-9]{12}:",
