@@ -17,10 +17,10 @@ from apps.central_api.tests.services.test_run_planning import (
     _service,
     _stored_dispatch,
 )
+from cnes_control_plane.billing.errors import EntitlementDenied
+from cnes_control_plane.model.enums import DispatchOutcome, DispatchState
 from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
-from cnes_domain.billing.errors import EntitlementDenied
-from cnes_domain.control_plane.enums import DispatchOutcome, DispatchState
-from cnes_domain.ports.processing import ExecutionPermit
+from cnes_control_plane.ports.processing import ExecutionPermit
 
 _READY_UNITS = 2
 

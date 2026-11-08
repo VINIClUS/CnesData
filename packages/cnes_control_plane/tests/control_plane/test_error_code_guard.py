@@ -5,19 +5,18 @@ from pathlib import Path
 import pytest
 
 ERROR_NAMES = {"Conflict", "InvalidTransition", "LeaseLost", "FenceRejected", "NotFound"}
-ERROR_MODULES = {"cnes_domain", "cnes_domain.control_plane.errors"}
+ERROR_MODULES = {"cnes_contracts.errors"}
 ROOT = Path(__file__).resolve().parents[4]
 
 
 def _package_name(path: Path | None) -> str:
     if path is None:
         return ""
-    parts = []
-    parent = path.parent
-    while (parent / "__init__.py").is_file():
-        parts.append(parent.name)
-        parent = parent.parent
-    return ".".join(reversed(parts))
+    try:
+        relative = path.relative_to(ROOT / "packages")
+    except ValueError:
+        return ""
+    return ".".join(relative.parts[:-1])
 
 
 def _import_module(node: ast.ImportFrom, package: str) -> str:
@@ -39,7 +38,7 @@ def _from_import_constructors(node: ast.ImportFrom, package: str) -> set[str]:
     module = _import_module(node, package)
     if module in ERROR_MODULES:
         return {alias.asname or alias.name for alias in node.names if alias.name in ERROR_NAMES}
-    if module == "cnes_domain.control_plane":
+    if module == "cnes_contracts":
         return {
             name
             for alias in node.names
@@ -88,13 +87,13 @@ def _literal_error_calls(source: str, path: Path | None = None) -> list[tuple[in
 @pytest.mark.parametrize(
     "source",
     [
-        'from cnes_domain.control_plane.errors import Conflict\nConflict("new_code")',
-        'from cnes_domain.control_plane.errors import Conflict as C\nC("new_code")',
-        'from cnes_domain import NotFound\nNotFound("new_code")',
-        'import cnes_domain.control_plane.errors as e\ne.LeaseLost("new_code")',
-        'from cnes_domain.control_plane import errors as e\ne.FenceRejected("new_code")',
-        "import cnes_domain.control_plane.errors\n"
-        'cnes_domain.control_plane.errors.InvalidTransition(code="new_code")',
+        'from cnes_contracts.errors import Conflict\nConflict("new_code")',
+        'from cnes_contracts.errors import Conflict as C\nC("new_code")',
+        'from cnes_contracts.errors import NotFound\nNotFound("new_code")',
+        'import cnes_contracts.errors as e\ne.LeaseLost("new_code")',
+        'from cnes_contracts import errors as e\ne.FenceRejected("new_code")',
+        "import cnes_contracts.errors\n"
+        'cnes_contracts.errors.InvalidTransition(code="new_code")',
     ],
 )
 def test_guarda_detecta_literal_em_construtores_importados(source: str) -> None:
@@ -104,18 +103,18 @@ def test_guarda_detecta_literal_em_construtores_importados(source: str) -> None:
 @pytest.mark.parametrize(
     ("module", "source"),
     [
-        ("control_plane/check.py", 'from .errors import Conflict\nConflict("new_code")'),
-        ("control_plane/__init__.py", 'from .errors import Conflict as C\nC("new_code")'),
-        ("control_plane/check.py", 'from . import errors as e\ne.LeaseLost("new_code")'),
-        ("control_plane/check.py", 'from .. import NotFound\nNotFound("new_code")'),
-        ("ports/check.py", "from ..control_plane.errors import InvalidTransition\n"
+        ("check.py", 'from .errors import Conflict\nConflict("new_code")'),
+        ("__init__.py", 'from .errors import Conflict as C\nC("new_code")'),
+        ("check.py", 'from . import errors as e\ne.LeaseLost("new_code")'),
+        ("manifests/check.py", 'from ..errors import NotFound\nNotFound("new_code")'),
+        ("manifests/check.py", "from ..errors import InvalidTransition\n"
          'InvalidTransition(code="new_code")'),
-        ("ports/check.py", "from ..control_plane import errors as e\n"
+        ("manifests/check.py", "from .. import errors as e\n"
          'e.FenceRejected("new_code")'),
     ],
 )
 def test_guarda_detecta_importacoes_relativas_no_contexto_do_pacote(module, source) -> None:
-    path = ROOT / "packages/cnes_domain" / module
+    path = ROOT / "packages/cnes_contracts" / module
 
     assert _literal_error_calls(source, path) == [(2, "new_code")]
 
@@ -129,7 +128,7 @@ def test_guarda_ignora_erros_relativos_de_outro_pacote() -> None:
 
 def test_guarda_aceita_enum_mensagem_dinamica_e_strings_de_outros_dominios() -> None:
     source = """
-from cnes_domain.control_plane.errors import Conflict, ControlPlaneErrorCode
+from cnes_contracts.errors import Conflict, ControlPlaneErrorCode
 from elsewhere import NotFound
 Conflict(ControlPlaneErrorCode.JOB_CONFLICT)
 Conflict(f"transition={old}->{new}")
@@ -142,9 +141,11 @@ message = "Conflict('only_text')"
 
 
 def _source_paths(root: Path) -> tuple[Path, ...]:
+    if root.is_file():
+        return (root,)
     paths = tuple(
         path for path in root.rglob("*.py")
-        if root.name != "cnes_domain" or "tests" not in path.relative_to(root).parts
+        if root.parent.name != "packages" or "tests" not in path.relative_to(root).parts
     )
     assert paths, f"source_files_missing root={root}"
     return paths
@@ -152,8 +153,8 @@ def _source_paths(root: Path) -> tuple[Path, ...]:
 
 def test_plano_de_controle_nao_introduz_codigos_literais_nos_construtores() -> None:
     roots = (
-        ROOT / "packages/cnes_domain",
-        ROOT / "packages/cnes_control_plane/persistence",
+        ROOT / "packages/cnes_control_plane",
+        ROOT / "packages/cnes_data/dynamodb.py",
         ROOT / "packages/cnes_control_plane/tests/control_plane",
         ROOT / "packages/cnes_control_plane/tests/contracts",
     )

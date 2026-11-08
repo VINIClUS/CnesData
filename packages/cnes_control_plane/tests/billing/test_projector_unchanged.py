@@ -5,8 +5,8 @@ from datetime import timedelta
 
 import pytest
 
-from cnes_domain.billing.errors import RetryableBillingError
-from cnes_domain.billing.inbox import InboxProcessingState
+from cnes_control_plane.billing.errors import RetryableBillingError
+from cnes_control_plane.billing.inbox import InboxProcessingState
 from packages.cnes_control_plane.tests.billing.test_projector import (
     PRICE_V2,
     STRONG,

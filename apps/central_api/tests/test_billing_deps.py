@@ -13,11 +13,11 @@ from central_api import billing_deps
 from central_api.routes import billing_admin, raw_jobs, tenants
 from central_api.schemas.raw_api import EdgeIdentity
 from central_api.services.billing_gates import ApiBillingGates, TenantAccountResolver
+from cnes_contracts.modes import BillingMode
 from cnes_control_plane.billing import BillingStorage
+from cnes_control_plane.billing.commands import GateRequest
 from cnes_control_plane.billing.metrics import CloudWatchBillingMetrics, DiscardBillingMetrics
-from cnes_domain.billing.commands import GateRequest
-from cnes_domain.billing.revocation import ImmediateRevocationService
-from cnes_domain.profiles import BillingMode
+from cnes_control_plane.billing.revocation import ImmediateRevocationService
 
 if TYPE_CHECKING:
     from central_api.composition import RuntimeComponents

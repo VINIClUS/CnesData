@@ -9,7 +9,7 @@ def test_circuit_abre_apos_timeouts():
     """Invariant: after threshold timeouts, breaker raises CircuitOpenError
     without burning further retry budget."""
     try:
-        from cnes_domain.pipeline.circuit_breaker import CircuitBreaker
+        from cnes_data.circuit_breaker import CircuitBreaker
     except ImportError:
         pytest.skip("CircuitBreaker not available")
 

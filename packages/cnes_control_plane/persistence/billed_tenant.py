@@ -5,14 +5,15 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
-from cnes_domain.billing.errors import PermanentBillingError
-from cnes_domain.billing.models import BILLING_ADMIN_ROLE, BillingAuditEvent
-from cnes_domain.control_plane.entities import IdempotencyRecord, Membership
+from cnes_contracts.membership import Membership
+from cnes_control_plane.billing.errors import PermanentBillingError
+from cnes_control_plane.billing.models import BILLING_ADMIN_ROLE, BillingAuditEvent
+from cnes_control_plane.model.entities import IdempotencyRecord
 
 if TYPE_CHECKING:
     from datetime import datetime
 
-    from cnes_domain.billing.commands import CreateBilledTenantCommand
+    from cnes_control_plane.billing.commands import CreateBilledTenantCommand
 
 TENANT_SCOPE = "tenant.create_billed"
 TENANT_CAPACITY_SCOPE = "tenant.capacity"

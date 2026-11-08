@@ -15,7 +15,7 @@ import pytest
 from sqlalchemy import Engine, create_engine, text
 
 from cnes_data.storage.rls import install_rls_listener
-from cnes_domain.tenant import tenant_id_ctx
+from cnes_data.tenant import tenant_id_ctx
 from cnes_identity.refresh_tokens import RefreshTokenStore
 
 if TYPE_CHECKING:

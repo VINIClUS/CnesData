@@ -7,19 +7,19 @@ from hashlib import sha256
 from typing import TYPE_CHECKING, Protocol
 from uuid import uuid4
 
-from cnes_control_plane.persistence.edge_registration import EntitlementFence, NewEdgeAgent
-from cnes_domain.billing.commands import (
+from cnes_contracts.errors import Conflict
+from cnes_contracts.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_control_plane.billing.commands import (
     CapacityReservationCommand,
     ConsumeCapacityCommand,
     GateRequest,
     ReleaseCapacityCommand,
 )
-from cnes_domain.billing.errors import RetryableBillingError
-from cnes_domain.billing.models import CapacityKind, EntitlementAction
-from cnes_domain.billing.shadow import ShadowObservation
-from cnes_domain.control_plane.enums import AgentState
-from cnes_domain.control_plane.errors import Conflict
-from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_control_plane.billing.errors import RetryableBillingError
+from cnes_control_plane.billing.models import CapacityKind, EntitlementAction
+from cnes_control_plane.billing.shadow import ShadowObservation
+from cnes_control_plane.model.enums import AgentState
+from cnes_control_plane.persistence.edge_registration import EntitlementFence, NewEdgeAgent
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -27,9 +27,9 @@ if TYPE_CHECKING:
 
     from central_api.schemas.raw_api import EdgeIdentity
     from central_api.services.billing_gates import ApiBillingGates
+    from cnes_control_plane.billing.models import EntitlementDecision
+    from cnes_control_plane.model.entities import Agent
     from cnes_control_plane.persistence.edge_registration import EdgeAgentCreation
-    from cnes_domain.billing.models import EntitlementDecision
-    from cnes_domain.control_plane.entities import Agent
 
 
 class EdgeAgentRegistry(Protocol):

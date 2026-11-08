@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from cnes_domain.ports.control_plane import ControlPlanePort
-    from cnes_domain.ports.processing import ProcessorExecutorPort
+    from cnes_control_plane.ports.control_plane import ControlPlanePort
+    from cnes_control_plane.ports.processing import ProcessorExecutorPort
     from data_processor.aws_composition import AwsRecoveryRuntime, AwsUnitRuntime
     from data_processor.orchestration.coordinator import PipelineCoordinator
     from data_processor.orchestration.publisher import DatasetPublisher

@@ -12,17 +12,17 @@ from cnes_control_plane.billing.dynamodb_items import (
     encode_account,
     encode_customer_map,
 )
+from cnes_control_plane.billing.errors import (
+    BillingDependencyError,
+    PermanentBillingError,
+    RetryableBillingError,
+)
 from cnes_control_plane.billing.keys import (
     billing_account_key,
     billing_account_list_key,
     stripe_customer_key,
 )
 from cnes_data.dynamodb import item_key
-from cnes_domain.billing.errors import (
-    BillingDependencyError,
-    PermanentBillingError,
-    RetryableBillingError,
-)
 from packages.cnes_control_plane.tests.billing.billing_factories import (
     NOW,
     TABLE_NAME,

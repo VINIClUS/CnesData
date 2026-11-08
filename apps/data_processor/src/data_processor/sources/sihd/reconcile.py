@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from polars._typing import ColumnNameOrSelector, PolarsDataType
 
     from cnes_contracts.manifests.processing import ReconcileRequest
-    from cnes_domain.ports.object_store import ObjectStat, ObjectStorePort
+    from cnes_data.object_store.ports import ObjectStat, ObjectStorePort
 
     type _CastSchema = Mapping[ColumnNameOrSelector | PolarsDataType, PolarsDataType]
 

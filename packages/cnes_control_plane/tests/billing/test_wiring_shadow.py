@@ -6,6 +6,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from cnes_contracts.modes import BillingMode
 from cnes_control_plane.billing import (
     LOCAL_BILLING_SETTINGS,
     BillingSettings,
@@ -15,18 +16,17 @@ from cnes_control_plane.billing.dynamodb_capacity_counters import DynamoCapacity
 from cnes_control_plane.billing.dynamodb_catalog import DynamoBillingCatalog
 from cnes_control_plane.billing.dynamodb_items import deterministic_id
 from cnes_control_plane.billing.keys import capacity_usage_key
-from cnes_domain.billing.models import (
+from cnes_control_plane.billing.models import (
     BillingEnforcementMode,
     CapacityKind,
     EntitlementAction,
 )
-from cnes_domain.billing.shadow import (
+from cnes_control_plane.billing.shadow import (
     NULL_SHADOW_OBSERVER,
     ShadowEntitlementObserver,
     ShadowObservation,
     shadow_bucket_id,
 )
-from cnes_domain.profiles import BillingMode
 from packages.cnes_control_plane.tests.billing.billing_factories import (
     NOW,
     TABLE_NAME,

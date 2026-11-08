@@ -7,6 +7,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from cnes_contracts.modes import BillingMode
 from cnes_control_plane.billing import (
     LOCAL_BILLING_SETTINGS,
     build_billing_enforcement,
@@ -15,8 +16,7 @@ from cnes_control_plane.billing import (
 )
 from cnes_control_plane.billing.audit_outbox import BestEffortBillingAudit
 from cnes_control_plane.billing.dynamodb_items import deterministic_id
-from cnes_domain.billing.errors import EntitlementDenied
-from cnes_domain.profiles import BillingMode
+from cnes_control_plane.billing.errors import EntitlementDenied
 from packages.cnes_control_plane.tests.billing.billing_factories import NOW, TABLE_NAME
 from packages.cnes_control_plane.tests.billing.quota_support import (
     make_run_request,

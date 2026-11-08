@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 import polars as pl
 import pytest
 
-from cnes_domain.pipeline.circuit_breaker import CircuitBreaker
+from cnes_data.circuit_breaker import CircuitBreaker
 from data_processor.processor import _download_parquet
 
 

@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from cnes_contracts.errors import Conflict
+from cnes_contracts.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_control_plane.model.commands import IdempotencyOutcome
+from cnes_control_plane.model.entities import IdempotencyRecord
 from cnes_control_plane.persistence.sqlite_schema import deserialize_model, serialize_model
-from cnes_domain.control_plane.commands import IdempotencyOutcome
-from cnes_domain.control_plane.entities import IdempotencyRecord
-from cnes_domain.control_plane.errors import Conflict
-from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
 
 if TYPE_CHECKING:
-    from cnes_domain.control_plane.commands import BeginIdempotency
+    from cnes_control_plane.model.commands import BeginIdempotency
 
 
 def begin_idempotency(store: Any, command: BeginIdempotency) -> IdempotencyOutcome:

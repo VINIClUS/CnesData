@@ -20,10 +20,10 @@ from cnes_data.ingestion.datasus_cnes_transport import (
     DatasusCnesFtpTransport,
     DatasusCnesRequest,
 )
-from cnes_domain.ports.object_store import ObjectStat
+from cnes_data.object_store.ports import ObjectStat
 
 if TYPE_CHECKING:
-    from cnes_domain.ports.object_store import ObjectStorePort
+    from cnes_data.object_store.ports import ObjectStorePort
 
 _ROOT = Path(__file__).resolve().parents[4]
 _GOLDEN = _ROOT / "docs" / "fixtures" / "data-plane" / "cnes-nacional-v1.parquet"

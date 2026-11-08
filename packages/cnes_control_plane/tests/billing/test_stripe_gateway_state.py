@@ -8,10 +8,10 @@ from types import SimpleNamespace
 
 import pytest
 
+from cnes_control_plane.billing.commands import StripeStateRequest
+from cnes_control_plane.billing.inbox import StripeEventListRequest
+from cnes_control_plane.billing.models import SubscriptionStatus
 from cnes_control_plane.billing.stripe_gateway import StripeMappingError
-from cnes_domain.billing.commands import StripeStateRequest
-from cnes_domain.billing.inbox import StripeEventListRequest
-from cnes_domain.billing.models import SubscriptionStatus
 from packages.cnes_control_plane.tests.billing.stripe_fakes import (
     PERIOD_END,
     PERIOD_START,

@@ -1,10 +1,11 @@
 """Testes de competencia_utils — cálculo do 5º/6º dia útil e janela de coleta."""
 from datetime import date
-from unittest.mock import patch
+
+import pytest
 
 from cnes_domain.competencia import (
     janela_valida,
-    periodo_atual,
+    periodo_em,
     quinto_dia_util,
     sexto_dia_util,
 )
@@ -63,34 +64,23 @@ class TestJanelaValida:
         assert fim == sexto_dia_util(2024, 12)
 
 
-class TestPeriodoAtual:
+class TestPeriodoEm:
     def test_formato_yyyy_mm(self):
-        resultado = periodo_atual()
+        resultado = periodo_em(date(2026, 4, 15))
         partes = resultado.split("-")
         assert len(partes) == 2
         assert len(partes[0]) == 4
         assert len(partes[1]) == 2
 
-    def test_retorna_mes_atual(self):
-        with patch("cnes_domain.competencia.datetime") as mock_dt:
-            mock_dt.now.return_value.date.return_value = date(2026, 4, 4)
-
-            assert periodo_atual() == "2026-03"
-
-    def test_retorna_dezembro_correto(self):
-        with patch("cnes_domain.competencia.datetime") as mock_dt:
-            mock_dt.now.return_value.date.return_value = date(2025, 12, 1)
-
-            assert periodo_atual() == "2025-11"
-
-    def test_antes_do_sexto_dia_util_retorna_mes_anterior(self):
-        with patch("cnes_domain.competencia.datetime") as mock_dt:
-            mock_dt.now.return_value.date.return_value = date(2026, 4, 5)
-
-            assert periodo_atual() == "2026-03"
-
-    def test_apos_do_sexto_dia_util_retorna_mes_atual(self):
-        with patch("cnes_domain.competencia.datetime") as mock_dt:
-            mock_dt.now.return_value.date.return_value = date(2026, 4, 9)
-
-            assert periodo_atual() == "2026-04"
+    @pytest.mark.parametrize(
+        ("referencia", "esperado"),
+        [
+            (date(2026, 4, 4), "2026-03"),
+            (date(2025, 12, 1), "2025-11"),
+            (date(2026, 4, 5), "2026-03"),
+            (date(2026, 4, 9), "2026-04"),
+            (date(2026, 1, 1), "2025-12"),
+        ],
+    )
+    def test_respeita_janela_e_virada_do_ano(self, referencia, esperado):
+        assert periodo_em(referencia) == esperado

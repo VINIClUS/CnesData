@@ -11,13 +11,10 @@ import boto3
 from moto import mock_aws
 
 from billing_worker.worker import BillingWorker, WorkerJobs
-from cnes_domain.billing.inbox import InboxProcessingState, RecoveryRequest
-from cnes_domain.billing.models import ReservationStatus, SubscriptionStatus
-from cnes_domain.billing.revocation import (
-    ImmediateRevocationCommand,
-    RevocationPhase,
-)
-from cnes_domain.control_plane.enums import RunState
+from cnes_control_plane.billing.inbox import InboxProcessingState, RecoveryRequest
+from cnes_control_plane.billing.models import ReservationStatus, SubscriptionStatus
+from cnes_control_plane.billing.revocation import ImmediateRevocationCommand, RevocationPhase
+from cnes_control_plane.model.enums import RunState
 from packages.cnes_control_plane.tests.billing.billing_factories import NOW
 from packages.cnes_control_plane.tests.billing.quota_support import ACCOUNT
 from packages.cnes_control_plane.tests.billing.revocation_support import (

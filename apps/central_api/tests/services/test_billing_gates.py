@@ -10,9 +10,9 @@ from central_api.services.billing_gates import (
     BillingAccountMissing,
     TenantAccountResolver,
 )
-from cnes_domain.billing.errors import BillingDependencyError
-from cnes_domain.billing.models import BillingAccountTenantLink, ReadConsistency
-from cnes_domain.profiles import BillingMode
+from cnes_contracts.modes import BillingMode
+from cnes_control_plane.billing.errors import BillingDependencyError
+from cnes_control_plane.billing.models import BillingAccountTenantLink, ReadConsistency
 
 NOW = datetime(2026, 9, 1, tzinfo=UTC)
 

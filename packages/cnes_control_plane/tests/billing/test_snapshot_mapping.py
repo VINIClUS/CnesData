@@ -3,6 +3,8 @@
 from datetime import timedelta
 from typing import Any
 
+from cnes_control_plane.billing.commands import StripeBillingState
+from cnes_control_plane.billing.models import SubscriptionStatus
 from cnes_control_plane.billing.snapshot_mapping import (
     COMPARED_FIELDS,
     STRIPE_SNAPSHOT_VALIDITY_MARGIN_HOURS,
@@ -12,8 +14,6 @@ from cnes_control_plane.billing.snapshot_mapping import (
     map_snapshot,
     mapped_status,
 )
-from cnes_domain.billing.commands import StripeBillingState
-from cnes_domain.billing.models import SubscriptionStatus
 from packages.cnes_control_plane.tests.billing.billing_factories import (
     NOW,
     make_plan,

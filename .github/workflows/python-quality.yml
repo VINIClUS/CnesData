@@ -135,7 +135,7 @@ jobs:
         run: >-
           uv run --no-build pytest -q -rs --junitxml=billing-acceptance-junit.xml
           -m "not e2e and not postgres and not dynamodb_local and not stripe"
-          packages/cnes_domain/tests/billing packages/cnes_control_plane/tests/billing
+          packages/cnes_control_plane/tests/billing packages/cnes_control_plane/tests/billing
           apps/central_api/tests apps/billing_worker/tests
           tests/property/test_entitlement_projection_cas.py
           tests/property/test_quota_last_unit_race.py

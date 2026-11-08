@@ -6,6 +6,11 @@ import pytest
 from botocore.exceptions import ClientError
 from moto import mock_aws
 
+from cnes_contracts.errors import Conflict, LeaseLost, NotFound
+from cnes_contracts.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_control_plane.model.commands import BeginIdempotency, CompleteJob, RenewJobLease
+from cnes_control_plane.model.entities import AccessRequest
+from cnes_control_plane.model.enums import AccessRequestState, AgentState, RunState
 from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
 from cnes_control_plane.persistence.dynamodb_codec import encode_marker
 from cnes_control_plane.persistence.dynamodb_keys import (
@@ -13,15 +18,6 @@ from cnes_control_plane.persistence.dynamodb_keys import (
     outbox_key,
 )
 from cnes_data.dynamodb import execute_transaction
-from cnes_domain.control_plane.commands import (
-    BeginIdempotency,
-    CompleteJob,
-    RenewJobLease,
-)
-from cnes_domain.control_plane.entities import AccessRequest
-from cnes_domain.control_plane.enums import AccessRequestState, AgentState, RunState
-from cnes_domain.control_plane.errors import Conflict, LeaseLost, NotFound
-from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
 from packages.cnes_control_plane.tests.contracts.clock import (
     _HASH_A,
     _NOW,

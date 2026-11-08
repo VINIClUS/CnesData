@@ -4,7 +4,8 @@ set -euo pipefail
 artifact_dir="$(mktemp -d)"
 trap 'rm -rf "$artifact_dir"' EXIT
 
-for package in packages/*; do
+for manifest in packages/*/pyproject.toml; do
+  package="${manifest%/pyproject.toml}"
   uv build --wheel --out-dir "$artifact_dir/wheels" "$package"
 done
 uv pip install --no-deps --target "$artifact_dir/installed" "$artifact_dir"/wheels/*.whl

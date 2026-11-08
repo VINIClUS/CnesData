@@ -5,13 +5,13 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 
-from cnes_domain.billing.commands import (
+from cnes_control_plane.billing.commands import (
     PendingCheckout,
     ReleasePendingCheckoutCommand,
     ReservePendingCheckoutCommand,
 )
-from cnes_domain.billing.errors import BillingError
-from cnes_domain.billing.ports import BillingCatalogPort
+from cnes_control_plane.billing.errors import BillingError
+from cnes_control_plane.billing.ports import BillingCatalogPort
 
 logger = logging.getLogger(__name__)
 

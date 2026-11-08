@@ -5,8 +5,9 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, cast
 
+from cnes_contracts.audit import OutboxEvent
 from cnes_contracts.manifests.raw import RawManifest
-from cnes_domain.control_plane.commands import (
+from cnes_control_plane.model.commands import (
     BindRunDispatch,
     FinalizeRunCancellation,
     FinishRunDispatch,
@@ -14,15 +15,17 @@ from cnes_domain.control_plane.commands import (
     ReserveRunDispatch,
     TransitionRun,
 )
-from cnes_domain.control_plane.entities import OutboxEvent
-from cnes_domain.control_plane.enums import DispatchOutcome, DispatchState, RunState
-from cnes_domain.control_plane.queries import (
+from cnes_control_plane.model.enums import DispatchOutcome, DispatchState, RunState
+from cnes_control_plane.model.queries import (
     RawIdentity,
     RawManifestChainQuery,
     WaitingRunsForDependencyQuery,
 )
-from cnes_domain.orchestration.dispatch_admission import dispatch_holder, settle_run_dispatches
-from cnes_domain.orchestration.planner import (
+from cnes_control_plane.orchestration.dispatch_admission import (
+    dispatch_holder,
+    settle_run_dispatches,
+)
+from cnes_control_plane.orchestration.planner import (
     PlanRequest,
     RawManifestRef,
     RunPlan,
@@ -31,23 +34,23 @@ from cnes_domain.orchestration.planner import (
     plan_run,
     ready_units,
 )
-from cnes_domain.ports.environment_gate import UNGATED_ADMISSION, DispatchDeferred
-from cnes_domain.ports.processing import CancelRunExecution, ExecutionStatus
+from cnes_control_plane.ports.environment_gate import UNGATED_ADMISSION, DispatchDeferred
+from cnes_control_plane.ports.processing import CancelRunExecution, ExecutionStatus
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from datetime import datetime
 
-    from cnes_domain.control_plane.entities import ManifestRef, RawManifestRecord, Run, RunDispatch
-    from cnes_domain.orchestration.source_catalog import SourceCatalog
-    from cnes_domain.ports.control_plane import ControlPlanePort, TypedRawQueryPort
-    from cnes_domain.ports.environment_gate import DeferralReason
-    from cnes_domain.ports.object_store import ObjectStorePort
-    from cnes_domain.ports.processing import (
+    from cnes_control_plane.model.entities import ManifestRef, RawManifestRecord, Run, RunDispatch
+    from cnes_control_plane.orchestration.source_catalog import SourceCatalog
+    from cnes_control_plane.ports.control_plane import ControlPlanePort, TypedRawQueryPort
+    from cnes_control_plane.ports.environment_gate import DeferralReason
+    from cnes_control_plane.ports.processing import (
         ExecutionPolicyConfig,
         ProcessorExecutorPort,
         StartRunExecution,
     )
+    from cnes_data.object_store.ports import ObjectStorePort
 
     class _ControlPlane(ControlPlanePort, TypedRawQueryPort, Protocol):
         pass

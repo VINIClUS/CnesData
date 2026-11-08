@@ -5,7 +5,7 @@ from typing import Any
 from cnes_control_plane.billing.dynamodb_items import get_item
 from cnes_control_plane.billing.dynamodb_quota_items import CAPACITY_COUNTERS, usage_counter
 from cnes_control_plane.billing.keys import capacity_usage_key
-from cnes_domain.billing.models import CapacityKind
+from cnes_control_plane.billing.models import CapacityKind
 
 
 class DynamoCapacityCounters:

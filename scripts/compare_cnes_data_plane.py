@@ -40,7 +40,7 @@ if TYPE_CHECKING:
 
     from cnes_contracts.manifests.outputs import OutputManifest
     from cnes_contracts.manifests.processing import NormalizeResult, ReconcileResult
-    from cnes_domain.ports.object_store import ObjectStorePort
+    from cnes_data.object_store.ports import ObjectStorePort
 
 LOGGER = logging.getLogger(__name__)
 

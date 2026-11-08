@@ -9,10 +9,9 @@ from typing import TYPE_CHECKING, Any, Final, cast
 
 from botocore.exceptions import ClientError
 
-from cnes_control_plane.persistence.dynamodb_host import DynamoDBHost
-from cnes_control_plane.persistence.dynamodb_keys import timestamp
-from cnes_data.dynamodb import item_key
-from cnes_domain.control_plane.environment_gate import (
+from cnes_contracts.errors import Conflict
+from cnes_contracts.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_control_plane.model.environment_gate import (
     AcquisitionStatus,
     EnvironmentGateState,
     FenceState,
@@ -26,14 +25,14 @@ from cnes_domain.control_plane.environment_gate import (
     reopen_fence,
     require_environment,
 )
-from cnes_domain.control_plane.errors import Conflict
-from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_control_plane.persistence.dynamodb_host import DynamoDBHost
+from cnes_control_plane.persistence.dynamodb_keys import timestamp
+from cnes_data.dynamodb import item_key
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from cnes_data.dynamodb import Action, Item
-    from cnes_domain.control_plane.environment_gate import (
+    from cnes_control_plane.model.environment_gate import (
         AcquireUnitPermit,
         BindUnitPermit,
         ClosePromotionFence,
@@ -42,6 +41,7 @@ if TYPE_CHECKING:
         RenewUnitPermit,
         ReopenPromotionFence,
     )
+    from cnes_data.dynamodb import Action, Item
 
 OUTBOX_CURSOR_KEY: Final = ("OUTBOX#CURSOR", "CURSOR")
 _PERIOD = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")

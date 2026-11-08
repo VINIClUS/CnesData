@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
-from cnes_domain.auth.certificates import CertificateStoreUnavailable
+from cnes_identity.certificates import CertificateStoreUnavailable
 from cnes_identity.sqlite_certificates import SQLiteCertificateRegister
 from packages.cnes_identity.tests.auth.test_certificate_register_contract import (
     _FINGERPRINT,

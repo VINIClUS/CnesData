@@ -1,11 +1,8 @@
 """Camada de Processamento: Transformação e Validação."""
 
-import logging
 from typing import Final
 
 import polars as pl
-
-logger = logging.getLogger(__name__)
 
 VALOR_SEM_EQUIPE: Final[str] = "SEM EQUIPE VINCULADA"
 VALOR_SEM_INE: Final[str] = "-"
@@ -42,11 +39,6 @@ def _aplicar_rq002_validar_cpf(df: pl.DataFrame) -> pl.DataFrame:
         pl.col("CPF").is_in(_SENTINELAS_NULO)
         | (pl.col("CPF").str.len_chars() != 11)
     )
-    invalidos = df.filter(mascara_invalido)
-    if len(invalidos) > 0:
-        logger.warning(
-            "RQ-002: cpf_invalido_count=%d", len(invalidos),
-        )
     return df.filter(~mascara_invalido)
 
 
@@ -65,14 +57,6 @@ def _aplicar_rq003_flag_carga_horaria(df: pl.DataFrame) -> pl.DataFrame:
         .otherwise(pl.lit(ALERTA_CH_OK))
         .alias("ALERTA_STATUS_CH")
     )
-    total_zumbis = df.filter(
-        pl.col("ALERTA_STATUS_CH") == ALERTA_ATIVO_SEM_CH
-    ).height
-    if total_zumbis > 0:
-        logger.warning(
-            "RQ-003: %d vínculo(s) com carga horária zero (ATIVO_SEM_CH).",
-            total_zumbis,
-        )
     return df
 
 
@@ -89,7 +73,6 @@ def transformar(
     Returns:
         DataFrame transformado com ALERTA_STATUS_CH.
     """
-    logger.debug("Iniciando transformação. Registros de entrada: %d", len(df))
     resultado = df.clone()
 
     strip_exprs = [
@@ -115,14 +98,7 @@ def transformar(
             .alias("CPF")
         )
 
-    registros_antes = resultado.height
     resultado = _aplicar_rq002_validar_cpf(resultado)
-    removidos = registros_antes - resultado.height
-    if removidos > 0:
-        logger.info(
-            "Transformação: %d registro(s) removido(s) por CPF inválido (RQ-002).",
-            removidos,
-        )
 
     resultado = _aplicar_rq003_flag_carga_horaria(resultado)
 
@@ -141,8 +117,4 @@ def transformar(
             .alias("DESCRICAO_CBO")
         )
 
-    logger.info(
-        "Transformação concluída. Entrada: %d → Saída: %d registro(s).",
-        len(df), len(resultado),
-    )
     return resultado

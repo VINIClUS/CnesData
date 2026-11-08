@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from hashlib import sha256
 from sqlite3 import LEGACY_TRANSACTION_CONTROL, Connection
 
-from cnes_domain.refresh_tokens import (
+from cnes_identity.refresh_contracts import (
     RefreshTokenConflict,
     RefreshTokenContext,
     RefreshTokenInput,

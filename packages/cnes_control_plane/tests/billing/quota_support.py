@@ -9,19 +9,19 @@ from typing import Any
 import boto3
 from moto import mock_aws
 
-from cnes_control_plane.billing.dynamodb_items import encode_snapshot
-from cnes_control_plane.billing.dynamodb_quota import DynamoQuotaReservations
-from cnes_control_plane.billing.keys import capacity_usage_key
-from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
-from cnes_domain.billing.commands import (
+from cnes_control_plane.billing.commands import (
     AnalyticsRequest,
     CapacityReservationCommand,
     CreateRunRequest,
     ReserveAnalyticsCommand,
     ReserveRunCommand,
 )
-from cnes_domain.billing.models import CapacityKind, EntitlementSnapshot, QuotaLimits
-from cnes_domain.control_plane.entities import RunDependency
+from cnes_control_plane.billing.dynamodb_items import encode_snapshot
+from cnes_control_plane.billing.dynamodb_quota import DynamoQuotaReservations
+from cnes_control_plane.billing.keys import capacity_usage_key
+from cnes_control_plane.billing.models import CapacityKind, EntitlementSnapshot, QuotaLimits
+from cnes_control_plane.model.entities import RunDependency
+from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
 from packages.cnes_control_plane.tests.billing.billing_factories import (
     NOW,
     TABLE_NAME,

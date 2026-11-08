@@ -10,7 +10,17 @@ from botocore.client import BaseClient
 from botocore.exceptions import ClientError
 
 from cnes_data.dynamodb import key_component
-from cnes_domain.refresh_tokens import (
+from cnes_identity.dynamodb_refresh_codec import (
+    MAX_VERSION,
+    Item,
+    Projection,
+    decode_record,
+    encode_record,
+    mapping,
+    refresh_key,
+    require,
+)
+from cnes_identity.refresh_contracts import (
     RefreshTokenConflict,
     RefreshTokenContext,
     RefreshTokenInput,
@@ -21,16 +31,6 @@ from cnes_domain.refresh_tokens import (
     validate_refresh_token_agent_context,
     validate_refresh_token_context,
     validate_refresh_token_mutation,
-)
-from cnes_identity.dynamodb_refresh_codec import (
-    MAX_VERSION,
-    Item,
-    Projection,
-    decode_record,
-    encode_record,
-    mapping,
-    refresh_key,
-    require,
 )
 
 type WirePair = tuple[Item, Item]

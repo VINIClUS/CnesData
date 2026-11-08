@@ -18,7 +18,7 @@ from central_api.agent_auth import (
     require_agent_cert,
 )
 from central_api.schemas.raw_api import EdgeIdentity
-from cnes_domain.tenant import get_tenant_id
+from cnes_data.tenant import get_tenant_id
 from cnes_identity import CertAuthority
 from cnes_identity.errors import OAuthError
 

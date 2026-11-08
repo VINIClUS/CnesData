@@ -7,10 +7,11 @@ from dataclasses import dataclass
 from io import BytesIO
 from typing import TYPE_CHECKING
 
+from cnes_contracts.audit import OutboxEvent
+from cnes_contracts.errors import ControlPlaneErrorCode, LeaseLost
 from cnes_contracts.manifests.validation import manifest_sha256
-from cnes_domain.control_plane.commands import CommitRunUnit, FailRunUnit
-from cnes_domain.control_plane.entities import ManifestRef, OutboxEvent
-from cnes_domain.control_plane.errors import ControlPlaneErrorCode, LeaseLost
+from cnes_control_plane.model.commands import CommitRunUnit, FailRunUnit
+from cnes_control_plane.model.entities import ManifestRef
 from data_processor.orchestration.attempt_store import (
     AttemptObjectStore,
     attempt_object_key,
@@ -22,10 +23,10 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from cnes_contracts.manifests.outputs import OutputManifest
-    from cnes_domain.control_plane.commands import ClaimRunUnit
-    from cnes_domain.control_plane.entities import RunUnit
-    from cnes_domain.ports.control_plane import ControlPlanePort
-    from cnes_domain.ports.object_store import ObjectStorePort
+    from cnes_control_plane.model.commands import ClaimRunUnit
+    from cnes_control_plane.model.entities import RunUnit
+    from cnes_control_plane.ports.control_plane import ControlPlanePort
+    from cnes_data.object_store.ports import ObjectStorePort
 
 logger = logging.getLogger(__name__)
 

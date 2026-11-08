@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
+from cnes_contracts.modes import BillingMode
 from cnes_control_plane.billing.audit_outbox import DynamoBillingAudit
 from cnes_control_plane.billing.composition import (
     BillingStorage,
@@ -18,14 +19,13 @@ from cnes_control_plane.billing.composition import (
 )
 from cnes_control_plane.billing.dynamodb_catalog import DynamoBillingCatalog
 from cnes_control_plane.billing.dynamodb_projection import DynamoEntitlementProjection
+from cnes_control_plane.billing.inbox import RecoveryRequest
 from cnes_control_plane.billing.projector import ProjectorDependencies
 from cnes_control_plane.billing.secrets_manager import SecretsManagerSecretProvider
 from cnes_control_plane.billing.settings import BillingConfigurationError
 from cnes_control_plane.billing.stripe_gateway import StripeGateway
 from cnes_control_plane.billing.webhook_inbox import WebhookInbox
 from cnes_control_plane.billing.webhook_verifier import StripeWebhookVerifier
-from cnes_domain.billing.inbox import RecoveryRequest
-from cnes_domain.profiles import BillingMode
 
 ORIGIN = "https://app.example.test"
 KEY_ARN = "arn:aws:secretsmanager:sa-east-1:1:secret:key"

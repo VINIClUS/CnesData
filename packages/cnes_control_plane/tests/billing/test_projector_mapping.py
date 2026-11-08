@@ -4,13 +4,13 @@ from datetime import timedelta
 
 import pytest
 
+from cnes_control_plane.billing.commands import StripeStateRequest
+from cnes_control_plane.billing.models import SubscriptionStatus
 from cnes_control_plane.billing.projector import (
     PROJECTION_ACTOR_ID,
     STRIPE_SNAPSHOT_VALIDITY_MARGIN_HOURS,
 )
 from cnes_control_plane.billing.webhook_inbox_items import STRIPE_WEBHOOK_EVENT_TYPES
-from cnes_domain.billing.commands import StripeStateRequest
-from cnes_domain.billing.models import SubscriptionStatus
 from packages.cnes_control_plane.tests.billing.billing_factories import NOW
 from packages.cnes_control_plane.tests.billing.test_projector import (
     ACCOUNT_ID,

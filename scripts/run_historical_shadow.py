@@ -25,11 +25,11 @@ from cnes_control_plane.billing import (
     BillingGateResources,
     build_execution_callbacks,
 )
-from cnes_domain.control_plane.entities import RawManifestRecord, Run
-from cnes_domain.control_plane.enums import RunStage, RunState
-from cnes_domain.orchestration.source_catalog import build_source_catalog
-from cnes_domain.ports.processing import ExecutionPolicyConfig, ExecutionStatus
-from cnes_domain.profiles import ProfileSettings
+from cnes_control_plane.model.entities import RawManifestRecord, Run
+from cnes_control_plane.model.enums import RunStage, RunState
+from cnes_control_plane.orchestration.source_catalog import build_source_catalog
+from cnes_control_plane.ports.processing import ExecutionPolicyConfig, ExecutionStatus
+from cnes_runtime.profiles import ProfileSettings
 from data_processor.composition import build_local_processor_runtime
 from data_processor.migration.equivalence import (
     ContractInvalid,

@@ -13,14 +13,14 @@ from apps.central_api.tests.services.test_agent_admission import (
     make_agent,
 )
 from central_api.services.agent_admission import AgentAdmission
-from cnes_domain.billing.errors import BillingDependencyError, EntitlementDenied
-from cnes_domain.billing.models import EntitlementAction
-from cnes_domain.billing.shadow import (
+from cnes_contracts.modes import BillingMode
+from cnes_control_plane.billing.errors import BillingDependencyError, EntitlementDenied
+from cnes_control_plane.billing.models import EntitlementAction
+from cnes_control_plane.billing.shadow import (
     ShadowEntitlementObserver,
     ShadowObservation,
     ShadowObserverDependencies,
 )
-from cnes_domain.profiles import BillingMode
 
 TENANT = "354130"
 

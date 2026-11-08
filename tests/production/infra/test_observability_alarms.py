@@ -83,8 +83,8 @@ SOURCES = {
     "processor_execution_probe_failed": "apps/data_processor/src/data_processor/recovery.py",
     "processor_recovery_completed": "apps/data_processor/src/data_processor/recovery.py",
     "processor_entrypoint_failed": "apps/data_processor/src/data_processor/main.py",
-    "dispatch_deferred": "packages/cnes_domain/orchestration/dispatch_admission.py",
-    "monthly_attempts_exhausted": "packages/cnes_domain/ports/environment_gate.py",
+    "dispatch_deferred": "packages/cnes_control_plane/orchestration/dispatch_admission.py",
+    "monthly_attempts_exhausted": "packages/cnes_control_plane/ports/environment_gate.py",
     "reconcile_failed": "apps/data_processor/src/data_processor/recovery.py",
 }
 

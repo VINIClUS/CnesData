@@ -8,7 +8,7 @@ Histórico de fases de implementação. Não autoritativo para o estado atual
 - `sources/sihd/` — `normalize_sihd`, `reconcile_sihd`, `materialize_sihd`
   isolados; ainda não registrados em `composition.py` (#275).
 - Contrato em `sources/sihd/contract.py`; definição em
-  `cnes_domain.orchestration.source_definitions.sihd`.
+  `cnes_control_plane.orchestration.source_definitions.sihd`.
 - PII fora por allow-list no normalize; identidade da AIH
   `(COMPETENCIA, OE_GESTOR, SEQ/SEQ_PRINC)`, procedimento + `INDX`; `_op` fora
   de I/U/D rejeitado.

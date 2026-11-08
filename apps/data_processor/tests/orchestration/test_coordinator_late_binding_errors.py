@@ -23,16 +23,16 @@ from apps.data_processor.tests.orchestration.test_coordinator_late_binding impor
     race,
     store,
 )
-from cnes_domain.control_plane.enums import DispatchOutcome, RunState, RunUnitState
-from cnes_domain.control_plane.errors import Conflict, ControlPlaneErrorCode
-from cnes_domain.orchestration.dispatch_admission import EnvironmentAdmission, UnitPermitLost
-from cnes_domain.ports.processing import ExecutionStatus
+from cnes_contracts.errors import Conflict, ControlPlaneErrorCode
+from cnes_control_plane.model.enums import DispatchOutcome, RunState, RunUnitState
+from cnes_control_plane.orchestration.dispatch_admission import EnvironmentAdmission, UnitPermitLost
+from cnes_control_plane.ports.processing import ExecutionStatus
 from data_processor.orchestration.coordinator import PipelineCoordinator
 
 if TYPE_CHECKING:
     from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
-    from cnes_domain.ports.environment_gate import ExecutionObservation
-    from cnes_domain.ports.processing import StartRunExecution
+    from cnes_control_plane.ports.environment_gate import ExecutionObservation
+    from cnes_control_plane.ports.processing import StartRunExecution
 
 __all__ = ["adapter", "clock", "executor", "gate", "race", "store"]
 

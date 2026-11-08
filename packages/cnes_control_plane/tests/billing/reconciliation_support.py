@@ -4,10 +4,12 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, cast
 
-from cnes_control_plane.billing.reconciliation import BillingReconciler, ReconciliationDependencies
-from cnes_control_plane.billing.reconciliation_cursor import ReconciliationCursor
-from cnes_domain.billing.commands import SnapshotWrite, StripeBillingState, StripeStateRequest
-from cnes_domain.billing.models import (
+from cnes_control_plane.billing.commands import (
+    SnapshotWrite,
+    StripeBillingState,
+    StripeStateRequest,
+)
+from cnes_control_plane.billing.models import (
     BillingAccount,
     BillingAccountPage,
     BillingAuditEvent,
@@ -17,7 +19,9 @@ from cnes_domain.billing.models import (
     ReadConsistency,
     SubscriptionStatus,
 )
-from cnes_domain.billing.revocation import RevocationResult
+from cnes_control_plane.billing.reconciliation import BillingReconciler, ReconciliationDependencies
+from cnes_control_plane.billing.reconciliation_cursor import ReconciliationCursor
+from cnes_control_plane.billing.revocation import RevocationResult
 from packages.cnes_control_plane.tests.billing.billing_factories import (
     NOW,
     make_account,
@@ -27,7 +31,7 @@ from packages.cnes_control_plane.tests.billing.billing_factories import (
 from packages.cnes_control_plane.tests.contracts.clock import MutableClock
 
 if TYPE_CHECKING:
-    from cnes_domain.billing.ports import (
+    from cnes_control_plane.billing.ports import (
         BillingCatalogPort,
         EntitlementProjectionPort,
         StripeGatewayPort,

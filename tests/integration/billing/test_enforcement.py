@@ -5,11 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from cnes_domain.billing.errors import PublishDenied
-from cnes_domain.billing.execution import PublicationGuard
-from cnes_domain.billing.models import ReservationStatus
-from cnes_domain.control_plane.enums import RunState, RunUnitState
-from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost
+from cnes_contracts.errors import Conflict, FenceRejected, LeaseLost
+from cnes_control_plane.billing.errors import PublishDenied
+from cnes_control_plane.billing.execution import PublicationGuard
+from cnes_control_plane.billing.models import ReservationStatus
+from cnes_control_plane.model.enums import RunState, RunUnitState
 from tests.integration.billing._enforcement_stack import (
     DYNAMO_STRIPE,
     MATRIX,

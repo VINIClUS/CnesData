@@ -9,6 +9,7 @@ from typing import Any, cast
 import pytest
 from botocore.exceptions import ClientError
 
+from cnes_control_plane.billing.commands import ConsumeCapacityCommand, ReleaseCapacityCommand
 from cnes_control_plane.billing.dynamodb_items import deterministic_id, outbox_item
 from cnes_control_plane.billing.dynamodb_quota import DynamoQuotaReservations
 from cnes_control_plane.billing.dynamodb_quota_capacity import (
@@ -21,21 +22,20 @@ from cnes_control_plane.billing.dynamodb_quota_items import (
     quota_event,
     usage_counter,
 )
-from cnes_control_plane.billing.keys import (
-    capacity_reservation_key,
-    capacity_usage_key,
-    entitlement_snapshot_key,
-)
-from cnes_control_plane.persistence.dynamodb_codec import absent_check_action
-from cnes_domain.billing.commands import ConsumeCapacityCommand, ReleaseCapacityCommand
-from cnes_domain.billing.errors import (
+from cnes_control_plane.billing.errors import (
     EntitlementDenied,
     IdempotencyConflict,
     PermanentBillingError,
     QuotaExceeded,
     RetryableBillingError,
 )
-from cnes_domain.billing.models import CapacityKind, ReservationStatus, SubscriptionStatus
+from cnes_control_plane.billing.keys import (
+    capacity_reservation_key,
+    capacity_usage_key,
+    entitlement_snapshot_key,
+)
+from cnes_control_plane.billing.models import CapacityKind, ReservationStatus, SubscriptionStatus
+from cnes_control_plane.persistence.dynamodb_codec import absent_check_action
 from packages.cnes_control_plane.tests.billing.billing_factories import (
     NOW,
     TABLE_NAME,

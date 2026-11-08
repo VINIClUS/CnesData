@@ -7,12 +7,7 @@ from typing import Any
 
 import pytest
 
-from cnes_control_plane.billing.stripe_gateway import (
-    StripeGateway,
-    StripeGatewayConfig,
-    StripeMappingError,
-)
-from cnes_domain.billing.commands import (
+from cnes_control_plane.billing.commands import (
     CheckoutCommand,
     CreateStripeCustomerCommand,
     HostedSession,
@@ -20,9 +15,14 @@ from cnes_domain.billing.commands import (
     StripeCustomer,
     StripeStateRequest,
 )
-from cnes_domain.billing.errors import PermanentBillingError, RetryableBillingError
-from cnes_domain.billing.inbox import StripeEventListRequest
-from cnes_domain.billing.ports import StripeGatewayPort
+from cnes_control_plane.billing.errors import PermanentBillingError, RetryableBillingError
+from cnes_control_plane.billing.inbox import StripeEventListRequest
+from cnes_control_plane.billing.ports import StripeGatewayPort
+from cnes_control_plane.billing.stripe_gateway import (
+    StripeGateway,
+    StripeGatewayConfig,
+    StripeMappingError,
+)
 from packages.cnes_control_plane.tests.billing.stripe_fakes import (
     CANCEL_URL,
     ORIGIN,

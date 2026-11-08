@@ -54,7 +54,7 @@ class _Verifier:
 def _membership(tenant_id: str, user_id: str):
     from datetime import UTC, datetime
 
-    from cnes_domain.control_plane.entities import Membership
+    from cnes_contracts.membership import Membership
 
     if tenant_id != AWS_TENANT:
         return None
@@ -290,7 +290,7 @@ def test_legado_billing_responde_503_nao_configurado(monkeypatch) -> None:
 def test_install_billing_local_disabled_nao_toca_secrets_manager(monkeypatch) -> None:
     from central_api import billing_deps
     from central_api.routes import billing, stripe_webhook
-    from cnes_domain.profiles import BillingMode
+    from cnes_contracts.modes import BillingMode
 
     monkeypatch.setenv("PROFILE", "local")
     monkeypatch.setenv("TENANT_ID", AWS_TENANT)
@@ -344,7 +344,7 @@ def _components_patch(**replacements):
 def _owned_catalog() -> Mock:
     from datetime import UTC, datetime
 
-    from cnes_domain.billing.models import BillingAccount, BillingAccountStatus
+    from cnes_control_plane.billing.models import BillingAccount, BillingAccountStatus
 
     moment = datetime(2026, 9, 1, tzinfo=UTC)
     catalog = Mock(name="catalog")
@@ -402,7 +402,7 @@ def test_aws_stripe_status_alcanca_projecao_com_catalogo_e_projecao_compostos(
 
 
 def test_aws_stripe_webhook_assinado_e_aceito_no_inbox(monkeypatch) -> None:
-    from cnes_domain.billing.inbox import InboxAcceptResult, InboxDisposition
+    from cnes_control_plane.billing.inbox import InboxAcceptResult, InboxDisposition
 
     inbox = Mock(name="inbox")
     inbox.accept.return_value = InboxAcceptResult("evt_1", InboxDisposition.ACCEPTED)

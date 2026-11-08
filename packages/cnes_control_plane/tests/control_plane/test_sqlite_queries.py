@@ -6,15 +6,15 @@ from warnings import catch_warnings, simplefilter
 
 import pytest
 
-from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
-from cnes_domain.control_plane.enums import JobState, RunState
-from cnes_domain.control_plane.queries import (
+from cnes_control_plane.model.enums import JobState, RunState
+from cnes_control_plane.model.queries import (
     LatestSucceededJobQuery,
     RawIdentity,
     RawManifestChainQuery,
     WaitingRunsForDependencyQuery,
 )
-from cnes_domain.ports.control_plane import ControlPlanePort, TypedRawQueryPort
+from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
+from cnes_control_plane.ports.control_plane import ControlPlanePort, TypedRawQueryPort
 from packages.cnes_control_plane.tests.contracts.clock import MutableClock, _job, _raw_record, _run
 
 if TYPE_CHECKING:

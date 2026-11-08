@@ -7,17 +7,17 @@ from typing import Any
 
 import pytest
 
-from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
-from cnes_domain.billing.commands import ConsumeReservationCommand, ReleaseReservationCommand
-from cnes_domain.billing.errors import (
+from cnes_control_plane.billing.commands import ConsumeReservationCommand, ReleaseReservationCommand
+from cnes_control_plane.billing.errors import (
     BillingDisabledError,
     IdempotencyConflict,
     PermanentBillingError,
 )
-from cnes_domain.billing.models import ReservationStatus
-from cnes_domain.control_plane.entities import Run
-from cnes_domain.control_plane.enums import RunState
-from cnes_domain.ports.control_plane import ControlPlanePort
+from cnes_control_plane.billing.models import ReservationStatus
+from cnes_control_plane.model.entities import Run
+from cnes_control_plane.model.enums import RunState
+from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
+from cnes_control_plane.ports.control_plane import ControlPlanePort
 from packages.cnes_control_plane.tests.billing.billing_factories import NOW
 from packages.cnes_control_plane.tests.billing.quota_support import (
     ACCOUNT,

@@ -3,9 +3,7 @@
 from dataclasses import dataclass
 from typing import Protocol
 
-from cnes_control_plane.billing.metrics import BillingMetricName, billing_metric
-from cnes_control_plane.billing.revocation_sweep import RevocationSweepResult
-from cnes_domain.billing.inbox import (
+from cnes_control_plane.billing.inbox import (
     ReconciliationRequest,
     ReconciliationResult,
     RecoveryRequest,
@@ -13,7 +11,9 @@ from cnes_domain.billing.inbox import (
     ReservationRecoveryRequest,
     ReservationRecoveryResult,
 )
-from cnes_domain.billing.ports import BillingMetricsPort, ClockPort
+from cnes_control_plane.billing.metrics import BillingMetricName, billing_metric
+from cnes_control_plane.billing.ports import BillingMetricsPort, ClockPort
+from cnes_control_plane.billing.revocation_sweep import RevocationSweepResult
 
 
 class RecoveryRunner(Protocol):

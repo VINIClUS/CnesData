@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 
 from cnes_contracts import RawManifest, manifest_sha256
-from cnes_domain.control_plane.entities import RawResyncState
+from cnes_control_plane.model.entities import RawResyncState
 
 _MAX_BASE_AGE = timedelta(days=7)
 _MAX_CHAIN_LENGTH = 30

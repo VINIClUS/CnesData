@@ -1,9 +1,8 @@
 from collections.abc import Callable
 from typing import Any
 
-from cnes_control_plane.persistence.raw_query_compat import DeprecatedRawQueryMixin
-from cnes_domain.control_plane.enums import RunState
-from cnes_domain.control_plane.queries import (
+from cnes_control_plane.model.enums import RunState
+from cnes_control_plane.model.queries import (
     AgentRawManifestChainQuery,
     LatestSucceededJobQuery,
     RawManifestByIdQuery,
@@ -11,6 +10,7 @@ from cnes_domain.control_plane.queries import (
     RawResyncStateQuery,
     WaitingRunsForDependencyQuery,
 )
+from cnes_control_plane.persistence.raw_query_compat import DeprecatedRawQueryMixin
 
 
 class HarnessRawQueries(DeprecatedRawQueryMixin):
@@ -74,7 +74,7 @@ class HarnessRawQueries(DeprecatedRawQueryMixin):
 
     @staticmethod
     def _manifest_ref(record: Any) -> Any:
-        from cnes_domain.control_plane.entities import ManifestRef
+        from cnes_control_plane.model.entities import ManifestRef
 
         return ManifestRef(manifest_id=record.manifest_id, manifest_key=record.manifest_key)
 

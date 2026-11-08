@@ -8,14 +8,14 @@ from typing import TYPE_CHECKING, cast
 import pytest
 
 from apps.data_processor.tests.orchestration.test_coordinator import _processor
+from cnes_contracts.errors import LeaseLost
+from cnes_control_plane.billing.errors import EntitlementDenied, PermanentBillingError
+from cnes_control_plane.model.commands import BindRunDispatch, ReserveRunDispatch
+from cnes_control_plane.model.entities import RunDispatch
+from cnes_control_plane.model.enums import DispatchState
+from cnes_control_plane.orchestration.planner import RunPlan, logical_wave_id, ready_units
 from cnes_control_plane.persistence.dynamodb_billing import CLAIM_BIND_BACKOFF_SECONDS
-from cnes_domain.billing.errors import EntitlementDenied, PermanentBillingError
-from cnes_domain.control_plane.commands import BindRunDispatch, ReserveRunDispatch
-from cnes_domain.control_plane.entities import RunDispatch
-from cnes_domain.control_plane.enums import DispatchState
-from cnes_domain.control_plane.errors import LeaseLost
-from cnes_domain.orchestration.planner import RunPlan, logical_wave_id, ready_units
-from cnes_domain.ports.processing import CancelRunExecution
+from cnes_control_plane.ports.processing import CancelRunExecution
 from data_processor.orchestration.unit_worker import UnitWorker, UnitWorkerDependencies
 from tests.integration.billing._execution_stack import (
     LEASE_SECONDS,
@@ -36,7 +36,7 @@ from tests.integration.billing._execution_stack import (
 )
 
 if TYPE_CHECKING:
-    from cnes_domain.billing.execution import RunExecutionPermit
+    from cnes_control_plane.billing.execution import RunExecutionPermit
 
 SQLITE_DISABLED = Case("sqlite-disabled", dynamo=False, stripe=False)
 DYNAMO_DISABLED = Case("dynamodb-disabled", dynamo=True, stripe=False)

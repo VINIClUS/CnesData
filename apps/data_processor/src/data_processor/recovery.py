@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from datetime import datetime
 
-    from cnes_domain.ports.control_plane import ControlPlanePort
+    from cnes_control_plane.ports.control_plane import ControlPlanePort
     from data_processor.orchestration.coordinator import CoordinatorResult, PipelineCoordinator
 
 logger = logging.getLogger(__name__)

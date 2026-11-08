@@ -10,11 +10,11 @@ from typing import Any
 import pytest
 from moto import mock_aws
 
+from cnes_contracts.errors import Conflict
 from cnes_control_plane.billing.audit_outbox import DynamoBillingAudit
 from cnes_control_plane.billing.dynamodb_items import audit_outbox_event
-from cnes_domain.billing.models import BillingAuditEvent
-from cnes_domain.control_plane.errors import Conflict
-from cnes_domain.outbox_dispatcher import DispatchResult, dispatch_once
+from cnes_control_plane.billing.models import BillingAuditEvent
+from cnes_control_plane.outbox_dispatcher import DispatchResult, dispatch_once
 from packages.cnes_control_plane.tests.contracts.clock import _NOW
 from packages.cnes_control_plane.tests.control_plane.outbox_cursor_support import (
     OutboxHarness,

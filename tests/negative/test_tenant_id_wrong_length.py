@@ -6,7 +6,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from cnes_domain.tenant import InvalidTenantError, validate_tenant_id
+from cnes_data.tenant import InvalidTenantError, validate_tenant_id
 
 
 @pytest.mark.negative

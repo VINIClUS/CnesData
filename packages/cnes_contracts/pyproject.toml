@@ -1,3 +1,5 @@
+[tool.uv.sources]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -8,10 +10,29 @@ version = "0.1.0"
 description = "CNES Data canonical contracts (pydantic + Protocols)"
 requires-python = ">=3.13"
 dependencies = [
-  "pydantic>=2.6",
+    "pydantic>=2.6",
 ]
 
 [tool.hatch.build.targets.wheel]
-only-include = ["__init__.py", "api.py", "columns.py", "dims.py", "export.py", "extraction.py", "fatos.py", "jobs.py", "landing.py", "manifests", "sihd_columns.py"]
+only-include = [
+    "__init__.py",
+    "api.py",
+    "audit.py",
+    "columns.py",
+    "dims.py",
+    "errors.py",
+    "export.py",
+    "extraction.py",
+    "fatos.py",
+    "jobs.py",
+    "landing.py",
+    "manifests",
+    "membership.py",
+    "modes.py",
+    "public_leads.py",
+    "schema.py",
+    "serving.py",
+    "sihd_columns.py",
+]
 sources = { "" = "cnes_contracts" }
 dev-mode-dirs = [".."]

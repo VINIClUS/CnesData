@@ -30,16 +30,17 @@ from central_api.routes.billing_schemas import (
     PortalCreate,
 )
 from central_api.routes.raw_jobs import get_control_plane
-from cnes_control_plane.billing.disabled import LOCAL_UNMETERED_PLAN_VERSION_ID
-from cnes_domain.billing.commands import (
+from cnes_contracts.modes import BillingMode
+from cnes_control_plane.billing.commands import (
     CheckoutCommand,
     CreateBillingAccountCommand,
     HostedSession,
     PortalCommand,
     TransferOwnerCommand,
 )
-from cnes_domain.billing.errors import BillingTenantConflict
-from cnes_domain.billing.models import (
+from cnes_control_plane.billing.disabled import LOCAL_UNMETERED_PLAN_VERSION_ID
+from cnes_control_plane.billing.errors import BillingTenantConflict
+from cnes_control_plane.billing.models import (
     BILLING_ADMIN_ROLE,
     BillingAccount,
     BillingAccountStatus,
@@ -49,15 +50,14 @@ from cnes_domain.billing.models import (
     ReadConsistency,
     SubscriptionStatus,
 )
-from cnes_domain.billing.ports import (
+from cnes_control_plane.billing.ports import (
     BillingAuditPort,
     BillingCatalogPort,
     ClockPort,
     EntitlementProjectionPort,
     StripeGatewayPort,
 )
-from cnes_domain.ports.control_plane import ControlPlanePort
-from cnes_domain.profiles import BillingMode
+from cnes_control_plane.ports.control_plane import ControlPlanePort
 from cnes_identity.oidc import OidcPrincipal
 
 logger = logging.getLogger(__name__)

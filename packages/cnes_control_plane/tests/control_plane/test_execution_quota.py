@@ -9,26 +9,26 @@ import pytest
 from botocore.exceptions import ClientError
 from moto import mock_aws
 
-from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
-from cnes_control_plane.persistence.dynamodb_environment_gate import attempts_key
-from cnes_data.dynamodb import item_key
-from cnes_domain.control_plane.environment_gate import PermitHolder, ReanchorUnitPermit
-from cnes_domain.control_plane.errors import Conflict
-from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
-from cnes_domain.control_plane.execution_quota import (
+from cnes_contracts.errors import Conflict
+from cnes_contracts.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_control_plane.model.environment_gate import PermitHolder, ReanchorUnitPermit
+from cnes_control_plane.model.execution_quota import (
     AttemptOutcome,
     AttemptStatus,
     ConsumeExecutionAttempt,
     execution_period,
 )
-from cnes_domain.orchestration.dispatch_admission import EnvironmentAdmission
-from cnes_domain.ports.environment_gate import (
+from cnes_control_plane.orchestration.dispatch_admission import EnvironmentAdmission
+from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
+from cnes_control_plane.persistence.dynamodb_environment_gate import attempts_key
+from cnes_control_plane.ports.environment_gate import (
     DeferralReason,
     DispatchDeferred,
     ExecutionObservation,
     ExecutionPresence,
     UnitAdmission,
 )
+from cnes_data.dynamodb import item_key
 from packages.cnes_control_plane.tests.control_plane.test_dynamodb_adapter import (
     _TABLE_NAME,
     _create_table,

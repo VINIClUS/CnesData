@@ -18,14 +18,14 @@ from central_api.routes.raw_jobs import (
 )
 from central_api.schemas.raw_api import EdgeIdentity
 from central_api.services.raw_upload import RawUploadService
-from cnes_domain.control_plane.entities import Agent, Job
-from cnes_domain.control_plane.enums import AgentState, JobState
-from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost, NotFound
-from cnes_domain.ports.object_store import ObjectStat
+from cnes_contracts.errors import Conflict, FenceRejected, LeaseLost, NotFound
+from cnes_control_plane.model.entities import Agent, Job
+from cnes_control_plane.model.enums import AgentState, JobState
+from cnes_data.object_store.ports import ObjectStat
 
 if TYPE_CHECKING:
-    from cnes_domain.ports.control_plane import ControlPlanePort
-    from cnes_domain.ports.object_store import ObjectStorePort
+    from cnes_control_plane.ports.control_plane import ControlPlanePort
+    from cnes_data.object_store.ports import ObjectStorePort
 
 if TYPE_CHECKING:
     from starlette.requests import Request

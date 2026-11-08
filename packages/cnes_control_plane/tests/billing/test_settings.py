@@ -2,13 +2,13 @@
 
 import pytest
 
+from cnes_contracts.modes import BillingMode
+from cnes_control_plane.billing.models import BillingEnforcementMode
 from cnes_control_plane.billing.settings import (
     LOCAL_BILLING_SETTINGS,
     BillingConfigurationError,
     BillingSettings,
 )
-from cnes_domain.billing.models import BillingEnforcementMode
-from cnes_domain.profiles import BillingMode
 
 _LOCAL = {"PROFILE": "local", "TENANT_ID": "354130"}
 _AWS = {"PROFILE": "aws"}

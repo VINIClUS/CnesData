@@ -10,8 +10,10 @@ from pydantic import BaseModel
 from central_api.deps import require_admin_token
 from central_api.routes.raw_jobs import get_control_plane
 from central_api.services.raw_enqueue import RawEnqueueRequest, RawEnqueueService
-from cnes_domain.control_plane.errors import Conflict
-from cnes_domain.ports.control_plane import ControlPlanePort  # noqa: TC001
+from cnes_contracts.errors import Conflict
+from cnes_control_plane.ports.control_plane import (  # noqa: TC001 - FastAPI resolves annotations at runtime.
+    ControlPlanePort,
+)
 
 router = APIRouter(prefix="/api/v1/admin/raw-jobs", tags=["admin-raw"])
 

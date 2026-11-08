@@ -8,7 +8,7 @@ import pytest
 from moto import mock_aws
 
 from cnes_control_plane.billing import dynamodb_items as items
-from cnes_domain.billing.errors import PermanentBillingError
+from cnes_control_plane.billing.errors import PermanentBillingError
 from packages.cnes_control_plane.tests.billing.billing_factories import (
     NOW,
     TABLE_NAME,

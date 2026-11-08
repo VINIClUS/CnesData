@@ -13,7 +13,7 @@ processing and audit services.
 
 Pilot municipality: Presidente Epitacio/SP (`tenant_id=354130`, CNPJ
 `55.293.427/0001-17`). The architecture is multi-municipality by design:
-tenant isolation is enforced with `X-Tenant-Id`, `cnes_domain.tenant`, and
+tenant isolation is enforced with `X-Tenant-Id`, `cnes_data.tenant`, and
 Postgres RLS.
 
 Current repository scope:

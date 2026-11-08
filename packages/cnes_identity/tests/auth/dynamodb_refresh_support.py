@@ -16,8 +16,8 @@ import botocore
 import pytest
 from moto import mock_aws
 
-from cnes_domain.refresh_tokens import RefreshTokenInput, RefreshTokenRecord
 from cnes_identity.dynamodb_refresh_tokens import DynamoDBRefreshTokenStore
+from cnes_identity.refresh_contracts import RefreshTokenInput, RefreshTokenRecord
 
 if TYPE_CHECKING:
     from botocore.client import BaseClient

@@ -12,6 +12,7 @@ import boto3
 import pytest
 from moto import mock_aws
 
+from cnes_control_plane.billing.commands import StripeBillingState, StripeStateRequest
 from cnes_control_plane.billing.dynamodb_catalog import DynamoBillingCatalog
 from cnes_control_plane.billing.dynamodb_items import (
     deterministic_id,
@@ -22,6 +23,13 @@ from cnes_control_plane.billing.dynamodb_items import (
     encode_snapshot,
 )
 from cnes_control_plane.billing.dynamodb_projection import DynamoEntitlementProjection
+from cnes_control_plane.billing.errors import (
+    PermanentBillingError,
+    RetryableBillingError,
+    StaleInboxClaim,
+)
+from cnes_control_plane.billing.inbox import InboxProcessingState, StripeEvent
+from cnes_control_plane.billing.models import ReadConsistency, SubscriptionStatus
 from cnes_control_plane.billing.projector import (
     STRIPE_PROJECTION_CAS_RETRIES,
     ProjectorDependencies,
@@ -29,14 +37,6 @@ from cnes_control_plane.billing.projector import (
 )
 from cnes_control_plane.billing.webhook_inbox import WebhookInbox
 from cnes_control_plane.persistence.dynamodb_keys import outbox_key
-from cnes_domain.billing.commands import StripeBillingState, StripeStateRequest
-from cnes_domain.billing.errors import (
-    PermanentBillingError,
-    RetryableBillingError,
-    StaleInboxClaim,
-)
-from cnes_domain.billing.inbox import InboxProcessingState, StripeEvent
-from cnes_domain.billing.models import ReadConsistency, SubscriptionStatus
 from packages.cnes_control_plane.tests.billing.billing_factories import (
     NOW,
     TABLE_NAME,

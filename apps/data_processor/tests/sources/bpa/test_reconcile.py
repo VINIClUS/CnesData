@@ -17,7 +17,7 @@ import pytest
 from cnes_contracts.manifests.outputs import OutputManifest
 from cnes_contracts.manifests.processing import ReconcileRequest, ReconcileResult
 from cnes_contracts.manifests.raw import SourceType
-from cnes_domain.ports.object_store import ObjectStat
+from cnes_data.object_store.ports import ObjectStat
 from data_processor.adapters.bpa_adapter import NORMALIZED_SCHEMA, QUALITY_SCHEMA
 from data_processor.sources.bpa.contract import PROVENANCE_SCHEMA
 from data_processor.sources.bpa.reconcile import reconcile_bpa

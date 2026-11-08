@@ -9,16 +9,16 @@ from hashlib import sha256
 from tempfile import SpooledTemporaryFile
 from typing import TYPE_CHECKING, BinaryIO, cast
 
-from cnes_domain.control_plane.enums import JobState
-from cnes_domain.control_plane.errors import Conflict
+from cnes_contracts.errors import Conflict
+from cnes_control_plane.model.enums import JobState
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterable, Callable
     from datetime import datetime
 
-    from cnes_domain.control_plane.entities import Job
-    from cnes_domain.ports.control_plane import ControlPlanePort
-    from cnes_domain.ports.object_store import ObjectStat, ObjectStorePort
+    from cnes_control_plane.model.entities import Job
+    from cnes_control_plane.ports.control_plane import ControlPlanePort
+    from cnes_data.object_store.ports import ObjectStat, ObjectStorePort
 
 RAW_UPLOAD_MAX_BYTES = 1024**3
 RAW_UPLOAD_SPOOL_BYTES = 8 * 1024**2

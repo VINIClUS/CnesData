@@ -11,25 +11,25 @@ from botocore.exceptions import ClientError
 from cnes_control_plane.billing.dynamodb_items import canonical_json
 from cnes_control_plane.billing.dynamodb_quota_items import encode_run_billing_state
 from cnes_control_plane.billing.dynamodb_revocation import DynamoRevocationStore
+from cnes_control_plane.billing.errors import (
+    BillingDependencyError,
+    PermanentBillingError,
+    RetryableBillingError,
+)
 from cnes_control_plane.billing.keys import (
     revocation_progress_key,
     run_billing_key,
     run_lookup_key,
 )
-from cnes_control_plane.persistence.dynamodb_keys import run_entity_key
-from cnes_control_plane.persistence.dynamodb_run_codec import run_item
-from cnes_data.dynamodb import item_key
-from cnes_domain.billing.errors import (
-    BillingDependencyError,
-    PermanentBillingError,
-    RetryableBillingError,
-)
-from cnes_domain.billing.revocation import (
+from cnes_control_plane.billing.revocation import (
     RevocationPhase,
     RevocationProgress,
     RevocationStorePort,
 )
-from cnes_domain.control_plane.enums import RunState
+from cnes_control_plane.model.enums import RunState
+from cnes_control_plane.persistence.dynamodb_keys import run_entity_key
+from cnes_control_plane.persistence.dynamodb_run_codec import run_item
+from cnes_data.dynamodb import item_key
 from packages.cnes_control_plane.tests.billing.quota_support import ACCOUNT, NOW, TENANT
 from packages.cnes_control_plane.tests.billing.revocation_support import (
     RUN_ID,

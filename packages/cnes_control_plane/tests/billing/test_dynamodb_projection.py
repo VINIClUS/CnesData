@@ -9,27 +9,27 @@ import pytest
 from botocore.exceptions import ClientError
 from moto import mock_aws
 
+from cnes_control_plane.billing.commands import SnapshotWrite
 from cnes_control_plane.billing.dynamodb_items import utc_attribute
 from cnes_control_plane.billing.dynamodb_projection import DynamoEntitlementProjection
-from cnes_control_plane.billing.keys import (
-    BILLING_AUDIT_TENANT_ID,
-    entitlement_snapshot_key,
-    stripe_event_key,
-)
-from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
-from cnes_control_plane.persistence.dynamodb_keys import outbox_key
-from cnes_data.dynamodb import item_key
-from cnes_domain.billing.commands import SnapshotWrite
-from cnes_domain.billing.errors import (
+from cnes_control_plane.billing.errors import (
     BillingDependencyError,
     PermanentBillingError,
     RetryableBillingError,
     StaleInboxClaim,
 )
-from cnes_domain.billing.inbox import InboxClaim
-from cnes_domain.billing.models import ReadConsistency
-from cnes_domain.billing.ports import EntitlementProjectionPort
-from cnes_domain.outbox_dispatcher import dispatch_once
+from cnes_control_plane.billing.inbox import InboxClaim
+from cnes_control_plane.billing.keys import (
+    BILLING_AUDIT_TENANT_ID,
+    entitlement_snapshot_key,
+    stripe_event_key,
+)
+from cnes_control_plane.billing.models import ReadConsistency
+from cnes_control_plane.billing.ports import EntitlementProjectionPort
+from cnes_control_plane.outbox_dispatcher import dispatch_once
+from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
+from cnes_control_plane.persistence.dynamodb_keys import outbox_key
+from cnes_data.dynamodb import item_key
 from packages.cnes_control_plane.tests.billing.billing_factories import (
     NOW,
     TABLE_NAME,
@@ -41,7 +41,7 @@ from packages.cnes_control_plane.tests.billing.billing_factories import (
 from packages.cnes_control_plane.tests.contracts.clock import MutableClock
 
 if TYPE_CHECKING:
-    from cnes_domain.control_plane.entities import OutboxEvent
+    from cnes_contracts.audit import OutboxEvent
 
 SNAPSHOT_KEY = item_key(*entitlement_snapshot_key("ba_01"))
 INBOX_KEY = item_key(*stripe_event_key("evt_01"))

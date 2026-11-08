@@ -17,8 +17,9 @@ from central_api.serving.aws_signed import (
     SignedServingRequest,
     SignedServingSettings,
 )
-from cnes_domain.ports.object_store import ObjectStat, ObjectStorePort
-from cnes_domain.ports.serving import ServingAccessPort, ServingGrant, ServingRequest
+from cnes_contracts.serving import ServingGrant, ServingRequest
+from cnes_control_plane.ports.serving import ServingAccessPort
+from cnes_data.object_store.ports import ObjectStat, ObjectStorePort
 
 NOW = datetime(2026, 8, 23, 12, 0, tzinfo=UTC)
 SERVING_KEY = "serving/tenant-a/run-01/overview.json"

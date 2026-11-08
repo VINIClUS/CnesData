@@ -9,6 +9,13 @@ from unittest.mock import MagicMock
 import pytest
 
 from cnes_control_plane.billing.dynamodb_items import deterministic_id
+from cnes_control_plane.billing.errors import (
+    BillingDependencyError,
+    PermanentBillingError,
+    RetryableBillingError,
+)
+from cnes_control_plane.billing.inbox import ReconciliationRequest
+from cnes_control_plane.billing.models import SubscriptionStatus
 from cnes_control_plane.billing.reconciliation import (
     COMPARED_FIELDS,
     CORRECTED_EVENT,
@@ -19,17 +26,7 @@ from cnes_control_plane.billing.reconciliation import (
     ReconciliationCursorPort,
 )
 from cnes_control_plane.billing.reconciliation_cursor import DynamoReconciliationCursor
-from cnes_domain.billing.errors import (
-    BillingDependencyError,
-    PermanentBillingError,
-    RetryableBillingError,
-)
-from cnes_domain.billing.inbox import ReconciliationRequest
-from cnes_domain.billing.models import SubscriptionStatus
-from cnes_domain.billing.revocation import (
-    ImmediateRevocationService,
-    RevocationDependencies,
-)
+from cnes_control_plane.billing.revocation import ImmediateRevocationService, RevocationDependencies
 from packages.cnes_control_plane.tests.billing.billing_factories import NOW, make_snapshot
 from packages.cnes_control_plane.tests.billing.reconciliation_support import (
     Env,

@@ -6,9 +6,13 @@ Controle, billing transacional e execução. Fronteiras canônicas: docs/archite
 
 ## Dependências
 
-Dependências locais declaradas: cnes-contracts, cnes-domain, cnes-data, cnes-observability.
-Não importar apps, cnes_runtime ou implementações de outra capability fora
-do grafo aprovado. Exceção: cnes_runtime é a camada externa de composição.
+Dependências locais declaradas:
+
+- cnes-contracts
+- cnes-data
+- cnes-observability
+
+Não importar apps nem Runtime. Respeitar o grafo de docs/architecture.md.
 
 ## Convenções
 
@@ -23,3 +27,12 @@ do grafo aprovado. Exceção: cnes_runtime é a camada externa de composição.
 - Não separar quota, run, capacidade ou revogação em escritas não atômicas.
 - Preservar chaves, CAS, leases e eventos de outbox.
 - Modo billing disabled não cria clientes de rede nem lê segredos Stripe.
+
+## Fronteira operacional
+
+- model/ e orchestration/ contêm os estados, transições e planejamento operacionais.
+- billing/ possui regras e adapters; ports/ define as interfaces consumidas aqui.
+- Código puro de execução/quotas não pertence a cnes_domain.
+- Compartilhar Membership, OutboxEvent e o vocabulário de erros via Contracts.
+- ports/audit.py e ports/serving.py pertencem aos consumidores; sinks são estruturais.
+- Não importar Runtime para interpretar perfis; validar apenas a configuração de billing.

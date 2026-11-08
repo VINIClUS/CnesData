@@ -7,6 +7,10 @@ from typing import Any
 
 import pytest
 
+from cnes_contracts.errors import Conflict
+from cnes_control_plane.billing.commands import ReleaseCapacityCommand
+from cnes_control_plane.billing.errors import EntitlementDenied, RetryableBillingError
+from cnes_control_plane.billing.models import CapacityKind, ReservationStatus, SubscriptionStatus
 from cnes_control_plane.persistence.dynamodb_keys import entity_key, idempotency_key
 from cnes_control_plane.persistence.edge_registration import (
     EDGE_AGENT_SCOPE,
@@ -15,10 +19,6 @@ from cnes_control_plane.persistence.edge_registration import (
 )
 from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
 from cnes_data.dynamodb import item_key
-from cnes_domain.billing.commands import ReleaseCapacityCommand
-from cnes_domain.billing.errors import EntitlementDenied, RetryableBillingError
-from cnes_domain.billing.models import CapacityKind, ReservationStatus, SubscriptionStatus
-from cnes_domain.control_plane.errors import Conflict
 from packages.cnes_control_plane.tests.billing.billing_factories import NOW, TABLE_NAME
 from packages.cnes_control_plane.tests.billing.quota_support import (
     ACCOUNT,

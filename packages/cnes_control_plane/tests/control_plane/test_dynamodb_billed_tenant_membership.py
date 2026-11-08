@@ -6,17 +6,17 @@ from typing import Any
 import pytest
 from botocore.exceptions import ClientError
 
-from cnes_control_plane.billing.settings import BillingSettings
-from cnes_control_plane.persistence.billed_tenant import creator_membership
-from cnes_control_plane.persistence.dynamodb_keys import key_component, membership_key
-from cnes_control_plane.persistence.dynamodb_tenants import membership_item
-from cnes_domain.billing.errors import (
+from cnes_contracts.membership import Membership
+from cnes_control_plane.billing.errors import (
     BillingDependencyError,
     BillingTenantConflict,
     IdempotencyConflict,
 )
-from cnes_domain.billing.models import ReservationStatus
-from cnes_domain.control_plane.entities import Membership
+from cnes_control_plane.billing.models import ReservationStatus
+from cnes_control_plane.billing.settings import BillingSettings
+from cnes_control_plane.persistence.billed_tenant import creator_membership
+from cnes_control_plane.persistence.dynamodb_keys import key_component, membership_key
+from cnes_control_plane.persistence.dynamodb_tenants import membership_item
 from cnes_identity.dynamodb_memberships import DynamoDBMembershipCandidates
 from packages.cnes_control_plane.tests.billing.billing_factories import NOW, TABLE_NAME
 from packages.cnes_control_plane.tests.control_plane.billed_tenant_support import (

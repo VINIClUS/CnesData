@@ -6,9 +6,14 @@ Configuração e composição de runtime. Fronteiras canônicas: docs/architectu
 
 ## Dependências
 
-Dependências locais declaradas: cnes-domain, cnes-data, cnes-governance, cnes-control-plane.
-Camada externa de composição: usa as capabilities declaradas para montar
-o runtime. Nenhuma capability pode depender deste pacote. Não importar apps.
+Dependências locais declaradas:
+
+- cnes-contracts
+- cnes-control-plane
+- cnes-data
+- cnes-governance
+
+Camada externa de composição; nenhuma capability depende de Runtime. Não importar apps.
 
 ## Convenções
 
@@ -16,3 +21,9 @@ o runtime. Nenhuma capability pode depender deste pacote. Não importar apps.
 - Testes em tests/; mocks somente em fronteiras de I/O.
 - Aplicam-se as regras e limites do CLAUDE.md raiz.
 - Variáveis de ambiente: .env.example; nunca registrar segredos.
+
+## Composição e operação
+
+- profiles.py e settings_types.py pertencem à configuração, não ao Domain.
+- artifacts/ possui decisões de release/retenção de artefatos operacionais.
+- Não oferecer tipos de configuração completos a capacidades que só precisam de um campo.

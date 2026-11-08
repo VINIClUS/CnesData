@@ -9,11 +9,11 @@ from unittest.mock import Mock
 import pytest
 
 from cnes_control_plane.execution.step_functions import ProcessorExecutionUnavailable
-from cnes_domain.control_plane.entities import Run, RunDependency, RunDispatch
-from cnes_domain.control_plane.enums import DispatchState, RunState
-from cnes_domain.ports.control_plane import ControlPlanePort
-from cnes_domain.ports.environment_gate import DispatchAdmissionPort
-from cnes_domain.ports.processing import (
+from cnes_control_plane.model.entities import Run, RunDependency, RunDispatch
+from cnes_control_plane.model.enums import DispatchState, RunState
+from cnes_control_plane.ports.control_plane import ControlPlanePort
+from cnes_control_plane.ports.environment_gate import DispatchAdmissionPort
+from cnes_control_plane.ports.processing import (
     ExecutionCallbacks,
     ExecutionPolicyConfig,
     ProcessorExecutorPort,

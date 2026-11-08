@@ -5,9 +5,9 @@ from dataclasses import dataclass, field
 
 import pytest
 
-from cnes_domain.billing.errors import EntitlementDenied
-from cnes_domain.control_plane.enums import DispatchOutcome, DispatchState
-from cnes_domain.ports.processing import ExecutionPermit
+from cnes_control_plane.billing.errors import EntitlementDenied
+from cnes_control_plane.model.enums import DispatchOutcome, DispatchState
+from cnes_control_plane.ports.processing import ExecutionPermit
 from data_processor.orchestration.coordinator import PipelineCoordinator
 
 from .test_coordinator import (

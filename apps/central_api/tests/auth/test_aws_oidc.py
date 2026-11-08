@@ -6,7 +6,7 @@ import pytest
 from botocore.exceptions import ClientError
 
 from central_api.auth.aws_oidc import AuthorizedTenant, MembershipAuthorizer, TenantAccessDenied
-from cnes_domain.control_plane.entities import Membership
+from cnes_contracts.membership import Membership
 from cnes_identity.oidc import OidcPrincipal
 
 _ISSUER = "https://idp.example.test"

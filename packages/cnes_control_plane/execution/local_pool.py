@@ -9,14 +9,14 @@ from contextvars import copy_context
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from cnes_domain.ports.processing import ExecutionStatus, RunUnitMessage
+from cnes_control_plane.ports.processing import ExecutionStatus, RunUnitMessage
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from datetime import datetime
 
-    from cnes_domain.control_plane.entities import RunUnit
-    from cnes_domain.ports.processing import CancelRunExecution, StartRunExecution
+    from cnes_control_plane.model.entities import RunUnit
+    from cnes_control_plane.ports.processing import CancelRunExecution, StartRunExecution
 
 type RunUnitHandler = Callable[[RunUnitMessage], "RunUnit"]
 type Clock = Callable[[], "datetime"]

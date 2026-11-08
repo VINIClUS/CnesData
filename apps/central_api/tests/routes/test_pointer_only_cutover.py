@@ -18,19 +18,21 @@ from central_api.middleware import AuthenticatedUser
 from central_api.routes import overview, serving
 from central_api.routes.serving import ServingPrincipal
 from central_api.services.serving_access import LocalServingAccess
+from cnes_contracts.audit import OutboxEvent
 from cnes_contracts.manifests.outputs import OutputManifest, RunManifest
+from cnes_contracts.membership import Membership
+from cnes_control_plane.model.commands import PublicationPermit, PublishDataset
+from cnes_control_plane.model.entities import DatasetVersion, Run
+from cnes_control_plane.model.enums import RunState
+from cnes_control_plane.orchestration.source_catalog import build_source_catalog
 from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
 from cnes_data.object_store import FilesystemObjectStore
-from cnes_domain.control_plane.commands import PublicationPermit, PublishDataset
-from cnes_domain.control_plane.entities import DatasetVersion, Membership, OutboxEvent, Run
-from cnes_domain.control_plane.enums import RunState
-from cnes_domain.orchestration.source_catalog import build_source_catalog
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from cnes_domain.ports.object_store import ObjectStorePort
-    from cnes_domain.ports.serving import ServingGrant, ServingRequest
+    from cnes_contracts.serving import ServingGrant, ServingRequest
+    from cnes_data.object_store.ports import ObjectStorePort
 
 TENANT = "354130"
 USER = "user-1"

@@ -7,22 +7,18 @@ from typing import TYPE_CHECKING, Any, Final, cast
 
 from botocore.exceptions import ClientError
 
+from cnes_contracts.errors import Conflict
+from cnes_contracts.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_control_plane.model.execution_quota import AttemptOutcome, AttemptStatus, decide_attempt
 from cnes_control_plane.persistence.dynamodb_environment_gate import attempts_key
 from cnes_control_plane.persistence.dynamodb_host import DynamoDBHost
 from cnes_data.dynamodb import item_key
-from cnes_domain.control_plane.errors import Conflict
-from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
-from cnes_domain.control_plane.execution_quota import (
-    AttemptOutcome,
-    AttemptStatus,
-    decide_attempt,
-)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from cnes_control_plane.model.execution_quota import ConsumeExecutionAttempt
     from cnes_data.dynamodb import Item
-    from cnes_domain.control_plane.execution_quota import ConsumeExecutionAttempt
 
 _ENTITY: Final = "EXECUTIONATTEMPTS"
 _ATTEMPTS: Final = "attempts"

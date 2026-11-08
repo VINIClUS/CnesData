@@ -22,7 +22,7 @@ from cnes_control_plane.execution.step_functions import (
     ProcessorExecutionUnavailable,
     StepFunctionsExecutionProbe,
 )
-from cnes_domain.ports.environment_gate import (
+from cnes_control_plane.ports.environment_gate import (
     ExecutionObservation,
     ExecutionPresence,
     ExecutionProbePort,

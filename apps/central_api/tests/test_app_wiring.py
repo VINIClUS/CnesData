@@ -165,7 +165,7 @@ class _Verifier:
 def _membership(tenant_id: str, user_id: str):
     from datetime import UTC, datetime
 
-    from cnes_domain.control_plane.entities import Membership
+    from cnes_contracts.membership import Membership
 
     if tenant_id != AWS_TENANT:
         return None
@@ -199,7 +199,7 @@ def _aws_client(monkeypatch, signed=None):
     from fastapi import Request
     from fastapi.testclient import TestClient
 
-    from cnes_domain.tenant import get_tenant_id
+    from cnes_data.tenant import get_tenant_id
 
     _aws_env(monkeypatch)
     app = _make_app()

@@ -12,14 +12,14 @@ from typing import Any
 
 import pytest
 
-from cnes_domain.ports.refresh_tokens import RefreshTokenStore
-from cnes_domain.refresh_tokens import (
+from cnes_identity.dynamodb_refresh_tokens import DynamoDBRefreshTokenStore
+from cnes_identity.refresh_contracts import (
     RefreshTokenContext,
     RefreshTokenInput,
     RefreshTokenMutation,
     RefreshTokenRecord,
 )
-from cnes_identity.dynamodb_refresh_tokens import DynamoDBRefreshTokenStore
+from cnes_identity.refresh_port import RefreshTokenStore
 from cnes_identity.sqlite_refresh_tokens import SQLiteRefreshTokenStore
 from packages.cnes_identity.tests.auth.dynamodb_refresh_support import (
     DynamoBoundary,

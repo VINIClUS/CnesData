@@ -9,7 +9,7 @@ from traceback import format_exception
 
 import pytest
 
-from cnes_domain.refresh_tokens import (
+from cnes_identity.refresh_contracts import (
     RefreshTokenInput,
     RefreshTokenRecord,
     RefreshTokenUnavailable,

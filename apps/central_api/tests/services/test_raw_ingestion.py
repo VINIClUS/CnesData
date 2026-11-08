@@ -9,14 +9,14 @@ import pytest
 from central_api.services.delta_policy import DeltaPolicy, ResyncReason
 from central_api.services.raw_ingestion import RawIngestionService, RegisterRawManifest
 from cnes_contracts import RawManifest, SnapshotMode, SourceType, manifest_sha256
-from cnes_domain.control_plane.entities import Job, ManifestRef, RawManifestRecord, RawResyncState
-from cnes_domain.control_plane.enums import JobState
-from cnes_domain.control_plane.errors import Conflict
-from cnes_domain.ports.object_store import ObjectStat
+from cnes_contracts.errors import Conflict
+from cnes_control_plane.model.entities import Job, ManifestRef, RawManifestRecord, RawResyncState
+from cnes_control_plane.model.enums import JobState
+from cnes_data.object_store.ports import ObjectStat
 
 if TYPE_CHECKING:
     from central_api.services.raw_ingestion import _ControlPlane
-    from cnes_domain.ports.object_store import ObjectStorePort
+    from cnes_data.object_store.ports import ObjectStorePort
 
 NOW = datetime(2026, 7, 15, 12, tzinfo=UTC)
 DATA = b"parquet"

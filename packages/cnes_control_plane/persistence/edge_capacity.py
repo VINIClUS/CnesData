@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
+from cnes_control_plane.billing.models import CapacityKind, ReservationStatus
 from cnes_data.dynamodb import payload, put_action
-from cnes_domain.billing.models import CapacityKind, ReservationStatus
 
 if TYPE_CHECKING:
     from datetime import datetime

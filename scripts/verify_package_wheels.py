@@ -22,8 +22,8 @@ for name in (
     'cnes_data.storage.schema_v2', 'cnes_data.dynamodb',
     'cnes_identity.oidc', 'cnes_identity.dynamodb_certificates',
     'cnes_identity.dynamodb_refresh_tokens', 'cnes_identity.sqlite_certificates',
-    'cnes_data.public_leads.dynamodb', 'cnes_domain.auth.certificates',
-    'cnes_domain.refresh_tokens', 'cnes_governance',
+    'cnes_data.public_leads.dynamodb', 'cnes_identity.certificates',
+    'cnes_identity.refresh_contracts', 'cnes_governance',
     'cnes_control_plane.persistence', 'cnes_control_plane.billing',
     'cnes_runtime.aws', 'cnes_observability.query_count',
 ):

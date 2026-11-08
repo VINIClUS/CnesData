@@ -10,10 +10,7 @@ from uuid import uuid4
 
 import pytest
 
-from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
-from cnes_control_plane.persistence.dynamodb_environment_gate import attempts_key
-from cnes_data.dynamodb import item_key
-from cnes_domain.control_plane.environment_gate import (
+from cnes_control_plane.model.environment_gate import (
     AcquireUnitPermit,
     AcquisitionStatus,
     ClosePromotionFence,
@@ -24,20 +21,23 @@ from cnes_domain.control_plane.environment_gate import (
     ReleaseUnitPermit,
     UnitPermit,
 )
-from cnes_domain.control_plane.execution_quota import (
+from cnes_control_plane.model.execution_quota import (
     AttemptOutcome,
     AttemptStatus,
     ConsumeExecutionAttempt,
     execution_period,
 )
-from cnes_domain.orchestration.dispatch_admission import EnvironmentAdmission
-from cnes_domain.ports.environment_gate import (
+from cnes_control_plane.orchestration.dispatch_admission import EnvironmentAdmission
+from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
+from cnes_control_plane.persistence.dynamodb_environment_gate import attempts_key
+from cnes_control_plane.ports.environment_gate import (
     DeferralReason,
     DispatchDeferred,
     ExecutionObservation,
     ExecutionPresence,
     UnitAdmission,
 )
+from cnes_data.dynamodb import item_key
 from tests.integration.aws.conftest import _client, _create_table
 
 if TYPE_CHECKING:

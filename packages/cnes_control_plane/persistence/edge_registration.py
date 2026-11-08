@@ -9,6 +9,10 @@ from typing import TYPE_CHECKING, Any, cast
 
 from botocore.exceptions import ClientError
 
+from cnes_contracts.errors import Conflict
+from cnes_contracts.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_control_plane.model.entities import Agent, IdempotencyRecord
+from cnes_control_plane.model.enums import AgentState
 from cnes_control_plane.persistence.dynamodb_keys import entity_key, idempotency_key
 from cnes_control_plane.persistence.edge_capacity import (
     RESERVATION_EXPIRED,
@@ -17,10 +21,6 @@ from cnes_control_plane.persistence.edge_capacity import (
 )
 from cnes_control_plane.persistence.sqlite_schema import deserialize_model, serialize_model
 from cnes_data.dynamodb import Item, decode_model, encode_model, payload, put_action
-from cnes_domain.control_plane.entities import Agent, IdempotencyRecord
-from cnes_domain.control_plane.enums import AgentState
-from cnes_domain.control_plane.errors import Conflict
-from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
 
 if TYPE_CHECKING:
     import sqlite3
@@ -130,6 +130,7 @@ class DynamoEdgeRegistrationMixin:
         return True
 
     def _unmetered_agent_actions(self, tenant_id: str) -> tuple[Action, ...]:
+        from cnes_contracts.modes import BillingMode
         from cnes_control_plane.billing.capacity_counters import (
             capacity_seeded,
             linked_agent_actions,
@@ -138,8 +139,7 @@ class DynamoEdgeRegistrationMixin:
         )
         from cnes_control_plane.billing.dynamodb_items import decode_tenant_account
         from cnes_control_plane.billing.keys import capacity_usage_key, tenant_account_key
-        from cnes_domain.billing.models import CapacityKind
-        from cnes_domain.profiles import BillingMode
+        from cnes_control_plane.billing.models import CapacityKind
 
         if self._billing.mode is not BillingMode.STRIPE or self._billing.enforced:
             return ()
@@ -189,8 +189,8 @@ class DynamoEdgeRegistrationMixin:
         ]
 
     def _usable_reservation(self, command: NewEdgeAgent, now: datetime) -> Item:
+        from cnes_control_plane.billing.errors import RetryableBillingError
         from cnes_control_plane.billing.keys import capacity_reservation_key
-        from cnes_domain.billing.errors import RetryableBillingError
 
         fence = cast("EntitlementFence", command.fence)
         item = self._get_item(capacity_reservation_key(fence.billing_account_id,
@@ -223,8 +223,8 @@ class DynamoEdgeRegistrationMixin:
 
     def _raise_fence_failure(self, command: NewEdgeAgent) -> None:
         from cnes_control_plane.billing.dynamodb_items import decode_snapshot
+        from cnes_control_plane.billing.errors import EntitlementDenied
         from cnes_control_plane.billing.keys import entitlement_snapshot_key
-        from cnes_domain.billing.errors import EntitlementDenied
 
         fence = command.fence
         if fence is None:

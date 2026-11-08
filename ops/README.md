@@ -44,3 +44,9 @@ configurações privadas não são parte da migração.
 - Caddy, volumes e caminhos remotos de segredos conservam sua semântica.
 - Migração de código não implica executar bootstrap, deploy ou Terraform.
 - Infraestrutura dos outros repositórios continua sob seus owners existentes.
+
+## Artefatos de release
+
+Os fontes AWS estão em ops/deploy/aws. Dentro de production-config/config.tar,
+os nomes deploy/compose.production.yaml e deploy/aws/config permanecem estáveis
+para os consumidores externos; os checksums cobrem os bytes dos fontes movidos.

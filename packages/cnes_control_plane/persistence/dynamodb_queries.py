@@ -5,6 +5,15 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
+from cnes_control_plane.model.entities import (
+    Job,
+    ManifestRef,
+    RawManifestRecord,
+    RawResyncState,
+    Run,
+)
+from cnes_control_plane.model.enums import RunState
+from cnes_control_plane.model.queries import RawManifestByIdQuery
 from cnes_control_plane.persistence.dynamodb_codec import (
     CandidateQuery,
     ancestry_prefix,
@@ -19,20 +28,11 @@ from cnes_control_plane.persistence.dynamodb_keys import (
     raw_partition,
     raw_resync_key,
 )
-from cnes_domain.control_plane.entities import (
-    Job,
-    ManifestRef,
-    RawManifestRecord,
-    RawResyncState,
-    Run,
-)
-from cnes_domain.control_plane.enums import RunState
-from cnes_domain.control_plane.queries import RawManifestByIdQuery
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
 
-    from cnes_domain.control_plane.queries import (
+    from cnes_control_plane.model.queries import (
         AgentRawManifestChainQuery,
         LatestSucceededJobQuery,
         RawManifestChainQuery,

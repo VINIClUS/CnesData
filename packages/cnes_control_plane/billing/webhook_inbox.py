@@ -20,11 +20,27 @@ from cnes_control_plane.billing.dynamodb_projection import (
     INBOX_TRANSIENT_ATTRIBUTES,
     INBOX_VERSION_ATTRIBUTE,
 )
+from cnes_control_plane.billing.errors import (
+    BillingDependencyError,
+    PermanentBillingError,
+    StaleInboxClaim,
+)
+from cnes_control_plane.billing.inbox import (
+    InboxAcceptResult,
+    InboxClaim,
+    InboxDisposition,
+    InboxProcessingState,
+    InboxRecoveryRecord,
+    StripeEvent,
+)
 from cnes_control_plane.billing.keys import (
     STRIPE_RECOVERY_DUE_INDEX,
     STRIPE_RECOVERY_DUE_PARTITION,
     stripe_event_key,
 )
+from cnes_control_plane.billing.models import BillingAuditEvent, ReadConsistency
+from cnes_control_plane.billing.ports import ClockPort
+from cnes_control_plane.billing.validation import require_positive, require_utc
 from cnes_control_plane.billing.webhook_inbox_items import (
     STRIPE_PROCESSING_LEASE_SECONDS,
     WEBHOOK_FAILED_FINAL_EVENT,
@@ -37,22 +53,6 @@ from cnes_control_plane.billing.webhook_inbox_items import (
     retry_delay_seconds,
 )
 from cnes_data.dynamodb import Action, Item, item_key
-from cnes_domain.billing.errors import (
-    BillingDependencyError,
-    PermanentBillingError,
-    StaleInboxClaim,
-)
-from cnes_domain.billing.inbox import (
-    InboxAcceptResult,
-    InboxClaim,
-    InboxDisposition,
-    InboxProcessingState,
-    InboxRecoveryRecord,
-    StripeEvent,
-)
-from cnes_domain.billing.models import BillingAuditEvent, ReadConsistency
-from cnes_domain.billing.ports import ClockPort
-from cnes_domain.billing.validation import require_positive, require_utc
 
 _CONDITIONAL_FAILED = "ConditionalCheckFailedException"
 _CLAIMABLE = (

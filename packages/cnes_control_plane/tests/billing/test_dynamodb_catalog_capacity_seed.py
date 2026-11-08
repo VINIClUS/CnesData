@@ -7,13 +7,13 @@ import pytest
 
 from cnes_control_plane.billing.capacity_counters import PENDING_CAPACITY_ENTITY
 from cnes_control_plane.billing.dynamodb_catalog import DynamoBillingCatalog
+from cnes_control_plane.billing.errors import PermanentBillingError, RetryableBillingError
 from cnes_control_plane.billing.keys import (
     billing_account_key,
     capacity_usage_key,
     pending_capacity_key,
     tenant_account_key,
 )
-from cnes_domain.billing.errors import PermanentBillingError, RetryableBillingError
 from packages.cnes_control_plane.tests.billing.billing_factories import (
     TABLE_NAME,
     make_create_command,

@@ -2,19 +2,19 @@
 
 from typing import Any, cast
 
-from cnes_control_plane.persistence.sqlite_publication import (
-    _build_ancestry,  # pyright: ignore[reportPrivateUsage]
-)
-from cnes_control_plane.persistence.sqlite_schema import deserialize_model, serialize_model
-from cnes_domain.control_plane.commands import CompleteJob, FailJob
-from cnes_domain.control_plane.entities import Job, ManifestRef, RawManifestRecord, RawResyncState
-from cnes_domain.control_plane.enums import JobState
-from cnes_domain.control_plane.errors import Conflict, ControlPlaneErrorCode
-from cnes_domain.control_plane.queries import (
+from cnes_contracts.errors import Conflict, ControlPlaneErrorCode
+from cnes_control_plane.model.commands import CompleteJob, FailJob
+from cnes_control_plane.model.entities import Job, ManifestRef, RawManifestRecord, RawResyncState
+from cnes_control_plane.model.enums import JobState
+from cnes_control_plane.model.queries import (
     AgentRawManifestChainQuery,
     RawManifestByIdQuery,
     RawResyncStateQuery,
 )
+from cnes_control_plane.persistence.sqlite_publication import (
+    _build_ancestry,  # pyright: ignore[reportPrivateUsage]
+)
+from cnes_control_plane.persistence.sqlite_schema import deserialize_model, serialize_model
 
 
 class SQLiteRawRegistrationQueries:

@@ -9,23 +9,23 @@ import pytest
 from botocore.exceptions import ClientError
 
 from cnes_control_plane.billing import dynamodb_quota_items as codec
-from cnes_control_plane.billing.dynamodb_quota import DynamoQuotaReservations
-from cnes_control_plane.billing.dynamodb_quota_items import IDEMPOTENCY_TTL
-from cnes_control_plane.billing.keys import capacity_reservation_key
-from cnes_control_plane.persistence.dynamodb_codec import item_key
-from cnes_control_plane.persistence.dynamodb_keys import run_entity_key
-from cnes_domain.billing.commands import (
+from cnes_control_plane.billing.commands import (
     ConsumeReservationCommand,
     ReleaseCapacityCommand,
     ReleaseReservationCommand,
 )
-from cnes_domain.billing.errors import (
+from cnes_control_plane.billing.dynamodb_quota import DynamoQuotaReservations
+from cnes_control_plane.billing.dynamodb_quota_items import IDEMPOTENCY_TTL
+from cnes_control_plane.billing.errors import (
     EntitlementDenied,
     PermanentBillingError,
     RetryableBillingError,
 )
-from cnes_domain.billing.inbox import ReservationRecoveryRequest
-from cnes_domain.billing.models import ReservationStatus, SubscriptionStatus
+from cnes_control_plane.billing.inbox import ReservationRecoveryRequest
+from cnes_control_plane.billing.keys import capacity_reservation_key
+from cnes_control_plane.billing.models import ReservationStatus, SubscriptionStatus
+from cnes_control_plane.persistence.dynamodb_codec import item_key
+from cnes_control_plane.persistence.dynamodb_keys import run_entity_key
 from packages.cnes_control_plane.tests.billing.billing_factories import NOW, TABLE_NAME
 from packages.cnes_control_plane.tests.billing.quota_support import (
     ACCOUNT,

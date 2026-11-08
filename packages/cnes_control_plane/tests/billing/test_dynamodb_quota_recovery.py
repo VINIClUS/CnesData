@@ -15,27 +15,27 @@ from cnes_control_plane.billing.dynamodb_quota_items import (
     encode_reservation,
     reservation_item_key,
 )
+from cnes_control_plane.billing.errors import BillingDependencyError
+from cnes_control_plane.billing.inbox import ReservationRecoveryRequest, ReservationRecoveryResult
 from cnes_control_plane.billing.keys import (
     capacity_reservation_key,
     capacity_usage_key,
     entitlement_snapshot_key,
     usage_key,
 )
-from cnes_control_plane.persistence.billed_tenant import TENANT_CAPACITY_SCOPE
-from cnes_control_plane.persistence.dynamodb_codec import item_key
-from cnes_control_plane.persistence.dynamodb_keys import idempotency_key, run_entity_key
-from cnes_control_plane.persistence.edge_registration import EDGE_AGENT_SCOPE
-from cnes_domain.billing.errors import BillingDependencyError
-from cnes_domain.billing.inbox import ReservationRecoveryRequest, ReservationRecoveryResult
-from cnes_domain.billing.models import (
+from cnes_control_plane.billing.models import (
     CapacityKind,
     CapacityReservation,
     QuotaReservation,
     ReservationKind,
     ReservationStatus,
 )
-from cnes_domain.control_plane.entities import Run
-from cnes_domain.control_plane.enums import RunState
+from cnes_control_plane.model.entities import Run
+from cnes_control_plane.model.enums import RunState
+from cnes_control_plane.persistence.billed_tenant import TENANT_CAPACITY_SCOPE
+from cnes_control_plane.persistence.dynamodb_codec import item_key
+from cnes_control_plane.persistence.dynamodb_keys import idempotency_key, run_entity_key
+from cnes_control_plane.persistence.edge_registration import EDGE_AGENT_SCOPE
 from packages.cnes_control_plane.tests.billing.billing_factories import TABLE_NAME
 from packages.cnes_control_plane.tests.billing.quota_support import (
     ACCOUNT,

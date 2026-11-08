@@ -68,3 +68,10 @@ níveis src/cnes_*; wheel prefix mapping mantém imports e recursos públicos.
 Integrar develop db4ebd78 e preservar suas mudanças recentes antes de renovar
 checks e auditoria. Ops e Infra ficam separados na raiz; infra/opentofu mantém
 seu caminho e os destinos dos legados constam na spec atualizada.
+
+## Task 6: Restringir Domain conforme orientação posterior
+
+- [x] Provar RED para o inventário restrito de regras/transformações CNES/SUS.
+- [x] Mover responsabilidades operacionais e seus testes aos donos da spec.
+- [x] Compartilhar somente DTOs/erros necessários e usar interfaces estreitas.
+- [ ] Renovar checks, contratos, wheels e auditoria do SHA final antes do push.

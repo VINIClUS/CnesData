@@ -24,28 +24,28 @@ from cnes_control_plane.billing.dynamodb_quota_items import (
     encode_reservation,
 )
 from cnes_control_plane.billing.dynamodb_quota_settlement import ReservationTransition
+from cnes_control_plane.billing.errors import BillingDependencyError, PermanentBillingError
+from cnes_control_plane.billing.inbox import ReservationRecoveryRequest, ReservationRecoveryResult
 from cnes_control_plane.billing.keys import (
     QUOTA_RESERVATION_DUE_INDEX,
     QUOTA_RESERVATION_DUE_PARTITION,
     Key,
 )
-from cnes_control_plane.persistence.billed_tenant import TENANT_CAPACITY_SCOPE
-from cnes_control_plane.persistence.dynamodb_codec import absent_check_action
-from cnes_control_plane.persistence.dynamodb_keys import idempotency_key, run_entity_key
-from cnes_control_plane.persistence.edge_registration import EDGE_AGENT_SCOPE
-from cnes_data.dynamodb import Item, check_action, decode_model, payload, put_action
-from cnes_domain.billing.errors import BillingDependencyError, PermanentBillingError
-from cnes_domain.billing.inbox import ReservationRecoveryRequest, ReservationRecoveryResult
-from cnes_domain.billing.models import (
+from cnes_control_plane.billing.models import (
     CapacityKind,
     CapacityReservation,
     QuotaReservation,
     ReservationKind,
     ReservationStatus,
 )
-from cnes_domain.billing.ports import ClockPort
-from cnes_domain.control_plane.entities import Run
-from cnes_domain.control_plane.enums import RunState
+from cnes_control_plane.billing.ports import ClockPort
+from cnes_control_plane.model.entities import Run
+from cnes_control_plane.model.enums import RunState
+from cnes_control_plane.persistence.billed_tenant import TENANT_CAPACITY_SCOPE
+from cnes_control_plane.persistence.dynamodb_codec import absent_check_action
+from cnes_control_plane.persistence.dynamodb_keys import idempotency_key, run_entity_key
+from cnes_control_plane.persistence.edge_registration import EDGE_AGENT_SCOPE
+from cnes_data.dynamodb import Item, check_action, decode_model, payload, put_action
 
 _CURSOR_CODE = "invalid_recovery_cursor"
 RESERVATION_LEASE_RENEWAL = timedelta(minutes=15)

@@ -19,10 +19,11 @@ from jose.utils import base64url_encode
 from central_api.auth.aws_oidc import MembershipAuthorizer
 from central_api.middleware import AuthMiddleware
 from central_api.routes import dashboard
+from cnes_contracts.membership import Membership
+from cnes_control_plane.model.entities import Tenant
 from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
 from cnes_control_plane.persistence.dynamodb_keys import entity_key, key_component, membership_key
 from cnes_data.dynamodb import encode_model
-from cnes_domain.control_plane.entities import Membership, Tenant
 from cnes_identity.dynamodb_memberships import DynamoDBMembershipCandidates
 from cnes_identity.oidc import OidcPrincipal, OidcVerifier
 

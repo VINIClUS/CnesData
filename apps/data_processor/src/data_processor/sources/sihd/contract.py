@@ -6,7 +6,7 @@ from typing import Final
 
 import polars as pl
 
-from cnes_domain.orchestration.source_definitions.sihd import (
+from cnes_control_plane.orchestration.source_definitions.sihd import (
     SIHD_DEFINITION,
     SIHD_DEPENDENCIES,
     SIHD_LAYOUT,

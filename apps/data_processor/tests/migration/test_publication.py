@@ -12,8 +12,8 @@ from typing import TYPE_CHECKING, cast
 import pytest
 
 from cnes_contracts.manifests.outputs import OutputManifest, RunManifest
-from cnes_domain.control_plane.entities import DatasetPointer, DatasetVersion
-from cnes_domain.ports.object_store import ObjectStat
+from cnes_control_plane.model.entities import DatasetPointer, DatasetVersion
+from cnes_data.object_store.ports import ObjectStat
 from data_processor.migration.publication import (
     Expected,
     ShadowRunError,
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from contextlib import AbstractContextManager
     from typing import BinaryIO
 
-    from cnes_domain.ports.control_plane import ControlPlanePort
+    from cnes_control_plane.ports.control_plane import ControlPlanePort
 
 _NOW = datetime(2026, 10, 10, 12, tzinfo=UTC)
 _TENANT = "354130"

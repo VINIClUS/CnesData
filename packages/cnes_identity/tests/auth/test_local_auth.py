@@ -8,8 +8,7 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
-from cnes_domain.control_plane.entities import Membership
-from cnes_domain.profiles import ProfileSettings
+from cnes_contracts.membership import Membership
 from cnes_identity.local_auth import (
     AuthenticationRejected,
     AuthRejectionCode,
@@ -23,12 +22,13 @@ from cnes_identity.local_credentials import (
     build_user,
     hash_password,
 )
+from cnes_runtime.profiles import ProfileSettings
 from packages.cnes_control_plane.tests.contracts.clock import MutableClock
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from cnes_domain.ports.control_plane import ControlPlanePort
+    from cnes_control_plane.ports.control_plane import ControlPlanePort
 
 _TENANT = "354130"
 _OIDC_ISSUER = "https://issuer.example"

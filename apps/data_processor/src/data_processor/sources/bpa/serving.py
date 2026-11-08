@@ -20,7 +20,7 @@ from data_processor.sources.bpa.contract import (
 if TYPE_CHECKING:
     from cnes_contracts.manifests.outputs import JsonValue
     from cnes_contracts.manifests.processing import MaterializeRequest
-    from cnes_domain.ports.object_store import ObjectStorePort
+    from cnes_data.object_store.ports import ObjectStorePort
 
 type Payload = dict[str, object]
 

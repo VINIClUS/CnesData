@@ -16,14 +16,20 @@ from uuid import uuid4
 
 import pytest
 
+from cnes_contracts.audit import OutboxEvent
+from cnes_contracts.modes import BillingMode
 from cnes_control_plane.billing import dynamodb_items as items
+from cnes_control_plane.billing import models
 from cnes_control_plane.billing.audit_outbox import DynamoBillingAudit
 from cnes_control_plane.billing.composition import BillingStorage, build_webhook_recovery
 from cnes_control_plane.billing.dynamodb_catalog import DynamoBillingCatalog
 from cnes_control_plane.billing.dynamodb_projection import DynamoEntitlementProjection
 from cnes_control_plane.billing.dynamodb_quota import DynamoQuotaReservations
 from cnes_control_plane.billing.dynamodb_revocation import DynamoRevocationStore
+from cnes_control_plane.billing.errors import RetryableBillingError
+from cnes_control_plane.billing.inbox import InboxProcessingState, RecoveryRequest
 from cnes_control_plane.billing.keys import usage_key
+from cnes_control_plane.billing.policy import EntitlementPolicy
 from cnes_control_plane.billing.projector import ProjectorDependencies
 from cnes_control_plane.billing.settings import BillingSettings
 from cnes_control_plane.billing.stripe_gateway import StripeGateway, StripeGatewayConfig
@@ -31,12 +37,6 @@ from cnes_control_plane.billing.webhook_inbox import WebhookInbox
 from cnes_control_plane.billing.webhook_inbox_items import INBOX_ENTITY, STRIPE_WEBHOOK_EVENT_TYPES
 from cnes_control_plane.billing.wiring import BillingGateResources, build_entitlement_gate
 from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
-from cnes_domain.billing import models
-from cnes_domain.billing.errors import RetryableBillingError
-from cnes_domain.billing.inbox import InboxProcessingState, RecoveryRequest
-from cnes_domain.billing.policy import EntitlementPolicy
-from cnes_domain.control_plane.entities import OutboxEvent
-from cnes_domain.profiles import BillingMode
 from packages.cnes_control_plane.tests.billing.billing_factories import make_account, make_plan
 from packages.cnes_control_plane.tests.billing.quota_support import (
     ACCOUNT,
@@ -204,12 +204,10 @@ class ClockRuntime:
     ) -> models.EntitlementSnapshot:
         """Returns: Primeiro snapshot que satisfaz predicate. Raises: AssertionError no prazo."""
         seen: list[models.EntitlementSnapshot | None] = [None]
-
         def step() -> bool:
             self.pump()
             seen[0] = self.snapshot()
             return seen[0] is not None and predicate(seen[0])
-
         if _poll_until(self.config.timeout_seconds, step) and seen[0] is not None:
             return seen[0]
         status = seen[0].subscription_status.value if seen[0] else None
@@ -218,11 +216,9 @@ class ClockRuntime:
 
     def await_inbox_event(self, event_type: str) -> None:
         """Raises: AssertionError se o evento do cliente nao for liquidado no prazo."""
-
         def step() -> bool:
             self.pump()
             return self._inbox_has(event_type)
-
         if not _poll_until(self.config.timeout_seconds, step):
             raise AssertionError(f"stripe_e2e_timeout reason=inbox_event type={event_type}")
 

@@ -16,7 +16,7 @@ from data_processor.pipeline.delta_reconstruction import reconstruct_from_deltas
 if TYPE_CHECKING:
     from cnes_contracts.manifests.processing import NormalizeRequest
     from cnes_contracts.manifests.raw import RawManifest
-    from cnes_domain.ports.object_store import ObjectStorePort
+    from cnes_data.object_store.ports import ObjectStorePort
 
 _SOURCE_COLUMNS = (
     "CPF", "CNS", "NOME_PROFISSIONAL", "NOME_SOCIAL", "SEXO", "CBO", "CNES",

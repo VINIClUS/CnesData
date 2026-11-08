@@ -10,7 +10,7 @@ from fastapi import Request  # noqa: TC002
 
 from central_api.ratelimit import is_trusted_proxy_peer
 from central_api.schemas.raw_api import EdgeIdentity
-from cnes_domain.tenant import set_tenant_id
+from cnes_data.tenant import set_tenant_id
 from cnes_identity import (
     extract_peer_cert,
     read_agent_id,

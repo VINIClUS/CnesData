@@ -8,12 +8,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from cnes_data.config import sanitize_database_url as _sanitizar_db_url
-from cnes_domain.config import (
-    _RE_CNPJ_14,  # pyright: ignore[reportPrivateUsage]
-    _RE_COD_MUN_6,  # pyright: ignore[reportPrivateUsage]
-    _RE_IBGE7,  # pyright: ignore[reportPrivateUsage]
-    validar_formato,
-)
+from cnes_runtime.settings_types import RE_CNPJ_14, RE_COD_MUN_6, RE_IBGE7, validar_formato
 
 
 def _find_project_root() -> Path:
@@ -144,13 +139,13 @@ _LAZY_ATTRS: dict[str, Callable[[], object]] = {
     "FIREBIRD_DLL": _firebird_dll,
     "GCP_PROJECT_ID": _gcp_project_id,
     "COD_MUN_IBGE": lambda: validar_formato(
-        "COD_MUN_IBGE", _exigir("COD_MUN_IBGE"), _RE_COD_MUN_6,
+        "COD_MUN_IBGE", _exigir("COD_MUN_IBGE"), RE_COD_MUN_6,
     ),
     "ID_MUNICIPIO_IBGE7": lambda: validar_formato(
-        "ID_MUNICIPIO_IBGE7", _exigir("ID_MUNICIPIO_IBGE7"), _RE_IBGE7,
+        "ID_MUNICIPIO_IBGE7", _exigir("ID_MUNICIPIO_IBGE7"), RE_IBGE7,
     ),
     "CNPJ_MANTENEDORA": lambda: validar_formato(
-        "CNPJ_MANTENEDORA", _exigir("CNPJ_MANTENEDORA"), _RE_CNPJ_14,
+        "CNPJ_MANTENEDORA", _exigir("CNPJ_MANTENEDORA"), RE_CNPJ_14,
     ),
 }
 

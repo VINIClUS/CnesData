@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 import polars as pl
 
-from cnes_domain.orchestration.source_definitions.bpa import (
+from cnes_control_plane.orchestration.source_definitions.bpa import (
     BPA_DEFINITION,
     BPA_DEPENDENCIES,
     BPA_LAYOUT,
@@ -18,7 +18,7 @@ from cnes_domain.orchestration.source_definitions.bpa import (
 if TYPE_CHECKING:
     from cnes_contracts.manifests.outputs import OutputManifest
     from cnes_contracts.manifests.raw import RawManifest
-    from cnes_domain.ports.object_store import ObjectStat, ObjectStorePort
+    from cnes_data.object_store.ports import ObjectStat, ObjectStorePort
 
 DATA_FILENAMES = tuple(item.normalized_filenames[0] for item in BPA_LAYOUT.normalized)
 QUALITY_FILENAMES = tuple(item.normalized_filenames[1] for item in BPA_LAYOUT.normalized)

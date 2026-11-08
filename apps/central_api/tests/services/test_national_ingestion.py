@@ -10,11 +10,11 @@ from central_api.services.national_ingestion import (
 )
 from central_api.services.raw_ingestion import RawAcceptance
 from cnes_contracts import RawManifest, SnapshotMode, SourceType, manifest_sha256
+from cnes_contracts.errors import Conflict
+from cnes_contracts.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_control_plane.model.entities import Agent, Job, RawManifestRecord
+from cnes_control_plane.model.enums import AgentState, JobState
 from cnes_data.ingestion import DatasusCnesRequest
-from cnes_domain.control_plane.entities import Agent, Job, RawManifestRecord
-from cnes_domain.control_plane.enums import AgentState, JobState
-from cnes_domain.control_plane.errors import Conflict
-from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
 
 if TYPE_CHECKING:
     from central_api.services.national_ingestion import _ControlPlane

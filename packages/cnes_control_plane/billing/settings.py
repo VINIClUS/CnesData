@@ -7,8 +7,9 @@ from typing import Self
 
 from pydantic import ValidationError
 
-from cnes_domain.billing.models import BillingEnforcementMode
-from cnes_domain.profiles import BillingMode, RuntimeProfile, parse_profile
+from cnes_contracts.modes import BillingMode, RuntimeProfile
+from cnes_control_plane.billing.models import BillingEnforcementMode
+from cnes_control_plane.billing.profile import BillingProfile
 
 _PROFILE_KEYS = ("PROFILE", "BILLING_MODE", "TENANT_ID")
 _AWS_PROFILE_KEYS = ("PROFILE", "BILLING_MODE")
@@ -74,12 +75,12 @@ def _error_code(error: ValidationError) -> str:
 def _profile_values(values: Mapping[str, str]) -> dict[str, str]:
     aws = values.get("PROFILE") == RuntimeProfile.AWS.value
     keys = _AWS_PROFILE_KEYS if aws else _PROFILE_KEYS
-    return {key: values[key] for key in keys if key in values}
+    return {key.lower(): values[key] for key in keys if key in values}
 
 
 def _mode(values: Mapping[str, str]) -> BillingMode:
     try:
-        profile = parse_profile(_profile_values(values))
+        profile = BillingProfile.model_validate(_profile_values(values))
     except ValidationError as error:
         raise BillingConfigurationError(_error_code(error)) from error
     return profile.billing_mode

@@ -9,11 +9,7 @@ import boto3
 import pytest
 from moto import mock_aws
 
-from cnes_domain.auth.certificates import (
-    CertificateKey,
-    CertificateRecord,
-    CertificateRegisterPort,
-)
+from cnes_identity.certificates import CertificateKey, CertificateRecord, CertificateRegisterPort
 from cnes_identity.dynamodb_certificates import DynamoDBCertificateRegister
 
 _TABLE = "certificate-identity"

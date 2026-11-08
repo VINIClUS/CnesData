@@ -5,10 +5,10 @@ from datetime import timedelta
 from typing import Any
 
 from cnes_control_plane.billing.dynamodb_items import encode_snapshot
+from cnes_control_plane.billing.errors import RetryableBillingError
+from cnes_control_plane.billing.models import SubscriptionStatus
 from cnes_control_plane.billing.projector import PROJECTION_ACTOR_ID
-from cnes_domain.billing.errors import RetryableBillingError
-from cnes_domain.billing.models import SubscriptionStatus
-from cnes_domain.billing.revocation import RevocationResult
+from cnes_control_plane.billing.revocation import RevocationResult
 from packages.cnes_control_plane.tests.billing.billing_factories import TABLE_NAME, make_snapshot
 from packages.cnes_control_plane.tests.billing.test_projector import (
     ACCOUNT_ID,

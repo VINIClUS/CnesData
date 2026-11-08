@@ -9,10 +9,8 @@ import boto3
 import pytest
 from moto import mock_aws
 
-from cnes_control_plane.billing.recovery import RecoveryDependencies, WebhookRecovery
-from cnes_control_plane.billing.recovery_cursor import DynamoRecoveryCursor
-from cnes_domain.billing.errors import PermanentBillingError, RetryableBillingError
-from cnes_domain.billing.inbox import (
+from cnes_control_plane.billing.errors import PermanentBillingError, RetryableBillingError
+from cnes_control_plane.billing.inbox import (
     InboxProcessingState,
     RecoveryRequest,
     StripeEvent,
@@ -20,7 +18,9 @@ from cnes_domain.billing.inbox import (
     StripeEventPage,
     StripeRecoveryCursor,
 )
-from cnes_domain.billing.models import ReadConsistency
+from cnes_control_plane.billing.models import ReadConsistency
+from cnes_control_plane.billing.recovery import RecoveryDependencies, WebhookRecovery
+from cnes_control_plane.billing.recovery_cursor import DynamoRecoveryCursor
 from packages.cnes_control_plane.tests.billing.billing_factories import (
     NOW,
     TABLE_NAME,

@@ -9,10 +9,10 @@ from cnes_control_plane.billing.dynamodb_items import (
     put_new,
     transact,
 )
+from cnes_control_plane.billing.errors import BillingError
 from cnes_control_plane.billing.metrics import BillingMetricName, billing_metric
-from cnes_domain.billing.errors import BillingError
-from cnes_domain.billing.models import BillingAuditEvent
-from cnes_domain.billing.ports import BillingAuditPort, BillingMetricsPort, ClockPort
+from cnes_control_plane.billing.models import BillingAuditEvent
+from cnes_control_plane.billing.ports import BillingAuditPort, BillingMetricsPort, ClockPort
 
 logger = logging.getLogger(__name__)
 

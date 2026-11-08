@@ -13,8 +13,8 @@ from pydantic import ValidationError
 
 from cnes_contracts.manifests.raw import RawManifest, SnapshotMode, SourceType
 from cnes_contracts.manifests.validation import manifest_sha256
-from cnes_domain.orchestration.source_definitions import sia as package_definition
-from cnes_domain.ports.object_store import ObjectStat
+from cnes_control_plane.orchestration.source_definitions import sia as package_definition
+from cnes_data.object_store.ports import ObjectStat
 from data_processor.sources.sia import contract
 from data_processor.sources.sia.contract import (
     PROVENANCE_METADATA_KEY,

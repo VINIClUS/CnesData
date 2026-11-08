@@ -17,9 +17,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from cnes_contracts.errors import Conflict
 from cnes_data.object_store import filesystem
 from cnes_data.object_store.filesystem import FilesystemObjectStore, _open_or_create_directory
-from cnes_domain.control_plane.errors import Conflict
 from packages.cnes_control_plane.tests.contracts import object_store_contract as contract
 from packages.cnes_control_plane.tests.contracts.clock import MutableClock
 

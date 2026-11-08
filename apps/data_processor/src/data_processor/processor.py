@@ -26,7 +26,7 @@ from data_processor.integrity_check import IntegrityError, verify_parquet
 if TYPE_CHECKING:
     from sqlalchemy.engine import Connection
 
-    from cnes_domain.pipeline.circuit_breaker import CircuitBreaker
+    from cnes_data.circuit_breaker import CircuitBreaker
 
 logger = logging.getLogger(__name__)
 

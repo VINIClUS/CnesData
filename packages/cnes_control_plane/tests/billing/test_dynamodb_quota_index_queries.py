@@ -6,10 +6,10 @@ from typing import Any
 import pytest
 from botocore.exceptions import EndpointConnectionError
 
+from cnes_control_plane.billing.commands import ConsumeReservationCommand
 from cnes_control_plane.billing.dynamodb_quota import DynamoQuotaReservations
-from cnes_domain.billing.commands import ConsumeReservationCommand
-from cnes_domain.billing.errors import BillingDependencyError, PermanentBillingError
-from cnes_domain.billing.inbox import ReservationRecoveryRequest
+from cnes_control_plane.billing.errors import BillingDependencyError, PermanentBillingError
+from cnes_control_plane.billing.inbox import ReservationRecoveryRequest
 from packages.cnes_control_plane.tests.billing.billing_factories import TABLE_NAME
 from packages.cnes_control_plane.tests.billing.quota_support import (
     make_capacity_command,

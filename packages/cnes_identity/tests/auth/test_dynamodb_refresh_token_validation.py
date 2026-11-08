@@ -13,7 +13,7 @@ from botocore.awsrequest import AWSResponse
 from botocore.config import Config
 from botocore.exceptions import ClientError, EndpointConnectionError
 
-from cnes_domain.refresh_tokens import (
+from cnes_identity.refresh_contracts import (
     RefreshTokenContext,
     RefreshTokenInvalid,
     RefreshTokenUnavailable,
@@ -368,8 +368,8 @@ def test_oraculo_de_chaves_e_fixture_wire_sao_literais_e_coerentes() -> None:
 
 
 def test_bindings_e_guarda_offline_sao_do_target(offline_process: list[str]) -> None:
-    import cnes_domain.refresh_tokens as domain_module
     import cnes_identity.dynamodb_refresh_tokens as infra_module
+    import cnes_identity.refresh_contracts as domain_module
 
     root = Path(__file__).resolve().parents[4]
     assert root / "packages" in Path(domain_module.__file__).resolve().parents

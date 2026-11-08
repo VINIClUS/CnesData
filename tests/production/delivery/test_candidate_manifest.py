@@ -160,7 +160,7 @@ def github() -> GitHubBoundary:
     for path, source in SOURCES.items():
         api.routes["contents/" + path] = {"encoding": "base64", "type": "file",
                                           "content": base64.b64encode(source).decode()}
-    config = {"ops/deploy/aws/compose.production.yaml": b"services: {}\n",
+    config = {"deploy/compose.production.yaml": b"services: {}\n",
               "uv.lock": b"python-lock",
               "apps/web_dashboard/bun.lock": b"dashboard-lock",
               "infra/opentofu/env/prod/.terraform.lock.hcl": b"provider-lock"}
@@ -409,7 +409,7 @@ def test_recusa_payload_ou_archive_adulterado(github, failure) -> None:
         files["api_token"] = b"forbidden"
     else:
         contents: dict[str, bytes] = dict.fromkeys((
-            "ops/deploy/aws/compose.production.yaml", "uv.lock", "apps/web_dashboard/bun.lock",
+            "deploy/compose.production.yaml", "uv.lock", "apps/web_dashboard/bun.lock",
             "infra/opentofu/env/prod/.terraform.lock.hcl"), b"lock")
         if failure == "path":
             contents["../outside"] = b"escape"

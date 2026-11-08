@@ -12,20 +12,20 @@ import boto3
 import pytest
 from moto import mock_aws
 
+from cnes_contracts.modes import BillingMode
 from cnes_control_plane.billing.dynamodb_catalog import DynamoBillingCatalog
 from cnes_control_plane.billing.dynamodb_quota import DynamoQuotaReservations
+from cnes_control_plane.billing.errors import QuotaExceeded, RetryableBillingError
 from cnes_control_plane.billing.keys import pending_capacity_key
-from cnes_control_plane.billing.settings import BillingSettings
-from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
-from cnes_domain.billing.errors import QuotaExceeded, RetryableBillingError
-from cnes_domain.billing.models import (
+from cnes_control_plane.billing.models import (
     AnalyticsAuthorization,
     BillingEnforcementMode,
     CapacityKind,
     CapacityReservation,
     RunAuthorization,
 )
-from cnes_domain.profiles import BillingMode
+from cnes_control_plane.billing.settings import BillingSettings
+from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
 from packages.cnes_control_plane.tests.billing.billing_factories import (
     NOW,
     TABLE_NAME,

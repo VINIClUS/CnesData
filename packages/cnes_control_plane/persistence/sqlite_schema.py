@@ -8,9 +8,9 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
-from cnes_domain.control_plane.enums import JobState
-from cnes_domain.control_plane.errors import Conflict
-from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_contracts.errors import Conflict
+from cnes_contracts.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_control_plane.model.enums import JobState
 
 if TYPE_CHECKING:
     import sqlite3

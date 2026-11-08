@@ -5,9 +5,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from cnes_control_plane.billing.commands import CreateStripeCustomerCommand, StripeCustomer
+from cnes_control_plane.billing.errors import RetryableBillingError
 from cnes_control_plane.billing.stripe_gateway import StripeMappingError
-from cnes_domain.billing.commands import CreateStripeCustomerCommand, StripeCustomer
-from cnes_domain.billing.errors import RetryableBillingError
 from packages.cnes_control_plane.tests.billing.stripe_fakes import make_customer, make_gateway, page
 
 QUERY = "metadata['billing_account_id']:'ba_01'"

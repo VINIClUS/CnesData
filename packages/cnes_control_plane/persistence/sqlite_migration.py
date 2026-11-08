@@ -4,10 +4,10 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
+from cnes_control_plane.model.commands import BindRunDispatch, FinishRunDispatch, PublishDataset
+from cnes_control_plane.model.entities import AccessRequest, DatasetPointer, Job, RunDispatch
+from cnes_control_plane.model.enums import AccessRequestState, DispatchState, JobState
 from cnes_control_plane.persistence.sqlite_schema import deserialize_model, serialize_model
-from cnes_domain.control_plane.commands import BindRunDispatch, FinishRunDispatch, PublishDataset
-from cnes_domain.control_plane.entities import AccessRequest, DatasetPointer, Job, RunDispatch
-from cnes_domain.control_plane.enums import AccessRequestState, DispatchState, JobState
 
 if TYPE_CHECKING:
     import sqlite3

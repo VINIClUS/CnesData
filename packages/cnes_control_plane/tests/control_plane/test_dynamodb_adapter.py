@@ -7,11 +7,10 @@ import pytest
 from botocore.exceptions import ClientError, ConnectionClosedError, ReadTimeoutError
 from moto import mock_aws
 
-from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
-from cnes_control_plane.persistence.dynamodb_claims import DynamoDBClaims
-from cnes_control_plane.persistence.dynamodb_keys import entity_key, key_component, unit_key
-from cnes_data.dynamodb import item_key, put_action
-from cnes_domain.control_plane.commands import (
+from cnes_contracts.errors import Conflict, FenceRejected, LeaseLost, NotFound
+from cnes_contracts.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_contracts.membership import Membership
+from cnes_control_plane.model.commands import (
     BindRunDispatch,
     ClaimRunUnit,
     FailRunUnit,
@@ -20,8 +19,8 @@ from cnes_domain.control_plane.commands import (
     ReserveRunDispatch,
     TransitionRun,
 )
-from cnes_domain.control_plane.entities import AccessRequest, Membership, RunDependency
-from cnes_domain.control_plane.enums import (
+from cnes_control_plane.model.entities import AccessRequest, RunDependency
+from cnes_control_plane.model.enums import (
     AccessRequestState,
     AgentState,
     DispatchOutcome,
@@ -29,8 +28,10 @@ from cnes_domain.control_plane.enums import (
     RunState,
     RunUnitState,
 )
-from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost, NotFound
-from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
+from cnes_control_plane.persistence.dynamodb_claims import DynamoDBClaims
+from cnes_control_plane.persistence.dynamodb_keys import entity_key, key_component, unit_key
+from cnes_data.dynamodb import item_key, put_action
 from cnes_identity.dynamodb_memberships import DynamoDBMembershipCandidates
 from packages.cnes_control_plane.tests.contracts.clock import (
     _NOW,

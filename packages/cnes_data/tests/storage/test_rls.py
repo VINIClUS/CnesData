@@ -1,7 +1,7 @@
 """Testes do RLS listener — SET LOCAL rls.tenant_id."""
 from unittest.mock import MagicMock, patch
 
-from cnes_domain.tenant import tenant_id_ctx
+from cnes_data.tenant import tenant_id_ctx
 
 
 def _capturar_listener():

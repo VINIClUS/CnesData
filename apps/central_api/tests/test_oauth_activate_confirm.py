@@ -104,7 +104,7 @@ def test_valida_formato_user_code() -> None:
 
 
 def test_vincula_tenant_do_corpo_antes_de_auditar() -> None:
-    from cnes_domain.tenant import tenant_id_ctx
+    from cnes_data.tenant import tenant_id_ctx
 
     store = MagicMock()
     store.redeem_user_code = AsyncMock(return_value=True)

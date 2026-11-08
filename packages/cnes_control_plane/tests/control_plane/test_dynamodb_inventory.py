@@ -12,6 +12,7 @@ from cnes_control_plane.billing.keys import (
     QUOTA_RESERVATION_LOCATOR_INDEX,
     STRIPE_RECOVERY_DUE_INDEX,
 )
+from cnes_control_plane.model.entities import Job
 from cnes_control_plane.persistence import dynamodb_inventory
 from cnes_control_plane.persistence.dynamodb_codec import CandidateQuery, bounded_candidates
 from cnes_control_plane.persistence.dynamodb_inventory import (
@@ -19,7 +20,6 @@ from cnes_control_plane.persistence.dynamodb_inventory import (
     GlobalSecondaryIndex,
 )
 from cnes_data.dynamodb import item_key
-from cnes_domain.control_plane.entities import Job
 from cnes_identity.dynamodb_memberships import DynamoDBMembershipCandidates
 
 _SOURCE_ROOTS = tuple(

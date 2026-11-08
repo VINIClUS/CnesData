@@ -40,10 +40,10 @@ def test_crash_durante_promocao_nao_avanca_pointer(tmp_path):
     (idempotent) and the control-plane CAS was never attempted."""
     try:
         from cnes_contracts.manifests.outputs import OutputManifest
+        from cnes_control_plane.model.entities import ManifestRef, Run, RunDependency, RunUnit
+        from cnes_control_plane.model.enums import RunStage, RunState, RunUnitState
         from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
         from cnes_data.object_store.filesystem import FilesystemObjectStore
-        from cnes_domain.control_plane.entities import ManifestRef, Run, RunDependency, RunUnit
-        from cnes_domain.control_plane.enums import RunStage, RunState, RunUnitState
         from data_processor.orchestration.attempt_store import (
             attempt_object_key,
             unit_attempt_prefix,
@@ -129,10 +129,10 @@ def test_crash_apos_cas_permite_replay_sem_republicar(tmp_path):
     via the control plane's replay path instead of advancing the dataset again."""
     try:
         from cnes_contracts.manifests.outputs import OutputManifest
+        from cnes_control_plane.model.entities import ManifestRef, Run, RunDependency, RunUnit
+        from cnes_control_plane.model.enums import RunStage, RunState, RunUnitState
         from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
         from cnes_data.object_store.filesystem import FilesystemObjectStore
-        from cnes_domain.control_plane.entities import ManifestRef, Run, RunDependency, RunUnit
-        from cnes_domain.control_plane.enums import RunStage, RunState, RunUnitState
         from data_processor.orchestration.attempt_store import (
             attempt_object_key,
             unit_attempt_prefix,

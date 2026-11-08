@@ -11,36 +11,29 @@ from typing import TYPE_CHECKING, Any, cast
 
 from central_api.services.raw_ingestion import RegisterRawManifest
 from central_api.serving.aws_signed import SignedServingRequest
+from cnes_contracts.audit import OutboxEvent
 from cnes_contracts.manifests.outputs import OutputManifest, RunManifest
 from cnes_contracts.manifests.raw import RawManifest, SnapshotMode, SourceType
-from cnes_control_plane.persistence.dynamodb_keys import dispatch_key, entity_key, idempotency_key
-from cnes_data.dynamodb import decode_model, item_key
-from cnes_domain.control_plane.commands import (
+from cnes_contracts.membership import Membership
+from cnes_contracts.serving import ServingRequest
+from cnes_control_plane.model.commands import (
     ClaimJob,
     ClaimRunUnit,
     CommitRunUnit,
     PutRunUnits,
     TransitionRun,
 )
-from cnes_domain.control_plane.entities import (
-    Agent,
-    Job,
-    ManifestRef,
-    Membership,
-    OutboxEvent,
-    Run,
-    RunDispatch,
-    RunUnit,
-)
-from cnes_domain.control_plane.enums import AgentState, JobState, RunStage, RunState, RunUnitState
-from cnes_domain.orchestration.planner import PlanRequest, RawManifestRef, plan_run
-from cnes_domain.ports.processing import (
+from cnes_control_plane.model.entities import Agent, Job, ManifestRef, Run, RunDispatch, RunUnit
+from cnes_control_plane.model.enums import AgentState, JobState, RunStage, RunState, RunUnitState
+from cnes_control_plane.orchestration.planner import PlanRequest, RawManifestRef, plan_run
+from cnes_control_plane.persistence.dynamodb_keys import dispatch_key, entity_key, idempotency_key
+from cnes_control_plane.ports.processing import (
     ExecutionCallbacks,
     ExecutionPolicyConfig,
     RunUnitMessage,
     StartRunExecution,
 )
-from cnes_domain.ports.serving import ServingRequest
+from cnes_data.dynamodb import decode_model, item_key
 from cnes_identity.oidc import OidcPrincipal
 from data_processor.orchestration.attempt_store import attempt_object_key, unit_attempt_prefix
 from data_processor.orchestration.coordinator import (
@@ -56,7 +49,7 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from central_api.composition import RuntimeComponents
-    from cnes_domain.ports.control_plane import ControlPlanePort
+    from cnes_control_plane.ports.control_plane import ControlPlanePort
     from data_processor.orchestration.publisher import PublishResult
     from packages.cnes_control_plane.tests.contracts.clock import MutableClock
     from tests.integration.aws._doubles import RecordingS3Client, RecordingStepFunctionsClient

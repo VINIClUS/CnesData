@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 
 from central_api.deps import require_auth
 from central_api.middleware import AuthenticatedUser
-from cnes_domain.tenant import set_tenant_id
+from cnes_data.tenant import set_tenant_id
 
 router = APIRouter(tags=["access-requests"])
 

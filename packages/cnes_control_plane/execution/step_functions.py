@@ -8,14 +8,14 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from botocore.exceptions import ClientError
 
-from cnes_domain.control_plane.entities import require_dispatch_id
-from cnes_domain.ports.environment_gate import ExecutionObservation, ExecutionPresence
-from cnes_domain.ports.processing import ExecutionStatus, StartRunExecution
+from cnes_control_plane.model.entities import require_dispatch_id
+from cnes_control_plane.ports.environment_gate import ExecutionObservation, ExecutionPresence
+from cnes_control_plane.ports.processing import ExecutionStatus, StartRunExecution
 
 if TYPE_CHECKING:
     from botocore.client import BaseClient
 
-    from cnes_domain.ports.processing import CancelRunExecution
+    from cnes_control_plane.ports.processing import CancelRunExecution
 
     class _StepFunctionsClient(Protocol):
         def describe_state_machine(self, **kwargs: str) -> dict[str, Any]: ...

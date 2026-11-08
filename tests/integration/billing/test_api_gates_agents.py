@@ -9,9 +9,9 @@ from fastapi.testclient import TestClient
 
 from cnes_control_plane.billing.dynamodb_catalog import DynamoBillingCatalog
 from cnes_control_plane.billing.keys import capacity_usage_key
-from cnes_domain.billing.models import BillingEnforcementMode, ReservationStatus
-from cnes_domain.control_plane.entities import Agent
-from cnes_domain.control_plane.enums import AgentState
+from cnes_control_plane.billing.models import BillingEnforcementMode, ReservationStatus
+from cnes_control_plane.model.entities import Agent
+from cnes_control_plane.model.enums import AgentState
 from packages.cnes_control_plane.tests.billing.billing_factories import (
     TABLE_NAME,
     make_create_command,

@@ -6,10 +6,8 @@ from unittest.mock import Mock
 
 import pytest
 
-from cnes_control_plane.billing.keys import stripe_recovery_due_sort_key
-from cnes_control_plane.billing.recovery import RecoveryDependencies, WebhookRecovery
-from cnes_domain.billing.errors import RetryableBillingError
-from cnes_domain.billing.inbox import (
+from cnes_control_plane.billing.errors import RetryableBillingError
+from cnes_control_plane.billing.inbox import (
     InboxAcceptResult,
     InboxDisposition,
     InboxProcessingState,
@@ -18,6 +16,8 @@ from cnes_domain.billing.inbox import (
     RecoveryRequest,
     StripeRecoveryCursor,
 )
+from cnes_control_plane.billing.keys import stripe_recovery_due_sort_key
+from cnes_control_plane.billing.recovery import RecoveryDependencies, WebhookRecovery
 from packages.cnes_control_plane.tests.billing.billing_factories import NOW
 from packages.cnes_control_plane.tests.billing.test_recovery import page, stripe_event
 from packages.cnes_control_plane.tests.contracts.clock import MutableClock

@@ -3,13 +3,13 @@ from __future__ import annotations
 
 from typing import Any
 
+from cnes_contracts.errors import Conflict
+from cnes_contracts.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_control_plane.model.enums import JobState
 from cnes_control_plane.persistence.sqlite_schema import (
     put_job_creation_write,
     validate_job_creation_replay,
 )
-from cnes_domain.control_plane.enums import JobState
-from cnes_domain.control_plane.errors import Conflict
-from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
 
 
 def validate_initial_job(job: Any) -> None:

@@ -128,7 +128,7 @@ Integrações e imagens no CI. Go: apps/dump_agent_go/CLAUDE.md.
 | Path | Type | Purpose |
 |---|---|---|
 | `packages/cnes_contracts/` | library | Contratos públicos: DTOs, manifests e colunas |
-| `packages/cnes_domain/` | library | Core: regras, entidades, ports e processamento puro |
+| `packages/cnes_domain/` | library | Competência, validações e transformações CNES/SUS |
 | `packages/cnes_data/` | library | Storage, RLS, ingestão, object stores e Alembic |
 | `packages/cnes_identity/` | library | JWT/OIDC, device flow, credenciais locais e mTLS |
 | `packages/cnes_governance/` | library | Auditoria operacional local e S3 Object Lock |
@@ -165,7 +165,7 @@ FIREBIRD_DLL, etc): ver `apps/<app>/CLAUDE.md`.
   `data_processor` não tocam Firebird diretamente. `scripts/` mantém
   utilitários Python de introspecção/fixture (`fb156_setup.py`,
   `introspect_bpa_gdb.py`), não ingestion em produção.
-- Tenant: sempre `cnes_domain.tenant.set_tenant_id()` antes de query Postgres.
+- Tenant: sempre `cnes_data.tenant.set_tenant_id()` antes de query Postgres.
 - Quality gates: 4 suites em `tests/{property,memory,chaos,negative}/` + N+1 middleware.
   Markers: `race`, `memleak`, `chaos`, `chaos_infra`, `negative`, `n_plus_1_debt`.
   Violações aplicam label `needs-*-review` (informativo — nenhuma regra de

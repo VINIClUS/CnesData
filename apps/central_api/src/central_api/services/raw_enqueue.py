@@ -9,15 +9,16 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from cnes_domain.control_plane.commands import BeginIdempotency
-from cnes_domain.control_plane.entities import Job, OutboxEvent
-from cnes_domain.control_plane.enums import JobState
+from cnes_contracts.audit import OutboxEvent
+from cnes_control_plane.model.commands import BeginIdempotency
+from cnes_control_plane.model.entities import Job
+from cnes_control_plane.model.enums import JobState
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from datetime import datetime
 
-    from cnes_domain.ports.control_plane import ControlPlanePort
+    from cnes_control_plane.ports.control_plane import ControlPlanePort
 
 type RawSource = Literal["CNES_LOCAL", "SIHD", "BPA_MAG", "SIA_LOCAL"]
 

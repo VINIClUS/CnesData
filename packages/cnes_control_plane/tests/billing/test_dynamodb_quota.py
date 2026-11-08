@@ -19,6 +19,12 @@ from cnes_control_plane.billing.dynamodb_quota_items import (
     scan_attributes,
     usage_counter,
 )
+from cnes_control_plane.billing.errors import (
+    EntitlementDenied,
+    IdempotencyConflict,
+    PermanentBillingError,
+    QuotaExceeded,
+)
 from cnes_control_plane.billing.keys import (
     entitlement_snapshot_key,
     reservation_key,
@@ -26,15 +32,9 @@ from cnes_control_plane.billing.keys import (
     run_lookup_key,
     usage_key,
 )
+from cnes_control_plane.billing.models import ReservationKind, ReservationStatus, SubscriptionStatus
 from cnes_control_plane.persistence.dynamodb_keys import idempotency_key, outbox_key
 from cnes_data.dynamodb import item_key
-from cnes_domain.billing.errors import (
-    EntitlementDenied,
-    IdempotencyConflict,
-    PermanentBillingError,
-    QuotaExceeded,
-)
-from cnes_domain.billing.models import ReservationKind, ReservationStatus, SubscriptionStatus
 from packages.cnes_control_plane.tests.billing.billing_factories import NOW, TABLE_NAME
 from packages.cnes_control_plane.tests.billing.quota_support import (
     ACCOUNT,

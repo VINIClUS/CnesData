@@ -11,14 +11,14 @@ from uuid import UUID
 
 import pytest
 
-from cnes_domain.ports.refresh_tokens import RefreshTokenStore
-from cnes_domain.refresh_tokens import (
+from cnes_identity.refresh_contracts import (
     RefreshTokenContext,
     RefreshTokenInvalid,
     RefreshTokenMutation,
     RefreshTokenRecord,
     RefreshTokenUnavailable,
 )
+from cnes_identity.refresh_port import RefreshTokenStore
 from cnes_identity.sqlite_refresh_tokens import SQLiteRefreshTokenStore
 
 _TENANT = "11111111-1111-4111-8111-111111111111"

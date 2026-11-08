@@ -19,18 +19,18 @@ from central_api.routes.billing_admin import (
     get_revocation_service,
     router,
 )
-from cnes_domain.billing.errors import (
+from cnes_contracts.modes import BillingMode
+from cnes_control_plane.billing.errors import (
     BillingDependencyError,
     BillingDisabledError,
     PermanentBillingError,
     RetryableBillingError,
 )
-from cnes_domain.billing.revocation_models import (
+from cnes_control_plane.billing.revocation_models import (
     REASON_CODE_PATTERN,
     ImmediateRevocationCommand,
     RevocationResult,
 )
-from cnes_domain.profiles import BillingMode
 
 from .billing_fakes import HEADERS, NOW, PRINCIPAL, Env, make_account, make_link
 

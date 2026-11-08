@@ -65,7 +65,7 @@ do perfil (SQLite local ou DynamoDB), nunca em Postgres.
 | `PROFILE` | sim | `local` ou `aws`; ausente/outro valor sai com 1 (`profile_required`) |
 | `DB_URL` | sim (`local`) | Exigida por `cnes_runtime.config`; AWS não importa essa configuração nem lê `.env` |
 | `TENANT_ID` | sim (`local`) | Tenant semeado no control plane SQLite |
-| `DATA_DIR` | opcional (`local`) | Raiz do SQLite/filesystem; default em `cnes_domain.profiles` |
+| `DATA_DIR` | opcional (`local`) | Raiz do SQLite/filesystem; default em `cnes_runtime.profiles` |
 | `PROCESSOR_POLL_INTERVAL` | opcional | Intervalo do loop de recuperação local, default `5.0` s |
 | `AWS_*` | sim (`aws`) | Recursos e envelope do task: ver `.env.example` (seção Perfil aws) |
 

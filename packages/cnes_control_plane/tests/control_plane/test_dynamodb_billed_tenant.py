@@ -8,6 +8,7 @@ from typing import Any, cast
 import pytest
 from botocore.exceptions import ClientError
 
+from cnes_control_plane.billing.commands import ConsumeCapacityCommand
 from cnes_control_plane.billing.dynamodb_items import (
     decode_idempotency_record,
     decode_tenant_account,
@@ -16,6 +17,14 @@ from cnes_control_plane.billing.dynamodb_items import (
     encode_tenant_account,
     idempotency_item,
 )
+from cnes_control_plane.billing.errors import (
+    BillingDependencyError,
+    BillingTenantConflict,
+    EntitlementDenied,
+    IdempotencyConflict,
+    PermanentBillingError,
+    RetryableBillingError,
+)
 from cnes_control_plane.billing.keys import (
     BILLING_AUDIT_TENANT_ID,
     account_tenant_key,
@@ -23,7 +32,14 @@ from cnes_control_plane.billing.keys import (
     entitlement_snapshot_key,
     tenant_account_key,
 )
+from cnes_control_plane.billing.models import (
+    BillingAccountStatus,
+    CapacityKind,
+    ReservationStatus,
+    SubscriptionStatus,
+)
 from cnes_control_plane.billing.settings import BillingSettings
+from cnes_control_plane.model.entities import IdempotencyRecord, Tenant
 from cnes_control_plane.persistence.billed_tenant import (
     TENANT_SCOPE,
     billed_tenant_digest,
@@ -32,22 +48,6 @@ from cnes_control_plane.persistence.billed_tenant import (
 )
 from cnes_control_plane.persistence.dynamodb_keys import idempotency_key
 from cnes_data.dynamodb import item_key
-from cnes_domain.billing.commands import ConsumeCapacityCommand
-from cnes_domain.billing.errors import (
-    BillingDependencyError,
-    BillingTenantConflict,
-    EntitlementDenied,
-    IdempotencyConflict,
-    PermanentBillingError,
-    RetryableBillingError,
-)
-from cnes_domain.billing.models import (
-    BillingAccountStatus,
-    CapacityKind,
-    ReservationStatus,
-    SubscriptionStatus,
-)
-from cnes_domain.control_plane.entities import IdempotencyRecord, Tenant
 from packages.cnes_control_plane.tests.billing.billing_factories import (
     NOW,
     TABLE_NAME,

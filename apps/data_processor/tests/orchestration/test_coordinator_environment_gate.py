@@ -25,11 +25,10 @@ from apps.data_processor.tests.orchestration.test_coordinator import (
     _seed,
     _stored_dispatch,
 )
-from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
-from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
-from cnes_domain.control_plane.commands import ClaimRunUnit
-from cnes_domain.control_plane.enums import DispatchOutcome, DispatchState, RunState
-from cnes_domain.control_plane.environment_gate import (
+from cnes_contracts.errors import FenceRejected
+from cnes_control_plane.model.commands import ClaimRunUnit
+from cnes_control_plane.model.enums import DispatchOutcome, DispatchState, RunState
+from cnes_control_plane.model.environment_gate import (
     AcquireUnitPermit,
     AcquisitionStatus,
     BindUnitPermit,
@@ -38,13 +37,14 @@ from cnes_domain.control_plane.environment_gate import (
     ReleaseUnitPermit,
     UnitPermit,
 )
-from cnes_domain.control_plane.errors import FenceRejected
-from cnes_domain.orchestration.dispatch_admission import (
+from cnes_control_plane.orchestration.dispatch_admission import (
     ABSENCE_PROOF_GRACE_SECONDS,
     EnvironmentAdmission,
     UnitPermitLost,
 )
-from cnes_domain.ports.environment_gate import (
+from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
+from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
+from cnes_control_plane.ports.environment_gate import (
     UNGATED_ADMISSION,
     DeferralReason,
     DispatchDeferred,
@@ -52,8 +52,12 @@ from cnes_domain.ports.environment_gate import (
     ExecutionPresence,
     UnitAdmission,
 )
-from cnes_domain.ports.processing import ExecutionCallbacks, ExecutionPolicyConfig, ExecutionStatus
-from cnes_domain.profiles import parse_profile
+from cnes_control_plane.ports.processing import (
+    ExecutionCallbacks,
+    ExecutionPolicyConfig,
+    ExecutionStatus,
+)
+from cnes_runtime.profiles import parse_profile
 from data_processor.composition import build_local_processor_runtime
 from data_processor.orchestration.coordinator import (
     CoordinatorDependencies,
@@ -77,8 +81,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
     from pathlib import Path
 
-    from cnes_domain.control_plane.entities import Run, RunDispatch
-    from cnes_domain.ports.processing import CancelRunExecution, StartRunExecution
+    from cnes_control_plane.model.entities import Run, RunDispatch
+    from cnes_control_plane.ports.processing import CancelRunExecution, StartRunExecution
 
 _ENVIRONMENT = "prod"
 _LEASE_SECONDS = 3600
@@ -221,9 +225,7 @@ def test_fence_fechado_nao_chama_step_functions(
 ) -> None:
     _seed(adapter, manifests=_full_manifests())
     assert gate.close_promotion_fence(ClosePromotionFence(_ENVIRONMENT, "release-1", _NOW))
-
     result = coordinator.resume(_TENANT, _RUN_ID)
-
     assert result == CoordinatorResult(
         state=RunState.PROCESSING, execution_ref=None, published=False,
         deferred=DeferralReason.FENCE_CLOSED,

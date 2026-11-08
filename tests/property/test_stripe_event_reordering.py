@@ -11,8 +11,8 @@ from hypothesis import given
 from hypothesis import strategies as st
 from moto import mock_aws
 
-from cnes_domain.billing.inbox import InboxProcessingState
-from cnes_domain.billing.models import SubscriptionStatus
+from cnes_control_plane.billing.inbox import InboxProcessingState
+from cnes_control_plane.billing.models import SubscriptionStatus
 from packages.cnes_control_plane.tests.billing.billing_factories import create_table
 from packages.cnes_control_plane.tests.billing.test_projector import (
     PRICE_V1,

@@ -6,9 +6,12 @@ Sinks de auditoria operacional. Fronteiras canônicas: docs/architecture.md.
 
 ## Dependências
 
-Dependências locais declaradas: cnes-domain, cnes-data.
-Não importar apps, cnes_runtime ou implementações de outra capability fora
-do grafo aprovado. Exceção: cnes_runtime é a camada externa de composição.
+Dependências locais declaradas:
+
+- cnes-contracts
+- cnes-data
+
+Não importar apps nem Runtime. Respeitar o grafo de docs/architecture.md.
 
 ## Convenções
 

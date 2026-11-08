@@ -9,10 +9,10 @@ from typing import TYPE_CHECKING, Any, cast
 
 from billing_worker.composition import build_worker
 from billing_worker.worker import BillingWorker
+from cnes_control_plane.billing.errors import BillingError
+from cnes_control_plane.billing.inbox import STRIPE_EVENT_PAGE_LIMIT
 from cnes_control_plane.billing.secrets_manager import SecretProviderError
 from cnes_control_plane.billing.settings import BillingConfigurationError
-from cnes_domain.billing.errors import BillingError
-from cnes_domain.billing.inbox import STRIPE_EVENT_PAGE_LIMIT
 
 if TYPE_CHECKING:
     from _typeshed import DataclassInstance

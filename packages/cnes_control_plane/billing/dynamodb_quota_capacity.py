@@ -5,6 +5,11 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from cnes_control_plane.billing.capacity_counters import CAPACITY_NOT_SEEDED, log_not_seeded
+from cnes_control_plane.billing.commands import (
+    CapacityReservationCommand,
+    ConsumeCapacityCommand,
+    ReleaseCapacityCommand,
+)
 from cnes_control_plane.billing.dynamodb_items import (
     decode_snapshot,
     deterministic_id,
@@ -33,32 +38,27 @@ from cnes_control_plane.billing.dynamodb_quota_items import (
     snapshot_check,
     usage_counter,
 )
+from cnes_control_plane.billing.errors import (
+    EntitlementDenied,
+    PermanentBillingError,
+    QuotaExceeded,
+    RetryableBillingError,
+)
 from cnes_control_plane.billing.keys import (
     Key,
     capacity_reservation_key,
     capacity_usage_key,
     entitlement_snapshot_key,
 )
-from cnes_control_plane.persistence.dynamodb_keys import idempotency_key
-from cnes_data.dynamodb import Action, Item, payload, put_action
-from cnes_domain.billing.commands import (
-    CapacityReservationCommand,
-    ConsumeCapacityCommand,
-    ReleaseCapacityCommand,
-)
-from cnes_domain.billing.errors import (
-    EntitlementDenied,
-    PermanentBillingError,
-    QuotaExceeded,
-    RetryableBillingError,
-)
-from cnes_domain.billing.models import (
+from cnes_control_plane.billing.models import (
     CapacityReservation,
     EntitlementSnapshot,
     ReservationStatus,
 )
-from cnes_domain.billing.ports import ClockPort
-from cnes_domain.control_plane.entities import IdempotencyRecord
+from cnes_control_plane.billing.ports import ClockPort
+from cnes_control_plane.model.entities import IdempotencyRecord
+from cnes_control_plane.persistence.dynamodb_keys import idempotency_key
+from cnes_data.dynamodb import Action, Item, payload, put_action
 
 CAPACITY_RESERVATION_TTL = timedelta(minutes=15)
 _MAX_ATTEMPTS = 3

@@ -8,16 +8,16 @@ from datetime import UTC, datetime
 import pytest
 
 from cnes_control_plane.execution.local_pool import LocalWorkerPool
-from cnes_domain.control_plane.entities import RunUnit
-from cnes_domain.control_plane.enums import RunStage, RunUnitState
-from cnes_domain.ports.processing import (
+from cnes_control_plane.model.entities import RunUnit
+from cnes_control_plane.model.enums import RunStage, RunUnitState
+from cnes_control_plane.ports.processing import (
     CancelRunExecution,
     ExecutionStatus,
     ProcessorExecutorPort,
     RunUnitMessage,
     StartRunExecution,
 )
-from cnes_domain.tenant import get_tenant_id, set_tenant_id
+from cnes_data.tenant import get_tenant_id, set_tenant_id
 
 _TENANT = "354130"
 _WAVE_ID = "0123456789abcdef"

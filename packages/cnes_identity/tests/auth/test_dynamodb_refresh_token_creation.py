@@ -8,7 +8,7 @@ from typing import Any, cast
 import pytest
 from botocore.exceptions import ClientError, ReadTimeoutError
 
-from cnes_domain.refresh_tokens import (
+from cnes_identity.refresh_contracts import (
     RefreshTokenConflict,
     RefreshTokenContext,
     RefreshTokenInvalid,

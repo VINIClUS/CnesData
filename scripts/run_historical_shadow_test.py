@@ -15,8 +15,8 @@ import pytest
 
 from cnes_control_plane.execution.local_pool import LocalWorkerPool
 from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
+from cnes_control_plane.ports.processing import ExecutionStatus
 from cnes_data.object_store import FilesystemObjectStore
-from cnes_domain.ports.processing import ExecutionStatus
 from data_processor.migration.publication import Expected
 from data_processor.migration.report import aggregate_bytes
 from scripts.run_historical_shadow import main

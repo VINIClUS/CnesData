@@ -36,7 +36,7 @@ from scripts.compare_cnes_data_plane import (
 )
 
 if TYPE_CHECKING:
-    from cnes_domain.ports.object_store import ObjectStorePort
+    from cnes_data.object_store.ports import ObjectStorePort
 
 LOGGER = logging.getLogger(__name__)
 

@@ -3,13 +3,13 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from cnes_domain.billing.errors import (
+from cnes_control_plane.billing.errors import (
     BillingDependencyError,
     BillingTenantConflict,
     IdempotencyConflict,
 )
-from cnes_domain.billing.models import ReservationStatus
-from cnes_domain.control_plane.entities import Tenant
+from cnes_control_plane.billing.models import ReservationStatus
+from cnes_control_plane.model.entities import Tenant
 
 from .billing_fakes import NOW
 from .test_tenants import KEY, TenantEnv, committed_link, create, fail_creation, sha

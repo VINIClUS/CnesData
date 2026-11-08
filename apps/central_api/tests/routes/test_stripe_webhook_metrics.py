@@ -15,8 +15,8 @@ from central_api.routes.stripe_webhook import (
     get_webhook_inbox,
     router,
 )
-from cnes_domain.billing.errors import PermanentBillingError, RetryableBillingError
-from cnes_domain.billing.inbox import InboxAcceptResult, InboxDisposition, StripeEvent
+from cnes_control_plane.billing.errors import PermanentBillingError, RetryableBillingError
+from cnes_control_plane.billing.inbox import InboxAcceptResult, InboxDisposition, StripeEvent
 
 URL = "/api/v1/billing/webhooks/stripe"
 SIGNATURE = {"Stripe-Signature": "t=1,v1=abc"}

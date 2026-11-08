@@ -3,8 +3,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
-    from cnes_domain.control_plane.entities import Membership
-    from cnes_domain.ports.control_plane import ControlPlanePort
+    from cnes_contracts.membership import Membership
+    from cnes_control_plane.ports.control_plane import ControlPlanePort
     from cnes_identity.oidc import OidcPrincipal
 
 

@@ -10,6 +10,7 @@ from typing import Any
 import boto3
 import pytest
 
+from cnes_contracts.audit import OutboxEvent
 from cnes_control_plane.billing.dynamodb_items import outbox_item
 from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
 from cnes_control_plane.persistence.dynamodb_codec import encode_marker
@@ -17,7 +18,6 @@ from cnes_control_plane.persistence.dynamodb_keys import entity_key, outbox_key
 from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
 from cnes_control_plane.persistence.sqlite_schema import serialize_model
 from cnes_data.dynamodb import decode_model, item_key
-from cnes_domain.control_plane.entities import OutboxEvent
 from cnes_governance.local_sink import LocalAuditSink
 from cnes_governance.s3_object_lock_sink import S3ObjectLockAuditSink
 from packages.cnes_control_plane.tests.contracts.clock import _NOW, _TENANT, _event

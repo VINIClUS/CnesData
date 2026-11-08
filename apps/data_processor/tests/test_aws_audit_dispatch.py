@@ -19,10 +19,10 @@ from botocore.exceptions import ClientError
 from moto import mock_aws
 
 from apps.data_processor.tests.test_audit_dispatch_mode import _MINIMUM
+from cnes_contracts.audit import OutboxEvent
 from cnes_control_plane.billing.dynamodb_items import outbox_item
 from cnes_control_plane.persistence.dynamodb_keys import outbox_key
 from cnes_data.dynamodb import decode_model, item_key
-from cnes_domain.control_plane.entities import OutboxEvent
 from packages.cnes_control_plane.tests.contracts.clock import _NOW
 from packages.cnes_control_plane.tests.control_plane.outbox_cursor_support import evento
 from packages.cnes_control_plane.tests.control_plane.test_dynamodb_adapter import _create_table

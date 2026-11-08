@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from botocore.client import BaseClient
     from types_boto3_s3.client import S3Client
 
-    from cnes_domain.control_plane.entities import OutboxEvent
+    from cnes_contracts.audit import OutboxEvent
 
 
 def _safe_component(value: str) -> str:

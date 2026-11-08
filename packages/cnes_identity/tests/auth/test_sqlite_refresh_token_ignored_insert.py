@@ -7,7 +7,7 @@ from traceback import format_exception
 
 import pytest
 
-from cnes_domain.refresh_tokens import RefreshTokenUnavailable
+from cnes_identity.refresh_contracts import RefreshTokenUnavailable
 from cnes_identity.sqlite_refresh_tokens import SQLiteRefreshTokenStore
 
 from .test_sqlite_refresh_token_failure_origins import (

@@ -4,6 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from cnes_control_plane.billing.errors import (
+    BillingTenantConflict,
+    IdempotencyConflict,
+    RetryableBillingError,
+)
+from cnes_control_plane.model.entities import IdempotencyRecord, Tenant
 from cnes_control_plane.persistence.billed_tenant import (
     TENANT_SCOPE,
     billed_tenant_digest,
@@ -13,18 +19,13 @@ from cnes_control_plane.persistence.billed_tenant import (
     tenant_created_event,
 )
 from cnes_control_plane.persistence.sqlite_schema import deserialize_model, serialize_model
-from cnes_domain.billing.errors import (
-    BillingTenantConflict,
-    IdempotencyConflict,
-    RetryableBillingError,
-)
-from cnes_domain.control_plane.entities import IdempotencyRecord, Membership, Tenant
 
 if TYPE_CHECKING:
     import sqlite3
     from datetime import datetime
 
-    from cnes_domain.billing.commands import CreateBilledTenantCommand
+    from cnes_contracts.membership import Membership
+    from cnes_control_plane.billing.commands import CreateBilledTenantCommand
 
 
 def _select_tenant(connection: sqlite3.Connection, tenant_id: str) -> Tenant | None:

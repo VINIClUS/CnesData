@@ -5,10 +5,10 @@ from unittest.mock import Mock
 
 import pytest
 
+from cnes_control_plane.billing.errors import PermanentBillingError, RetryableBillingError
+from cnes_control_plane.billing.inbox import InboxProcessingState
+from cnes_control_plane.billing.models import ReadConsistency
 from cnes_control_plane.billing.webhook_inbox_items import STRIPE_INBOX_MAX_ATTEMPTS
-from cnes_domain.billing.errors import PermanentBillingError, RetryableBillingError
-from cnes_domain.billing.inbox import InboxProcessingState
-from cnes_domain.billing.models import ReadConsistency
 from packages.cnes_control_plane.tests.billing.test_projector import projector_env
 
 _STRONG = ReadConsistency.STRONG

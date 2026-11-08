@@ -9,7 +9,7 @@ import pytest
 from moto import mock_aws
 
 from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
-from cnes_domain.auth.certificates import (
+from cnes_identity.certificates import (
     CertificateConflict,
     CertificateKey,
     CertificateRecord,

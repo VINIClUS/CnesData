@@ -5,18 +5,17 @@ description = "Identidade, autenticação e certificados"
 requires-python = ">=3.13"
 dependencies = [
     "cnes-contracts",
-    "cnes-domain",
     "cnes-data",
     "python-jose[cryptography]>=3.3",
     "cryptography>=43",
     "httpx>=0.28",
-      "pydantic>=2.10",
+    "pydantic>=2.10",
     "boto3>=1.43",
+    "botocore>=1.43",
 ]
 
 [tool.uv.sources]
 cnes-contracts = { workspace = true }
-cnes-domain = { workspace = true }
 cnes-data = { workspace = true }
 
 [build-system]
@@ -29,6 +28,7 @@ only-include = [
     "access_tokens.py",
     "ca.py",
     "cert_extensions.py",
+    "certificates.py",
     "device_codes.py",
     "dynamodb_certificates.py",
     "dynamodb_memberships.py",
@@ -42,6 +42,8 @@ only-include = [
     "oidc.py",
     "peer_cert.py",
     "provisioned_certs.py",
+    "refresh_contracts.py",
+    "refresh_port.py",
     "refresh_tokens.py",
     "sqlite_certificates.py",
     "sqlite_refresh_tokens.py",

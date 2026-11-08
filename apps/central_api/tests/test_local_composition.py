@@ -13,8 +13,8 @@ from central_api.services.raw_ingestion import RawIngestionService
 from central_api.services.run_planning import RunPlanningService
 from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
 from cnes_data.object_store import FilesystemObjectStore
-from cnes_domain.profiles import ProfileNotImplemented, parse_profile
 from cnes_governance.local_sink import LocalAuditSink
+from cnes_runtime.profiles import ProfileNotImplemented, parse_profile
 
 
 def _utc_now() -> datetime:

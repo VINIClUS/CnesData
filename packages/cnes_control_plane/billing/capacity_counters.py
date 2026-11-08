@@ -14,9 +14,9 @@ from cnes_control_plane.billing.keys import (
     pending_capacity_key,
     tenant_account_key,
 )
+from cnes_control_plane.billing.models import CapacityKind
 from cnes_control_plane.persistence.dynamodb_codec import absent_check_action
 from cnes_data.dynamodb import Action, Item, check_action, item_key
-from cnes_domain.billing.models import CapacityKind
 
 PENDING_CAPACITY_ENTITY = "BILLINGPENDINGCAPACITY"
 CAPACITY_NOT_SEEDED = "capacity_not_seeded"

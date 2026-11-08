@@ -17,10 +17,11 @@ from fastapi.testclient import TestClient
 from central_api.composition import build_local_runtime
 from central_api.ratelimit import limiter
 from cnes_contracts.manifests.outputs import OutputManifest
-from cnes_domain.control_plane.entities import ManifestRef, Membership, Run, RunDependency, RunUnit
-from cnes_domain.control_plane.enums import RunStage, RunState, RunUnitState
-from cnes_domain.profiles import ProfileNotImplemented, parse_profile
+from cnes_contracts.membership import Membership
+from cnes_control_plane.model.entities import ManifestRef, Run, RunDependency, RunUnit
+from cnes_control_plane.model.enums import RunStage, RunState, RunUnitState
 from cnes_identity.local_credentials import LocalCredentialStore, build_user
+from cnes_runtime.profiles import ProfileNotImplemented, parse_profile
 from data_processor.composition import build_local_processor_runtime
 from data_processor.orchestration.attempt_store import attempt_object_key, unit_attempt_prefix
 from data_processor.orchestration.publisher import DatasetPublisher, PublishRequest
@@ -28,7 +29,7 @@ from data_processor.orchestration.publisher import DatasetPublisher, PublishRequ
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
-    from cnes_domain.ports.object_store import ObjectStorePort
+    from cnes_data.object_store.ports import ObjectStorePort
 
 pytestmark = [pytest.mark.local_profile]
 

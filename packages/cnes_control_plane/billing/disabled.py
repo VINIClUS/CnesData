@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 
-from cnes_domain.billing.commands import (
+from cnes_control_plane.billing.commands import (
     CapacityReservationCommand,
     ConsumeCapacityCommand,
     ConsumeReservationCommand,
@@ -12,9 +12,9 @@ from cnes_domain.billing.commands import (
     ReserveRunCommand,
     SnapshotWrite,
 )
-from cnes_domain.billing.errors import BillingDisabledError
-from cnes_domain.billing.inbox import InboxClaim
-from cnes_domain.billing.models import (
+from cnes_control_plane.billing.errors import BillingDisabledError
+from cnes_control_plane.billing.inbox import InboxClaim
+from cnes_control_plane.billing.models import (
     AnalyticsAuthorization,
     CapacityKind,
     CapacityReservation,
@@ -27,7 +27,7 @@ from cnes_domain.billing.models import (
     RunAuthorization,
     SubscriptionStatus,
 )
-from cnes_domain.billing.ports import ClockPort
+from cnes_control_plane.billing.ports import ClockPort
 
 LOCAL_UNMETERED_PLAN_VERSION_ID = "local-unmetered-v1"
 _FOREVER = datetime.max.replace(tzinfo=UTC)

@@ -10,7 +10,20 @@ import pytest
 from botocore.exceptions import ClientError
 from moto import mock_aws
 
+from cnes_control_plane.billing.errors import (
+    BillingDependencyError,
+    PermanentBillingError,
+    StaleInboxClaim,
+)
+from cnes_control_plane.billing.inbox import (
+    InboxAcceptResult,
+    InboxClaim,
+    InboxDisposition,
+    StripeEvent,
+)
 from cnes_control_plane.billing.keys import STRIPE_RECOVERY_DUE_PARTITION, stripe_event_key
+from cnes_control_plane.billing.models import ReadConsistency
+from cnes_control_plane.billing.ports import WebhookInboxPort
 from cnes_control_plane.billing.webhook_inbox import WebhookInbox
 from cnes_control_plane.billing.webhook_inbox_items import (
     STRIPE_INBOX_RETRY_MAX_SECONDS,
@@ -20,19 +33,6 @@ from cnes_control_plane.billing.webhook_inbox_items import (
 )
 from cnes_control_plane.persistence.dynamodb_keys import outbox_key
 from cnes_data.dynamodb import item_key
-from cnes_domain.billing.errors import (
-    BillingDependencyError,
-    PermanentBillingError,
-    StaleInboxClaim,
-)
-from cnes_domain.billing.inbox import (
-    InboxAcceptResult,
-    InboxClaim,
-    InboxDisposition,
-    StripeEvent,
-)
-from cnes_domain.billing.models import ReadConsistency
-from cnes_domain.billing.ports import WebhookInboxPort
 from packages.cnes_control_plane.tests.billing.billing_factories import (
     NOW,
     TABLE_NAME,

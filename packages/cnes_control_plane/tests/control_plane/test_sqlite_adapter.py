@@ -3,27 +3,22 @@ from typing import cast
 
 import pytest
 
-from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
-from cnes_domain.control_plane.commands import (
-    CancelJob,
-    CompleteJob,
-    FailRunUnit,
-    FinishRunDispatch,
-)
-from cnes_domain.control_plane.entities import (
+from cnes_contracts.errors import Conflict, LeaseLost, NotFound
+from cnes_control_plane.model.commands import CancelJob, CompleteJob, FailRunUnit, FinishRunDispatch
+from cnes_control_plane.model.entities import (
     AccessRequest,
     Job,
     RawManifestRecord,
     RunDependency,
     Tenant,
 )
-from cnes_domain.control_plane.enums import (
+from cnes_control_plane.model.enums import (
     AccessRequestState,
     DispatchOutcome,
     JobState,
     RunUnitState,
 )
-from cnes_domain.control_plane.errors import Conflict, LeaseLost, NotFound
+from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
 from packages.cnes_control_plane.tests.contracts import (
     control_plane_contract,
     control_plane_raw_contract,

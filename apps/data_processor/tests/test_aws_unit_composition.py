@@ -28,14 +28,15 @@ from apps.data_processor.tests.test_aws_mode_composition import (
     _OfflineAws,
     _values,
 )
+from cnes_contracts.audit import OutboxEvent
 from cnes_contracts.manifests.outputs import OutputManifest
 from cnes_contracts.manifests.raw import SourceType
+from cnes_control_plane.billing.commands import AuthorizedRunCommand, SnapshotWrite
 from cnes_control_plane.billing.dynamodb_projection import DynamoEntitlementProjection
 from cnes_control_plane.billing.dynamodb_quota import DynamoQuotaReservations
-from cnes_domain.billing.commands import AuthorizedRunCommand, SnapshotWrite
-from cnes_domain.billing.execution import RunExecutionBindingCommand
-from cnes_domain.billing.models import RunAuthorization
-from cnes_domain.control_plane.commands import (
+from cnes_control_plane.billing.execution import RunExecutionBindingCommand
+from cnes_control_plane.billing.models import RunAuthorization
+from cnes_control_plane.model.commands import (
     BindRunDispatch,
     ClaimRunUnit,
     CommitRunUnit,
@@ -44,14 +45,14 @@ from cnes_domain.control_plane.commands import (
     ReserveRunDispatch,
     TransitionRun,
 )
-from cnes_domain.control_plane.entities import ManifestRef, OutboxEvent, Run, RunDispatch, RunUnit
-from cnes_domain.control_plane.enums import DispatchOutcome, RunStage, RunState, RunUnitState
-from cnes_domain.control_plane.environment_gate import (
+from cnes_control_plane.model.entities import ManifestRef, Run, RunDispatch, RunUnit
+from cnes_control_plane.model.enums import DispatchOutcome, RunStage, RunState, RunUnitState
+from cnes_control_plane.model.environment_gate import (
     AcquireUnitPermit,
     BindUnitPermit,
     PermitHolder,
 )
-from cnes_domain.ports.processing import RunUnitMessage
+from cnes_control_plane.ports.processing import RunUnitMessage
 from packages.cnes_control_plane.tests.billing.billing_factories import make_snapshot
 from packages.cnes_control_plane.tests.billing.quota_support import (
     make_reserve_command,
@@ -110,7 +111,7 @@ def _graph(raw: ManifestRef) -> tuple[RunUnit, ...]:
 
 
 def _seed_graph(aws: _OfflineAws, companion: str | None = None) -> None:
-    from cnes_domain.control_plane.entities import RunDependency
+    from cnes_control_plane.model.entities import RunDependency
 
     dependencies = (RunDependency(
         source_type="CNES_LOCAL", file_subtype="CNES_VINCULO", required=True,

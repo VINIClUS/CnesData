@@ -12,18 +12,18 @@ import pytest
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
+from cnes_contracts.modes import BillingMode
 from cnes_control_plane.billing import dynamodb_revocation_units as revocation_units
 from cnes_control_plane.billing.dynamodb_quota_items import encode_run_billing_state
+from cnes_control_plane.billing.errors import PermanentBillingError, RetryableBillingError
 from cnes_control_plane.billing.keys import run_billing_key
+from cnes_control_plane.billing.models import BillingEnforcementMode, ReservationStatus
 from cnes_control_plane.billing.settings import BillingSettings
+from cnes_control_plane.model.enums import DispatchOutcome, DispatchState, RunState, RunUnitState
 from cnes_control_plane.persistence import dynamodb_adapter
 from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
 from cnes_control_plane.persistence.dynamodb_keys import dispatch_key, run_entity_key
 from cnes_data.dynamodb import item_key
-from cnes_domain.billing.errors import PermanentBillingError, RetryableBillingError
-from cnes_domain.billing.models import BillingEnforcementMode, ReservationStatus
-from cnes_domain.control_plane.enums import DispatchOutcome, DispatchState, RunState, RunUnitState
-from cnes_domain.profiles import BillingMode
 from packages.cnes_control_plane.tests.billing.quota_support import TENANT
 from packages.cnes_control_plane.tests.billing.revocation_support import (
     RUN_ID,

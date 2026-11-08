@@ -4,10 +4,10 @@ from datetime import UTC, datetime
 
 import pytest
 
+from cnes_contracts.errors import Conflict
+from cnes_contracts.errors import ControlPlaneErrorCode as ErrorCode
 from cnes_control_plane.billing.settings import LOCAL_BILLING_SETTINGS
 from cnes_control_plane.persistence.edge_registration import DynamoEdgeRegistrationMixin
-from cnes_domain.control_plane.errors import Conflict
-from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
 
 NOW = datetime(2026, 9, 26, tzinfo=UTC)
 

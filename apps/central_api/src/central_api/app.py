@@ -36,7 +36,7 @@ from central_api.routes import (
     stripe_webhook,
     tenants,
 )
-from cnes_domain.profiles import RuntimeProfile
+from cnes_contracts.modes import RuntimeProfile
 from cnes_identity.errors import OAuthError
 from cnes_observability.telemetry import init_telemetry
 from cnes_runtime import config

@@ -5,6 +5,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from cnes_contracts.modes import BillingMode
 from cnes_control_plane.billing.dynamodb_items import deterministic_id
 from cnes_control_plane.billing.enforcement import (
     SHADOW_ACCESS_LOSS_EVENT,
@@ -12,10 +13,9 @@ from cnes_control_plane.billing.enforcement import (
     ShadowAccessLossEnforcer,
     select_access_loss_enforcer,
 )
+from cnes_control_plane.billing.models import BillingEnforcementMode, SubscriptionStatus
+from cnes_control_plane.billing.revocation import RevocationResult
 from cnes_control_plane.billing.settings import BillingSettings
-from cnes_domain.billing.models import BillingEnforcementMode, SubscriptionStatus
-from cnes_domain.billing.revocation import RevocationResult
-from cnes_domain.profiles import BillingMode
 from packages.cnes_control_plane.tests.billing.billing_factories import NOW, make_snapshot
 
 

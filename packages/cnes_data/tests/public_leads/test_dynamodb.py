@@ -12,8 +12,8 @@ import pytest
 from botocore.exceptions import ClientError, EndpointConnectionError
 from moto import mock_aws
 
+from cnes_contracts import public_leads as domain
 from cnes_data.public_leads import dynamodb as dynamodb_module
-from cnes_domain import public_leads as domain
 
 PublicLead = domain.PublicLead
 PublicLeadInput = domain.PublicLeadInput

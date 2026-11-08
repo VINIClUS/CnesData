@@ -20,23 +20,24 @@ from central_api.routes.serving import (
 from central_api.services.billing_gates import ApiBillingGates, TenantAccountResolver
 from central_api.services.serving_entitlement import EntitledServingAccess
 from central_api.serving.aws_signed import S3SignedServingAccess, SignedServingSettings
+from cnes_contracts.modes import BillingMode
+from cnes_contracts.serving import ServingGrant
 from cnes_control_plane.billing.disabled import DisabledQuotaReservations
-from cnes_domain.billing.errors import BillingDependencyError
-from cnes_domain.billing.gate import (
+from cnes_control_plane.billing.errors import BillingDependencyError
+from cnes_control_plane.billing.gate import (
     EntitlementGate,
     EntitlementGateDependencies,
     RunReservationSettings,
 )
-from cnes_domain.billing.models import SubscriptionStatus
-from cnes_domain.billing.policy import EntitlementPolicy
-from cnes_domain.ports.object_store import ObjectStorePort
-from cnes_domain.ports.serving import ServingAccessPort, ServingGrant
-from cnes_domain.profiles import BillingMode
+from cnes_control_plane.billing.models import SubscriptionStatus
+from cnes_control_plane.billing.policy import EntitlementPolicy
+from cnes_control_plane.ports.serving import ServingAccessPort
+from cnes_data.object_store.ports import ObjectStorePort
 
 from .billing_fakes import QUOTAS, make_snapshot
 
 if TYPE_CHECKING:
-    from cnes_domain.billing.ports import EntitlementProjectionPort
+    from cnes_control_plane.billing.ports import EntitlementProjectionPort
 
 NOW = datetime(2026, 9, 30, 12, tzinfo=UTC)
 TENANT = "tenant-a"

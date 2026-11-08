@@ -11,9 +11,9 @@ from unittest.mock import Mock
 import pytest
 from botocore.exceptions import ClientError
 
-from cnes_domain.control_plane.outbox import OutboxCursor, OutboxPage
-from cnes_domain.outbox_dispatcher import dispatch_once
-from cnes_domain.ports.control_plane import ControlPlanePort
+from cnes_control_plane.model.outbox import OutboxCursor, OutboxPage
+from cnes_control_plane.outbox_dispatcher import dispatch_once
+from cnes_control_plane.ports.control_plane import ControlPlanePort
 from cnes_governance.s3_object_lock_sink import S3ObjectLockAuditSink
 from packages.cnes_control_plane.tests.contracts.audit_sink_contract import (
     audit_event,

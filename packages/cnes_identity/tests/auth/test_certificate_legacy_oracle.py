@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 
-from cnes_domain.tenant import set_tenant_id, tenant_id_ctx
+from cnes_data.tenant import set_tenant_id, tenant_id_ctx
 from cnes_identity.provisioned_certs import ProvisionedCertsRepo
 
 _ORACLE_PATH = Path(__file__).resolve().parents[1] / "fixtures/auth/certificate_legacy_oracle.json"

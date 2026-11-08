@@ -4,15 +4,12 @@ version = "0.1.0"
 description = "Domain layer — ports, contracts, models, processing (zero I/O)"
 requires-python = ">=3.13"
 dependencies = [
-    "cnes-contracts",
     "polars>=1.20",
     "pandera>=0.30",
-      "pydantic>=2.10",
     "holidays>=0.46",
 ]
 
 [tool.uv.sources]
-cnes-contracts = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]
@@ -21,20 +18,8 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 only-include = [
     "__init__.py",
-    "auth",
-    "billing",
     "competencia.py",
-    "config.py",
-    "control_plane",
-    "orchestration",
-    "outbox_dispatcher.py",
-    "pipeline",
-    "ports",
     "processing",
-    "profiles.py",
-    "public_leads.py",
-    "refresh_tokens.py",
-    "tenant.py",
     "validation",
     "validators.py",
 ]

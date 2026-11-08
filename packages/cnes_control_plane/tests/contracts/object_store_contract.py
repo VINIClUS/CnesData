@@ -7,8 +7,8 @@ from hashlib import sha256
 from io import BytesIO
 from typing import Any
 
-from cnes_domain.control_plane.errors import Conflict
-from cnes_domain.ports.object_store import ObjectStat, ObjectStorePort
+from cnes_contracts.errors import Conflict
+from cnes_data.object_store.ports import ObjectStat, ObjectStorePort
 from packages.cnes_control_plane.tests.contracts.clock import MutableClock
 
 _Runner = Callable[[Any, MutableClock], None]

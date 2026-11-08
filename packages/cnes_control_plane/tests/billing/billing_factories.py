@@ -4,13 +4,9 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from cnes_control_plane.billing.commands import CreateBillingAccountCommand, SnapshotWrite
 from cnes_control_plane.billing.keys import tenant_entity_key
-from cnes_data.dynamodb import encode_model
-from cnes_domain.billing.commands import (
-    CreateBillingAccountCommand,
-    SnapshotWrite,
-)
-from cnes_domain.billing.models import (
+from cnes_control_plane.billing.models import (
     BillingAccount,
     BillingAccountStatus,
     BillingAccountTenantLink,
@@ -20,7 +16,8 @@ from cnes_domain.billing.models import (
     QuotaLimits,
     SubscriptionStatus,
 )
-from cnes_domain.control_plane.entities import Tenant
+from cnes_control_plane.model.entities import Tenant
+from cnes_data.dynamodb import encode_model
 from packages.cnes_control_plane.tests.control_plane.test_dynamodb_adapter import (
     _TABLE_NAME,
     _create_table,

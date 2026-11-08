@@ -5,24 +5,22 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import cast
 
+from cnes_contracts.modes import BillingMode
+from cnes_control_plane.billing.commands import (
+    SnapshotWrite,
+    StripeBillingState,
+    StripeStateRequest,
+)
 from cnes_control_plane.billing.dynamodb_items import deterministic_id
 from cnes_control_plane.billing.enforcement import AccessLossEnforcerPort
-from cnes_control_plane.billing.metrics import BillingMetricName, billing_metric
-from cnes_control_plane.billing.snapshot_mapping import (
-    STRIPE_SNAPSHOT_VALIDITY_MARGIN_HOURS,
-    SnapshotMappingInput,
-    changed_fields,
-    map_snapshot,
-)
-from cnes_control_plane.billing.webhook_inbox_items import STRIPE_INBOX_MAX_ATTEMPTS
-from cnes_domain.billing.commands import SnapshotWrite, StripeBillingState, StripeStateRequest
-from cnes_domain.billing.errors import (
+from cnes_control_plane.billing.errors import (
     PermanentBillingError,
     RetryableBillingError,
     StaleInboxClaim,
 )
-from cnes_domain.billing.inbox import InboxClaim, ProjectionResult
-from cnes_domain.billing.models import (
+from cnes_control_plane.billing.inbox import InboxClaim, ProjectionResult
+from cnes_control_plane.billing.metrics import BillingMetricName, billing_metric
+from cnes_control_plane.billing.models import (
     AccessLevel,
     BillingAuditEvent,
     EntitlementAction,
@@ -31,8 +29,8 @@ from cnes_domain.billing.models import (
     ReadConsistency,
     SubscriptionStatus,
 )
-from cnes_domain.billing.policy import EntitlementPolicy
-from cnes_domain.billing.ports import (
+from cnes_control_plane.billing.policy import EntitlementPolicy
+from cnes_control_plane.billing.ports import (
     BillingCatalogPort,
     BillingMetricsPort,
     ClockPort,
@@ -40,7 +38,13 @@ from cnes_domain.billing.ports import (
     StripeGatewayPort,
     WebhookInboxPort,
 )
-from cnes_domain.profiles import BillingMode
+from cnes_control_plane.billing.snapshot_mapping import (
+    STRIPE_SNAPSHOT_VALIDITY_MARGIN_HOURS,
+    SnapshotMappingInput,
+    changed_fields,
+    map_snapshot,
+)
+from cnes_control_plane.billing.webhook_inbox_items import STRIPE_INBOX_MAX_ATTEMPTS
 
 __all__ = [
     "PROJECTION_ACTOR_ID",

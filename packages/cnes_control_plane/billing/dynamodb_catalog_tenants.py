@@ -5,7 +5,7 @@ from typing import Any
 
 from cnes_control_plane.billing.dynamodb_items import decode_tenant_account, get_item
 from cnes_control_plane.billing.keys import tenant_account_key
-from cnes_domain.billing.models import BillingAccountTenantLink, ReadConsistency
+from cnes_control_plane.billing.models import BillingAccountTenantLink, ReadConsistency
 
 
 class DynamoTenantAccountMixin:

@@ -4,10 +4,13 @@ import logging
 
 from fastapi import HTTPException
 
-from cnes_domain.billing.commands import AttachStripeCustomerCommand, CreateStripeCustomerCommand
-from cnes_domain.billing.errors import PermanentBillingError, RetryableBillingError
-from cnes_domain.billing.models import BillingAccount
-from cnes_domain.billing.ports import BillingCatalogPort, StripeGatewayPort
+from cnes_control_plane.billing.commands import (
+    AttachStripeCustomerCommand,
+    CreateStripeCustomerCommand,
+)
+from cnes_control_plane.billing.errors import PermanentBillingError, RetryableBillingError
+from cnes_control_plane.billing.models import BillingAccount
+from cnes_control_plane.billing.ports import BillingCatalogPort, StripeGatewayPort
 
 logger = logging.getLogger(__name__)
 

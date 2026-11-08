@@ -15,8 +15,8 @@ from typing import TYPE_CHECKING, BinaryIO, cast
 
 import polars as pl
 
-from cnes_domain.control_plane.entities import OutboxEvent
-from cnes_domain.control_plane.errors import Conflict
+from cnes_contracts.audit import OutboxEvent
+from cnes_contracts.errors import Conflict
 
 if os.name == "nt":  # pragma: no cover - Windows smoke
     import msvcrt

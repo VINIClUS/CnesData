@@ -13,9 +13,9 @@ from cnes_control_plane.billing.dynamodb_items import (
     put_new,
     transact,
 )
+from cnes_control_plane.billing.errors import ImmutablePlanConflict, RetryableBillingError
 from cnes_control_plane.billing.keys import plan_version_key, stripe_price_key
-from cnes_domain.billing.errors import ImmutablePlanConflict, RetryableBillingError
-from cnes_domain.billing.models import PlanVersion
+from cnes_control_plane.billing.models import PlanVersion
 
 
 class DynamoPlanCatalogMixin:

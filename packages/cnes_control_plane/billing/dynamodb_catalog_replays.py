@@ -3,14 +3,14 @@
 from collections.abc import Callable
 from typing import Any
 
+from cnes_control_plane.billing.commands import CreateBillingAccountCommand
 from cnes_control_plane.billing.dynamodb_items import (
     decode_tenant_account,
     get_item,
     idempotency_digest,
 )
 from cnes_control_plane.billing.keys import tenant_account_key
-from cnes_domain.billing.commands import CreateBillingAccountCommand
-from cnes_domain.billing.models import (
+from cnes_control_plane.billing.models import (
     BillingAccount,
     BillingAccountTenantLink,
     ReadConsistency,

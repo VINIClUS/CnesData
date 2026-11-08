@@ -4,9 +4,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from cnes_contracts.manifests.raw import SourceType
+from cnes_control_plane.billing.publication import (
+    BillingPublicationPolicy,
+    PublicationPolicyDependencies,
+)
 from cnes_control_plane.billing.wiring import build_entitlement_gate
-from cnes_domain.billing.publication import BillingPublicationPolicy, PublicationPolicyDependencies
-from cnes_domain.orchestration.source_catalog import build_source_catalog
+from cnes_control_plane.orchestration.source_catalog import build_source_catalog
 from data_processor.pipeline.materialize_cnes import materialize_cnes
 from data_processor.pipeline.normalize_cnes_local import normalize_cnes_local
 from data_processor.pipeline.normalize_cnes_nacional import normalize_cnes_nacional
@@ -25,11 +28,11 @@ from data_processor.sources.sihd.serving import materialize_sihd
 if TYPE_CHECKING:
     from cnes_contracts.manifests.processing import NormalizeRequest, NormalizeResult
     from cnes_control_plane.billing import BillingSettings
+    from cnes_control_plane.billing.ports import ClockPort
     from cnes_control_plane.billing.wiring import BillingGateResources
-    from cnes_domain.billing.ports import ClockPort
-    from cnes_domain.orchestration.source_catalog import SourceCatalog
-    from cnes_domain.ports.control_plane import ControlPlanePort
-    from cnes_domain.ports.object_store import ObjectStorePort
+    from cnes_control_plane.orchestration.source_catalog import SourceCatalog
+    from cnes_control_plane.ports.control_plane import ControlPlanePort
+    from cnes_data.object_store.ports import ObjectStorePort
 
 
 class UnsupportedSourceType(ValueError):

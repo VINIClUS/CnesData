@@ -15,7 +15,7 @@ import pytest
 from cnes_contracts.manifests.processing import NormalizeRequest
 from cnes_contracts.manifests.raw import RawManifest, SnapshotMode, SourceType
 from cnes_contracts.manifests.validation import manifest_sha256
-from cnes_domain.ports.object_store import ObjectStat
+from cnes_data.object_store.ports import ObjectStat
 from data_processor.pipeline.normalize_cnes_local import (
     _NORMALIZED_COLUMNS,
     _SCHEMA_VERSION,

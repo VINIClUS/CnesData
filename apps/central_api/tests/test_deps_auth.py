@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from central_api.deps import require_auth, require_tenant_header
 from central_api.middleware import AuthenticatedUser
-from cnes_domain.tenant import get_tenant_id
+from cnes_data.tenant import get_tenant_id
 
 
 def _user(tenants: list[str]) -> AuthenticatedUser:

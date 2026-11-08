@@ -38,7 +38,7 @@ from data_processor.sources.sihd.contract import (
 from data_processor.sources.sihd.normalize import normalize_sihd
 
 if TYPE_CHECKING:
-    from cnes_domain.ports.object_store import ObjectStat
+    from cnes_data.object_store.ports import ObjectStat
 
 _SUBTYPES = ("SIHD_INTERNACAO", "SIHD_PROC_AIH")
 

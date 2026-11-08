@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, cast
 
 from pydantic import BaseModel, ConfigDict
 
-from cnes_domain.profiles import local_state_db, local_state_db_arcname, parse_local_profile
+from cnes_runtime.profiles import local_state_db, local_state_db_arcname, parse_local_profile
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

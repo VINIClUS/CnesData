@@ -15,10 +15,10 @@ from central_api.routes.billing import (
 )
 from central_api.routes.billing_errors import mapped_errors
 from central_api.routes.stripe_webhook import get_billing_metrics
+from cnes_control_plane.billing.errors import BillingDisabledError, PermanentBillingError
 from cnes_control_plane.billing.metrics import BillingMetricName, billing_metric
-from cnes_domain.billing.errors import BillingDisabledError, PermanentBillingError
-from cnes_domain.billing.ports import BillingMetricsPort
-from cnes_domain.billing.revocation_models import (
+from cnes_control_plane.billing.ports import BillingMetricsPort
+from cnes_control_plane.billing.revocation_models import (
     REASON_CODE_PATTERN,
     ImmediateRevocationCommand,
     RevocationResult,

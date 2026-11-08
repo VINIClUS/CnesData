@@ -10,8 +10,8 @@ from typing import Any
 
 import pytest
 
+from cnes_control_plane.billing.errors import PermanentBillingError
 from cnes_control_plane.billing.webhook_verifier import StripeWebhookVerifier
-from cnes_domain.billing.errors import PermanentBillingError
 
 SIGNING_KEY = "whsec_test"
 TIMESTAMP = 1_780_000_000

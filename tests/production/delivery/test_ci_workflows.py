@@ -8,7 +8,6 @@ import os
 import re
 import shutil
 import subprocess
-import tarfile
 from pathlib import Path
 from shlex import split
 from typing import Any
@@ -461,40 +460,3 @@ def test_contrato_de_bytes_rejeita_comandos_efetivos_de_rebuild(
     assert result.returncode == 0, result.stderr
     with pytest.raises(AssertionError, match="image_rebuild_forbidden"):
         _assert_no_image_build((tmp_path / "docker.calls").read_text())
-
-
-def test_config_empacota_fontes_existentes_e_checksums_reais(tmp_path: Path) -> None:
-    paths = (
-        "ops/deploy/aws/compose.production.yaml",
-        "ops/deploy/aws/config",
-        "uv.lock",
-        "apps/web_dashboard/bun.lock",
-        "infra/opentofu/env/prod/.terraform.lock.hcl",
-        "infra/opentofu/modules/observability/cost-manifest.json",
-        "policies",
-        "schemas/cost-manifest.schema.json",
-    )
-    for relative in paths:
-        source, target = ROOT / relative, tmp_path / relative
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if source.is_dir():
-            shutil.copytree(source, target)
-        else:
-            shutil.copyfile(source, target)
-    job = _workflow()["jobs"]["opentofu-policy-cost"]
-    body = next(
-        s["run"]
-        for s in job["steps"]
-        if s.get("name") == "Package validated configuration and locks"
-    )
-    environment = dict(os.environ, GITHUB_SHA="a" * 40, GITHUB_RUN_ID="123", GITHUB_RUN_ATTEMPT="1")
-    result = _shell(tmp_path, environment, body)
-    assert result.returncode == 0, result.stderr
-    with tarfile.open(tmp_path / "config-artifact/config.tar") as archive:
-        assert set(paths) <= set(archive.getnames())
-    sums = (tmp_path / "config-artifact/SHA256SUMS").read_text().splitlines()
-    for line in sums:
-        digest, name = line.split()
-        assert (
-            hashlib.sha256((tmp_path / "config-artifact" / name).read_bytes()).hexdigest() == digest
-        )

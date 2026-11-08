@@ -24,6 +24,12 @@ from central_api.routes.stripe_webhook import (
     get_webhook_inbox,
     router,
 )
+from cnes_control_plane.billing.commands import (
+    CreateRunRequest,
+    ReserveRunCommand,
+    StripeBillingState,
+    StripeStateRequest,
+)
 from cnes_control_plane.billing.dynamodb_catalog import DynamoBillingCatalog
 from cnes_control_plane.billing.dynamodb_items import (
     encode_account,
@@ -32,29 +38,18 @@ from cnes_control_plane.billing.dynamodb_items import (
     encode_price_map,
 )
 from cnes_control_plane.billing.dynamodb_projection import DynamoEntitlementProjection
-from cnes_control_plane.billing.projector import ProjectorDependencies, StripeEventProjector
-from cnes_control_plane.billing.recovery import RecoveryDependencies, WebhookRecovery
-from cnes_control_plane.billing.recovery_cursor import DynamoRecoveryCursor
-from cnes_control_plane.billing.webhook_inbox import WebhookInbox
-from cnes_control_plane.billing.webhook_verifier import StripeWebhookVerifier
-from cnes_domain.billing.commands import (
-    CreateRunRequest,
-    ReserveRunCommand,
-    StripeBillingState,
-    StripeStateRequest,
-)
-from cnes_domain.billing.gate import (
+from cnes_control_plane.billing.gate import (
     EntitlementGate,
     EntitlementGateDependencies,
     RunReservationSettings,
 )
-from cnes_domain.billing.inbox import (
+from cnes_control_plane.billing.inbox import (
     RecoveryRequest,
     StripeEvent,
     StripeEventListRequest,
     StripeEventPage,
 )
-from cnes_domain.billing.models import (
+from cnes_control_plane.billing.models import (
     BillingAccount,
     BillingAccountStatus,
     PlanVersion,
@@ -63,7 +58,12 @@ from cnes_domain.billing.models import (
     RunAuthorization,
     SubscriptionStatus,
 )
-from cnes_domain.control_plane.entities import RunDependency
+from cnes_control_plane.billing.projector import ProjectorDependencies, StripeEventProjector
+from cnes_control_plane.billing.recovery import RecoveryDependencies, WebhookRecovery
+from cnes_control_plane.billing.recovery_cursor import DynamoRecoveryCursor
+from cnes_control_plane.billing.webhook_inbox import WebhookInbox
+from cnes_control_plane.billing.webhook_verifier import StripeWebhookVerifier
+from cnes_control_plane.model.entities import RunDependency
 from packages.cnes_control_plane.tests.billing.test_webhook_verifier import (
     SIGNING_KEY,
     SignatureVerificationError,
@@ -73,7 +73,7 @@ from packages.cnes_control_plane.tests.billing.test_webhook_verifier import (
 from packages.cnes_control_plane.tests.contracts.clock import MutableClock
 
 if TYPE_CHECKING:
-    from cnes_domain.billing.ports import QuotaReservationPort, StripeGatewayPort
+    from cnes_control_plane.billing.ports import QuotaReservationPort, StripeGatewayPort
 
 ENDPOINT = os.getenv("DYNAMODB_ENDPOINT_URL", "http://127.0.0.1:18000")
 REGION = "us-east-1"

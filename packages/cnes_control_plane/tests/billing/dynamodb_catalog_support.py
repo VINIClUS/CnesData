@@ -9,11 +9,11 @@ import boto3
 from botocore.exceptions import ClientError
 from moto import mock_aws
 
+from cnes_control_plane.billing.commands import AttachStripeCustomerCommand, TransferOwnerCommand
 from cnes_control_plane.billing.dynamodb_catalog import DynamoBillingCatalog, idempotency_digest
 from cnes_control_plane.billing.dynamodb_items import idempotency_item
+from cnes_control_plane.model.entities import IdempotencyRecord
 from cnes_data.dynamodb import item_key
-from cnes_domain.billing.commands import AttachStripeCustomerCommand, TransferOwnerCommand
-from cnes_domain.control_plane.entities import IdempotencyRecord
 from packages.cnes_control_plane.tests.billing.billing_factories import (
     NOW,
     TABLE_NAME,

@@ -4,7 +4,9 @@ from datetime import timedelta
 from functools import partial
 from typing import Any
 
-from cnes_domain.control_plane.commands import (
+from cnes_contracts.errors import Conflict, FenceRejected, LeaseLost
+from cnes_contracts.membership import Membership
+from cnes_control_plane.model.commands import (
     BeginIdempotency,
     BindRunDispatch,
     FailRunUnit,
@@ -15,10 +17,9 @@ from cnes_domain.control_plane.commands import (
     ReserveRunDispatch,
     TransitionRun,
 )
-from cnes_domain.control_plane.entities import DatasetVersion, Membership, RunDependency
-from cnes_domain.control_plane.enums import AgentState, DispatchOutcome, RunState, RunUnitState
-from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost
-from cnes_domain.ports.control_plane import ControlPlanePort, TypedRawQueryPort
+from cnes_control_plane.model.entities import DatasetVersion, RunDependency
+from cnes_control_plane.model.enums import AgentState, DispatchOutcome, RunState, RunUnitState
+from cnes_control_plane.ports.control_plane import ControlPlanePort, TypedRawQueryPort
 from packages.cnes_control_plane.tests.contracts.clock import (
     _HASH_A,
     _NOW,

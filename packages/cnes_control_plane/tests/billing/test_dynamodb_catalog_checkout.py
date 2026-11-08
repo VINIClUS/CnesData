@@ -9,20 +9,20 @@ from typing import Any
 import pytest
 from botocore.exceptions import ClientError, EndpointConnectionError, ReadTimeoutError
 
-from cnes_control_plane.billing.dynamodb_catalog import DynamoBillingCatalog
-from cnes_control_plane.billing.dynamodb_items import CORRUPT_CODE, utc_attribute
-from cnes_control_plane.billing.keys import pending_checkout_key
-from cnes_data.dynamodb import item_key
-from cnes_domain.billing.commands import (
+from cnes_control_plane.billing.commands import (
     ReleasePendingCheckoutCommand,
     ReservePendingCheckoutCommand,
 )
-from cnes_domain.billing.errors import (
+from cnes_control_plane.billing.dynamodb_catalog import DynamoBillingCatalog
+from cnes_control_plane.billing.dynamodb_items import CORRUPT_CODE, utc_attribute
+from cnes_control_plane.billing.errors import (
     BillingDependencyError,
     PermanentBillingError,
     RetryableBillingError,
 )
-from cnes_domain.billing.ports import BillingCatalogPort
+from cnes_control_plane.billing.keys import pending_checkout_key
+from cnes_control_plane.billing.ports import BillingCatalogPort
+from cnes_data.dynamodb import item_key
 from packages.cnes_control_plane.tests.billing.billing_factories import NOW, TABLE_NAME
 from packages.cnes_control_plane.tests.billing.dynamodb_catalog_support import (
     catalog_env,

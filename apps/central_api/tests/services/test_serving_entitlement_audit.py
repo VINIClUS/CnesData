@@ -22,8 +22,8 @@ from apps.central_api.tests.services.test_serving_entitlement import (
 )
 from central_api.services.billing_gates import BillingAccountMissing
 from central_api.services.serving_access import ServingUnavailable
-from cnes_domain.billing.errors import PermanentBillingError
-from cnes_domain.billing.models import SubscriptionStatus
+from cnes_control_plane.billing.errors import PermanentBillingError
+from cnes_control_plane.billing.models import SubscriptionStatus
 
 
 def _audited(projection: FakeProjection, audit: Mock | None):

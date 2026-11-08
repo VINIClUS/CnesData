@@ -15,6 +15,7 @@ from central_api.services.run_planning import RunPlanningDependencies, RunPlanni
 from central_api.services.serving_access import LocalServingAccess
 from central_api.services.serving_entitlement import EntitledServingAccess
 from central_api.serving.aws_signed import S3SignedServingAccess, SignedServingSettings
+from cnes_contracts.modes import RuntimeProfile
 from cnes_control_plane.billing import (
     LOCAL_BILLING_SETTINGS,
     BillingGateResources,
@@ -31,12 +32,11 @@ from cnes_control_plane.execution.step_functions import (
     validate_production_state_machine,
     validate_state_machine,
 )
+from cnes_control_plane.model.entities import Tenant
+from cnes_control_plane.orchestration.source_catalog import build_source_catalog
 from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
+from cnes_control_plane.ports.processing import ExecutionPolicyConfig
 from cnes_data.object_store import FilesystemObjectStore
-from cnes_domain.control_plane.entities import Tenant
-from cnes_domain.orchestration.source_catalog import build_source_catalog
-from cnes_domain.ports.processing import ExecutionPolicyConfig
-from cnes_domain.profiles import ProfileNotImplemented, RuntimeProfile, parse_profile
 from cnes_governance.local_sink import LocalAuditSink
 from cnes_identity.dynamodb_memberships import DynamoDBMembershipCandidates
 from cnes_runtime.aws import (
@@ -45,26 +45,27 @@ from cnes_runtime.aws import (
     create_aws_clients,
 )
 from cnes_runtime.aws.runtime import build_aws_processor_core, build_dispatch_admission
+from cnes_runtime.profiles import ProfileNotImplemented, parse_profile
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
     from boto3.session import Session
 
-    from cnes_domain.control_plane.entities import RawManifestRecord, Run
-    from cnes_domain.orchestration.source_catalog import SourceCatalog
-    from cnes_domain.ports.audit import AuditSinkPort
-    from cnes_domain.ports.control_plane import ControlPlanePort, TypedRawQueryPort
-    from cnes_domain.ports.object_store import ObjectStorePort
-    from cnes_domain.ports.processing import (
+    from cnes_control_plane.model.entities import RawManifestRecord, Run
+    from cnes_control_plane.orchestration.source_catalog import SourceCatalog
+    from cnes_control_plane.ports.audit import AuditSinkPort
+    from cnes_control_plane.ports.control_plane import ControlPlanePort, TypedRawQueryPort
+    from cnes_control_plane.ports.processing import (
         ExecutionPermit,
         ExecutionStarted,
         ProcessorExecutorPort,
         StartRunExecution,
     )
-    from cnes_domain.profiles import ProfileSettings
+    from cnes_data.object_store.ports import ObjectStorePort
     from cnes_runtime.aws import AwsClients
     from cnes_runtime.aws.runtime import AwsProcessorCore
+    from cnes_runtime.profiles import ProfileSettings
 
     class _RawQueryControlPlane(ControlPlanePort, TypedRawQueryPort, Protocol):
         pass

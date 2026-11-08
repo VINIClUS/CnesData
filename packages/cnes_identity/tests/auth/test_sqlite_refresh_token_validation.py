@@ -12,13 +12,13 @@ from uuid import UUID
 
 import pytest
 
-from cnes_domain.ports.refresh_tokens import RefreshTokenStore
-from cnes_domain.refresh_tokens import (
+from cnes_identity.refresh_contracts import (
     RefreshTokenContext,
     RefreshTokenInvalid,
     RefreshTokenRecord,
     RefreshTokenUnavailable,
 )
+from cnes_identity.refresh_port import RefreshTokenStore
 from cnes_identity.sqlite_refresh_tokens import SQLiteRefreshTokenStore
 
 _PLAINTEXT = "abc"

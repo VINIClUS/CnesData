@@ -15,7 +15,7 @@ from cnes_contracts.manifests.raw import SnapshotMode, SourceType
 if TYPE_CHECKING:
     from cnes_contracts.manifests.processing import NormalizeRequest
     from cnes_contracts.manifests.raw import RawManifest
-    from cnes_domain.ports.object_store import ObjectStat, ObjectStorePort
+    from cnes_data.object_store.ports import ObjectStat, ObjectStorePort
 
 _SOURCE_COLUMNS = (
     "CPF", "CNS", "NOME_PROFISSIONAL", "NOME_SOCIAL", "SEXO", "CBO", "CNES",

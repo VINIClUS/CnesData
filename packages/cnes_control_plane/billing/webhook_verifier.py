@@ -4,8 +4,8 @@ import hashlib
 from datetime import UTC, datetime
 from typing import Any, cast
 
-from cnes_domain.billing.errors import PermanentBillingError
-from cnes_domain.billing.inbox import StripeEvent
+from cnes_control_plane.billing.errors import PermanentBillingError
+from cnes_control_plane.billing.inbox import StripeEvent
 
 _SIGNATURE_INVALID = "stripe_signature_invalid"
 _SCHEMA_INVALID = "stripe_event_schema_invalid"

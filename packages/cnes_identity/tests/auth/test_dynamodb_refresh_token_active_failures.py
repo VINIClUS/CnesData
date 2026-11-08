@@ -10,7 +10,7 @@ from uuid import UUID
 import pytest
 from botocore.exceptions import ClientError, EndpointConnectionError
 
-from cnes_domain.refresh_tokens import (
+from cnes_identity.refresh_contracts import (
     RefreshTokenContext,
     RefreshTokenInvalid,
     RefreshTokenUnavailable,

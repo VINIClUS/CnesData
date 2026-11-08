@@ -21,14 +21,14 @@ from central_api.services.raw_upload import (
     RawUploadService,
     RawUploadTooLarge,
 )
-from cnes_domain.control_plane.entities import Job
-from cnes_domain.control_plane.enums import JobState
-from cnes_domain.control_plane.errors import Conflict
-from cnes_domain.ports.object_store import ObjectStat
+from cnes_contracts.errors import Conflict
+from cnes_control_plane.model.entities import Job
+from cnes_control_plane.model.enums import JobState
+from cnes_data.object_store.ports import ObjectStat
 
 if TYPE_CHECKING:
-    from cnes_domain.ports.control_plane import ControlPlanePort
-    from cnes_domain.ports.object_store import ObjectStorePort
+    from cnes_control_plane.ports.control_plane import ControlPlanePort
+    from cnes_data.object_store.ports import ObjectStorePort
 
 NOW = datetime(2026, 7, 15, 12, tzinfo=UTC)
 KEY = "raw/354130/CNES_LOCAL/2026-07/snapshot-1/data.parquet"

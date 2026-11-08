@@ -1,7 +1,7 @@
 """Testes dos ciclos limitados do BillingWorker."""
 
 from apps.billing_worker.tests.support import NOW, RECONCILED, RELEASED, RESULT, SWEPT, make_worker
-from cnes_domain.billing.inbox import (
+from cnes_control_plane.billing.inbox import (
     ReconciliationRequest,
     RecoveryRequest,
     RecoveryResult,

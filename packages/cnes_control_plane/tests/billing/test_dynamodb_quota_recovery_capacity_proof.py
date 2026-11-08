@@ -1,9 +1,9 @@
 """Testes da prova de consumo na recuperação de reservas de capacidade."""
 
 from cnes_control_plane.billing.dynamodb_items import encode_link
-from cnes_domain.billing.models import CapacityKind, ReservationStatus
-from cnes_domain.control_plane.entities import Agent, Tenant
-from cnes_domain.control_plane.enums import AgentState
+from cnes_control_plane.billing.models import CapacityKind, ReservationStatus
+from cnes_control_plane.model.entities import Agent, Tenant
+from cnes_control_plane.model.enums import AgentState
 from packages.cnes_control_plane.tests.billing.billing_factories import TABLE_NAME, make_link
 from packages.cnes_control_plane.tests.billing.quota_support import (
     ACCOUNT,

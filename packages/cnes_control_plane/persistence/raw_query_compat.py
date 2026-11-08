@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, cast
 from warnings import warn
 
-from cnes_domain.control_plane.queries import (
+from cnes_control_plane.model.queries import (
     LatestSucceededJobQuery,
     RawIdentity,
     RawManifestChainQuery,
@@ -13,8 +13,8 @@ from cnes_domain.control_plane.queries import (
 )
 
 if TYPE_CHECKING:
-    from cnes_domain.control_plane.entities import Job, ManifestRef, Run
-    from cnes_domain.ports.control_plane import TypedRawQueryPort
+    from cnes_control_plane.model.entities import Job, ManifestRef, Run
+    from cnes_control_plane.ports.control_plane import TypedRawQueryPort
 
 _LATEST_JOB_FIELDS = ("tenant_id", "agent_id", "source_type", "file_subtype", "competencia")
 _DEPENDENCY_FIELDS = ("tenant_id", "source_type", "file_subtype", "competencia", "limit")

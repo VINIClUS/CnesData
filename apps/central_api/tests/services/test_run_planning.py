@@ -14,33 +14,28 @@ from central_api.services.run_planning import (
     RunPlanningDependencies,
     RunPlanningService,
 )
+from cnes_contracts.errors import Conflict, ControlPlaneErrorCode, FenceRejected
 from cnes_contracts.manifests.raw import RawManifest, SnapshotMode, SourceType
+from cnes_control_plane.model.commands import FinishRunDispatch, ReserveRunDispatch
+from cnes_control_plane.model.entities import RawManifestRecord, Run, RunDependency, RunDispatch
+from cnes_control_plane.model.enums import DispatchOutcome, DispatchState, RunState
+from cnes_control_plane.orchestration.source_catalog import build_source_catalog
 from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
-from cnes_domain.control_plane.commands import FinishRunDispatch, ReserveRunDispatch
-from cnes_domain.control_plane.entities import (
-    RawManifestRecord,
-    Run,
-    RunDependency,
-    RunDispatch,
-)
-from cnes_domain.control_plane.enums import DispatchOutcome, DispatchState, RunState
-from cnes_domain.control_plane.errors import Conflict, ControlPlaneErrorCode, FenceRejected
-from cnes_domain.orchestration.source_catalog import build_source_catalog
-from cnes_domain.ports.object_store import ObjectStat
-from cnes_domain.ports.processing import (
+from cnes_control_plane.ports.processing import (
     CancelRunExecution,
     ExecutionCallbacks,
     ExecutionPolicyConfig,
     ExecutionStatus,
     StartRunExecution,
 )
+from cnes_data.object_store.ports import ObjectStat
 from data_processor.orchestration.coordinator import allow_execution, noop_execution_started
 
 if TYPE_CHECKING:
     from contextlib import AbstractContextManager as ContextManager
     from typing import BinaryIO
 
-    from cnes_domain.control_plane.commands import BindRunDispatch
+    from cnes_control_plane.model.commands import BindRunDispatch
 
 _TENANT = "354130"
 _RUN_ID = "run-a"
@@ -388,8 +383,8 @@ def test_launch_congela_fonte_opcional_ausente(adapter, executor, store, clock):
 
 
 def test_replay_de_put_run_units_e_idempotente(adapter, executor, store, clock):
-    from cnes_domain.control_plane.commands import PutRunUnits
-    from cnes_domain.orchestration.planner import PlanRequest, plan_run
+    from cnes_control_plane.model.commands import PutRunUnits
+    from cnes_control_plane.orchestration.planner import PlanRequest, plan_run
 
     run = _run()
     adapter.put_run(run)

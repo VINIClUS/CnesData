@@ -8,12 +8,12 @@ from typing import TYPE_CHECKING
 from pydantic import ValidationError
 
 from cnes_contracts.manifests.outputs import OutputManifest, RunManifest
-from cnes_domain.ports.serving import ServingGrant, ServingRequest
+from cnes_contracts.serving import ServingGrant, ServingRequest
 
 if TYPE_CHECKING:
-    from cnes_domain.control_plane.entities import DatasetVersion
-    from cnes_domain.ports.control_plane import ControlPlanePort
-    from cnes_domain.ports.object_store import ObjectStorePort
+    from cnes_control_plane.model.entities import DatasetVersion
+    from cnes_control_plane.ports.control_plane import ControlPlanePort
+    from cnes_data.object_store.ports import ObjectStorePort
 
 
 class ServingUnavailable(RuntimeError):

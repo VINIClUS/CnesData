@@ -8,26 +8,27 @@ from unittest.mock import Mock
 
 import pytest
 
+from cnes_contracts.audit import OutboxEvent
+from cnes_contracts.modes import BillingMode
 from cnes_control_plane.billing.dynamodb_quota_items import encode_run_billing_state
 from cnes_control_plane.billing.keys import run_billing_key
+from cnes_control_plane.billing.models import BillingEnforcementMode
 from cnes_control_plane.billing.settings import BillingSettings
-from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
-from cnes_control_plane.persistence.dynamodb_billing import (
-    CLAIM_BIND_BACKOFF_SECONDS,
-    ClaimDeferred,
-)
-from cnes_data.dynamodb import item_key
-from cnes_domain.billing.models import BillingEnforcementMode
-from cnes_domain.control_plane.commands import (
+from cnes_control_plane.model.commands import (
     BindRunDispatch,
     ClaimRunUnit,
     PutRunUnits,
     ReserveRunDispatch,
     TransitionRun,
 )
-from cnes_domain.control_plane.entities import ManifestRef, OutboxEvent, RunDispatch, RunUnit
-from cnes_domain.control_plane.enums import RunStage, RunState, RunUnitState
-from cnes_domain.profiles import BillingMode
+from cnes_control_plane.model.entities import ManifestRef, RunDispatch, RunUnit
+from cnes_control_plane.model.enums import RunStage, RunState, RunUnitState
+from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
+from cnes_control_plane.persistence.dynamodb_billing import (
+    CLAIM_BIND_BACKOFF_SECONDS,
+    ClaimDeferred,
+)
+from cnes_data.dynamodb import item_key
 from cnes_runtime.aws.runtime import AwsClients, build_aws_runtime
 from packages.cnes_control_plane.tests.billing.billing_factories import NOW, TABLE_NAME
 from packages.cnes_control_plane.tests.billing.quota_support import TENANT

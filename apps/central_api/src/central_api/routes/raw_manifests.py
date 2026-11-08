@@ -19,7 +19,7 @@ from central_api.schemas.raw_api import (
     RawManifestSubmission,
 )
 from central_api.services.raw_ingestion import RawIngestionService, RegisterRawManifest
-from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost, NotFound
+from cnes_contracts.errors import Conflict, FenceRejected, LeaseLost, NotFound
 
 router = APIRouter(prefix="/api/v1/edge", tags=["edge-raw"])
 

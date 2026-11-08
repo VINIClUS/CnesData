@@ -14,12 +14,12 @@ from cnes_contracts.manifests.processing import (
     ReconcileRequest,
     ReconcileResult,
 )
-from cnes_domain.ports.object_store import ObjectStorePort
+from cnes_data.object_store.ports import ObjectStorePort
 
 if TYPE_CHECKING:
     from cnes_contracts.manifests.raw import SourceType
-    from cnes_domain.control_plane.entities import RunDependency
-    from cnes_domain.orchestration.source_catalog import (
+    from cnes_control_plane.model.entities import RunDependency
+    from cnes_control_plane.orchestration.source_catalog import (
         PipelineDefinition,
         PipelineLayout,
         SourceCatalog,

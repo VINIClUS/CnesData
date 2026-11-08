@@ -6,15 +6,16 @@ from typing import Any, cast
 
 import pytest
 
+from cnes_contracts.audit import OutboxEvent
+from cnes_contracts.errors import FenceRejected
+from cnes_contracts.modes import BillingMode
 from cnes_control_plane.billing.dynamodb_quota_items import encode_run_billing_state
 from cnes_control_plane.billing.keys import run_billing_key
+from cnes_control_plane.billing.models import BillingEnforcementMode
+from cnes_control_plane.model.commands import CommitRunUnit, FailRunUnit, TransitionRun
+from cnes_control_plane.model.entities import ManifestRef, RunUnit
+from cnes_control_plane.model.enums import RunState, RunUnitState
 from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
-from cnes_domain.billing.models import BillingEnforcementMode
-from cnes_domain.control_plane.commands import CommitRunUnit, FailRunUnit, TransitionRun
-from cnes_domain.control_plane.entities import ManifestRef, OutboxEvent, RunUnit
-from cnes_domain.control_plane.enums import RunState, RunUnitState
-from cnes_domain.control_plane.errors import FenceRejected
-from cnes_domain.profiles import BillingMode
 from packages.cnes_control_plane.tests.billing.billing_factories import NOW, TABLE_NAME
 from packages.cnes_control_plane.tests.billing.quota_support import TENANT
 from packages.cnes_control_plane.tests.billing.test_control_plane_extensions import (

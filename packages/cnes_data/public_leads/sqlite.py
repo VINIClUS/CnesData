@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from uuid import UUID
 
-from cnes_domain.public_leads import (
+from cnes_contracts.public_leads import (
     PublicLead,
     PublicLeadConflict,
     PublicLeadInput,

@@ -3,7 +3,7 @@ import asyncio
 
 import pytest
 
-from cnes_domain.pipeline.circuit_breaker import CircuitBreaker
+from cnes_data.circuit_breaker import CircuitBreaker
 
 pytestmark = pytest.mark.perf_micro
 

@@ -6,9 +6,12 @@ Persistência, ingestão e object stores. Fronteiras canônicas: docs/architectu
 
 ## Dependências
 
-Dependências locais declaradas: cnes-contracts, cnes-domain, cnes-observability.
-Não importar apps, cnes_runtime ou implementações de outra capability fora
-do grafo aprovado. Exceção: cnes_runtime é a camada externa de composição.
+Dependências locais declaradas:
+
+- cnes-contracts
+- cnes-observability
+
+Não importar apps nem Runtime. Respeitar o grafo de docs/architecture.md.
 
 ## Convenções
 
@@ -24,3 +27,11 @@ do grafo aprovado. Exceção: cnes_runtime é a camada externa de composição.
 - Toda consulta Postgres deve manter set_tenant_id e RLS.
 - Gold v2 preserva plain INSERT para vínculos e merge JSONB de fontes nas dims.
 - ETL e national são extras opcionais; não carregá-los no import raiz.
+
+## Fronteira técnica
+
+- tenant.py mantém o ContextVar de RLS; storage/row_mapper.py prepara persistência.
+- circuit_breaker.py protege I/O e permanece fora do Core de negócio.
+- Ports genéricos de conexões, storage, object store e ingestão pertencem a Data.
+
+- public_leads/ mantém os stores/port de contatos públicos; DTOs pertencem a Contracts.

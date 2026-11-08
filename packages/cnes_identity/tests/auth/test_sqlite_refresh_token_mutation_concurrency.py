@@ -9,7 +9,7 @@ from typing import cast
 
 import pytest
 
-from cnes_domain.refresh_tokens import (
+from cnes_identity.refresh_contracts import (
     RefreshTokenContext,
     RefreshTokenRecord,
     RefreshTokenUnavailable,

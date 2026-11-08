@@ -5,22 +5,22 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
+from cnes_contracts.errors import ControlPlaneErrorCode, FenceRejected
+from cnes_contracts.modes import BillingMode
 from cnes_control_plane.billing.disabled import DisabledQuotaReservations
-from cnes_control_plane.persistence.dynamodb_billing import authorized_run_records
-from cnes_control_plane.persistence.sqlite_schema import deserialize_model, serialize_model
-from cnes_domain.billing.errors import (
+from cnes_control_plane.billing.errors import (
     BillingDisabledError,
     IdempotencyConflict,
     PermanentBillingError,
 )
-from cnes_domain.billing.execution_policy import apply_execution_binding
-from cnes_domain.billing.publication import (
+from cnes_control_plane.billing.execution_policy import apply_execution_binding
+from cnes_control_plane.billing.publication import (
     require_publication_companion,
     unit_companion_allows,
 )
-from cnes_domain.control_plane.entities import IdempotencyRecord
-from cnes_domain.control_plane.errors import ControlPlaneErrorCode, FenceRejected
-from cnes_domain.profiles import BillingMode
+from cnes_control_plane.model.entities import IdempotencyRecord
+from cnes_control_plane.persistence.dynamodb_billing import authorized_run_records
+from cnes_control_plane.persistence.sqlite_schema import deserialize_model, serialize_model
 
 if TYPE_CHECKING:
     import sqlite3
@@ -28,17 +28,18 @@ if TYPE_CHECKING:
     from contextlib import AbstractContextManager
     from datetime import datetime
 
-    from cnes_domain.billing.commands import (
+    from cnes_contracts.audit import OutboxEvent
+    from cnes_control_plane.billing.commands import (
         AuthorizedRunCommand,
         ConsumeReservationCommand,
         ReleaseReservationCommand,
         ReserveRunCommand,
     )
-    from cnes_domain.billing.execution import RunBillingState, RunExecutionBindingCommand
-    from cnes_domain.billing.models import QuotaReservation, RunAuthorization
-    from cnes_domain.billing.revocation_models import RevocableRunPage, RevokeRunCommand
-    from cnes_domain.control_plane.commands import CommitRunUnit, FailRunUnit, PublishDataset
-    from cnes_domain.control_plane.entities import OutboxEvent, Run
+    from cnes_control_plane.billing.execution import RunBillingState, RunExecutionBindingCommand
+    from cnes_control_plane.billing.models import QuotaReservation, RunAuthorization
+    from cnes_control_plane.billing.revocation_models import RevocableRunPage, RevokeRunCommand
+    from cnes_control_plane.model.commands import CommitRunUnit, FailRunUnit, PublishDataset
+    from cnes_control_plane.model.entities import Run
 
 
 _SELECT_STATE = "SELECT data FROM run_billing_states WHERE tenant_id = ? AND run_id = ?"

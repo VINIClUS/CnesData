@@ -17,12 +17,13 @@ from central_api.services.delta_policy import (
     _DeltaContext,  # pyright: ignore[reportPrivateUsage]
 )
 from cnes_contracts import RawManifest, SnapshotMode, manifest_sha256
-from cnes_domain.control_plane.commands import CompleteJob, FailJob
-from cnes_domain.control_plane.entities import Job, ManifestRef, OutboxEvent, RawManifestRecord
-from cnes_domain.control_plane.enums import JobState
-from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost, NotFound
-from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
-from cnes_domain.control_plane.queries import (
+from cnes_contracts.audit import OutboxEvent
+from cnes_contracts.errors import Conflict, FenceRejected, LeaseLost, NotFound
+from cnes_contracts.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_control_plane.model.commands import CompleteJob, FailJob
+from cnes_control_plane.model.entities import Job, ManifestRef, RawManifestRecord
+from cnes_control_plane.model.enums import JobState
+from cnes_control_plane.model.queries import (
     AgentRawManifestChainQuery,
     LatestSucceededJobQuery,
     RawIdentity,
@@ -33,9 +34,9 @@ from cnes_domain.control_plane.queries import (
 if TYPE_CHECKING:
     from typing import Protocol
 
-    from cnes_domain.control_plane.entities import JsonValue
-    from cnes_domain.ports.control_plane import ControlPlanePort, TypedRawQueryPort
-    from cnes_domain.ports.object_store import ObjectStorePort
+    from cnes_contracts.schema import JsonValue
+    from cnes_control_plane.ports.control_plane import ControlPlanePort, TypedRawQueryPort
+    from cnes_data.object_store.ports import ObjectStorePort
 
     class _ControlPlane(ControlPlanePort, TypedRawQueryPort, Protocol):
         pass

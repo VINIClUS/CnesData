@@ -6,11 +6,18 @@ import boto3
 import pytest
 from moto import mock_aws
 
+from cnes_control_plane.billing.errors import (
+    BillingDependencyError,
+    PermanentBillingError,
+    RetryableBillingError,
+)
+from cnes_control_plane.billing.inbox import ReconciliationRequest
 from cnes_control_plane.billing.keys import (
     revocation_sweep_cursor_key,
     stripe_reconciliation_cursor_key,
 )
 from cnes_control_plane.billing.reconciliation_cursor import DynamoReconciliationCursor
+from cnes_control_plane.billing.revocation import RevocationResult
 from cnes_control_plane.billing.revocation_sweep import (
     REVOCATION_SWEEP_ACTOR_ID,
     PendingRevocationPort,
@@ -20,13 +27,6 @@ from cnes_control_plane.billing.revocation_sweep import (
     SweepCursorPort,
 )
 from cnes_data.dynamodb import item_key
-from cnes_domain.billing.errors import (
-    BillingDependencyError,
-    PermanentBillingError,
-    RetryableBillingError,
-)
-from cnes_domain.billing.inbox import ReconciliationRequest
-from cnes_domain.billing.revocation import RevocationResult
 from packages.cnes_control_plane.tests.billing.billing_factories import (
     NOW,
     TABLE_NAME,

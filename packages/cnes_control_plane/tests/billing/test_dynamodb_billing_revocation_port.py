@@ -4,7 +4,7 @@ from collections.abc import Iterator
 
 import pytest
 
-from cnes_domain.control_plane.enums import RunState
+from cnes_control_plane.model.enums import RunState
 from packages.cnes_control_plane.tests.billing.quota_support import ACCOUNT, TENANT
 from packages.cnes_control_plane.tests.billing.revocation_support import (
     RevEnv,

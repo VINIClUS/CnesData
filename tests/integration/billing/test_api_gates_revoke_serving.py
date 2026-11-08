@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from cnes_domain.billing.models import SubscriptionStatus
-from cnes_domain.control_plane.entities import Membership
+from cnes_contracts.membership import Membership
+from cnes_control_plane.billing.models import SubscriptionStatus
 from packages.cnes_control_plane.tests.billing.billing_factories import NOW
 from packages.cnes_control_plane.tests.billing.quota_support import ACCOUNT, TENANT, seed_snapshot
 from tests.integration.billing._api_gates_stack import (

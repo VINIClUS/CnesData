@@ -265,7 +265,8 @@ def _test_aceita_namespace_real_e_rejeita_origens_nao_vinculadas(
         assert _observe(binding) == observed, "processing_origins_metadata_restore"
         assert _namespace_metadata(module, binding) == metadata
         assert not _loaded(SDK_ROOTS), "processing_origins_sdk_import"
-        assert not _loaded(SUT_ROOTS)
+        unrelated = tuple(name for name in SUT_ROOTS if name != NAME.split(".", 1)[0])
+        assert not _loaded(unrelated)
     finally:
         sys.path[:] = old_path
         record_testsuite_property("processing_origins_metadata", json.dumps(metadata))

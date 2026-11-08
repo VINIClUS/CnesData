@@ -10,6 +10,10 @@ import pytest
 from botocore.exceptions import ClientError
 from moto import mock_aws
 
+from cnes_contracts.errors import Conflict
+from cnes_contracts.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_control_plane.model.entities import Agent
+from cnes_control_plane.model.enums import AgentState
 from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
 from cnes_control_plane.persistence.dynamodb_keys import idempotency_key
 from cnes_control_plane.persistence.edge_registration import (
@@ -18,10 +22,6 @@ from cnes_control_plane.persistence.edge_registration import (
     NewEdgeAgent,
 )
 from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
-from cnes_domain.control_plane.entities import Agent
-from cnes_domain.control_plane.enums import AgentState
-from cnes_domain.control_plane.errors import Conflict
-from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
 from packages.cnes_control_plane.tests.control_plane.test_dynamodb_adapter import _create_table
 
 NOW = datetime(2026, 9, 26, tzinfo=UTC)
@@ -100,7 +100,7 @@ class _Backend:
 
 
 def _resource_id(payload: str) -> str:
-    from cnes_domain.control_plane.entities import IdempotencyRecord
+    from cnes_control_plane.model.entities import IdempotencyRecord
 
     return IdempotencyRecord.model_validate_json(payload).resource_id
 
@@ -139,7 +139,7 @@ def test_registro_de_idempotencia_tem_hash_e_expiracao(backend) -> None:
         data = backend.raw_client.get_item(
             TableName=TABLE, Key={"pk": {"S": pk}, "sk": {"S": sk}}
         )["Item"]["payload"]["S"]
-    from cnes_domain.control_plane.entities import IdempotencyRecord
+    from cnes_control_plane.model.entities import IdempotencyRecord
 
     record = IdempotencyRecord.model_validate_json(data)
     assert record.request_hash == sha256(f"{TENANT}\x1f{AGENT}".encode()).hexdigest()

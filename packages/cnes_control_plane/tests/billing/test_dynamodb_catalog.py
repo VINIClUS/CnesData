@@ -13,21 +13,21 @@ from cnes_control_plane.billing.dynamodb_items import (
     encode_account,
     encode_link,
 )
-from cnes_control_plane.billing.keys import (
-    account_tenant_key,
-)
-from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
-from cnes_data.dynamodb import item_key
-from cnes_domain.billing.errors import (
+from cnes_control_plane.billing.errors import (
     BillingDependencyError,
     BillingTenantConflict,
     IdempotencyConflict,
     PermanentBillingError,
     RetryableBillingError,
 )
-from cnes_domain.billing.models import ReadConsistency
-from cnes_domain.billing.ports import BillingCatalogPort
-from cnes_domain.outbox_dispatcher import dispatch_once
+from cnes_control_plane.billing.keys import (
+    account_tenant_key,
+)
+from cnes_control_plane.billing.models import ReadConsistency
+from cnes_control_plane.billing.ports import BillingCatalogPort
+from cnes_control_plane.outbox_dispatcher import dispatch_once
+from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
+from cnes_data.dynamodb import item_key
 from packages.cnes_control_plane.tests.billing.billing_factories import (
     NOW,
     TABLE_NAME,

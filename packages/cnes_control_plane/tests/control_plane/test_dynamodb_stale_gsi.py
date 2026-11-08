@@ -7,15 +7,9 @@ import pytest
 from botocore.exceptions import ClientError
 from moto import mock_aws
 
-from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
-from cnes_control_plane.persistence.dynamodb_codec import encode_marker
-from cnes_control_plane.persistence.dynamodb_keys import (
-    entity_key,
-    key_component,
-    outbox_key,
-    run_entity_key,
-)
-from cnes_domain.control_plane.commands import (
+from cnes_contracts.errors import Conflict, NotFound
+from cnes_contracts.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_control_plane.model.commands import (
     BeginIdempotency,
     CancelJob,
     CompleteJob,
@@ -24,14 +18,20 @@ from cnes_domain.control_plane.commands import (
     ReserveRunDispatch,
     TransitionRun,
 )
-from cnes_domain.control_plane.entities import AccessRequest, Tenant
-from cnes_domain.control_plane.enums import AccessRequestState, JobState, RunState
-from cnes_domain.control_plane.errors import Conflict, NotFound
-from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
-from cnes_domain.control_plane.queries import (
+from cnes_control_plane.model.entities import AccessRequest, Tenant
+from cnes_control_plane.model.enums import AccessRequestState, JobState, RunState
+from cnes_control_plane.model.queries import (
     RawIdentity,
     RawManifestChainQuery,
     WaitingRunsForDependencyQuery,
+)
+from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
+from cnes_control_plane.persistence.dynamodb_codec import encode_marker
+from cnes_control_plane.persistence.dynamodb_keys import (
+    entity_key,
+    key_component,
+    outbox_key,
+    run_entity_key,
 )
 from packages.cnes_control_plane.tests.contracts.clock import (
     _HASH_A,

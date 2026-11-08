@@ -6,7 +6,21 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
+from cnes_contracts.errors import Conflict, NotFound
+from cnes_contracts.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_contracts.membership import Membership
 from cnes_control_plane.billing.settings import LOCAL_BILLING_SETTINGS, BillingSettings
+from cnes_control_plane.model.entities import (
+    AccessRequest,
+    Agent,
+    Job,
+    RawManifestRecord,
+    Run,
+    RunUnit,
+    Tenant,
+)
+from cnes_control_plane.model.enums import AgentState, JobState, RunState, RunUnitState
+from cnes_control_plane.model.transitions import transition_job, transition_run, transition_run_unit
 from cnes_control_plane.persistence.dynamodb_billing import DynamoBillingMixin
 from cnes_control_plane.persistence.dynamodb_claims import DynamoDBClaims
 from cnes_control_plane.persistence.dynamodb_codec import (
@@ -49,31 +63,13 @@ from cnes_data.dynamodb import (
     payload,
     put_action,
 )
-from cnes_domain.control_plane.entities import (
-    AccessRequest,
-    Agent,
-    Job,
-    Membership,
-    OutboxEvent,
-    RawManifestRecord,
-    Run,
-    RunUnit,
-    Tenant,
-)
-from cnes_domain.control_plane.enums import AgentState, JobState, RunState, RunUnitState
-from cnes_domain.control_plane.errors import Conflict, NotFound
-from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
-from cnes_domain.control_plane.transitions import (
-    transition_job,
-    transition_run,
-    transition_run_unit,
-)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from datetime import datetime
 
-    from cnes_domain.control_plane.commands import (
+    from cnes_contracts.audit import OutboxEvent
+    from cnes_control_plane.model.commands import (
         CancelJob,
         FinalizeRunCancellation,
         PutRunUnits,

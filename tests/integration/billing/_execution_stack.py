@@ -16,30 +16,31 @@ from apps.data_processor.tests.orchestration.test_coordinator import (
     _full_manifests,
     _processor,
 )
+from cnes_contracts.audit import OutboxEvent
+from cnes_contracts.modes import BillingMode
+from cnes_control_plane.billing.commands import AuthorizedRunCommand
 from cnes_control_plane.billing.dynamodb_quota_items import encode_run_billing_state
+from cnes_control_plane.billing.models import BillingEnforcementMode, RunAuthorization
 from cnes_control_plane.billing.settings import BillingSettings
 from cnes_control_plane.billing.wiring import (
     BillingGateResources,
     build_entitlement_gate,
     build_execution_callbacks,
 )
+from cnes_control_plane.model.commands import ClaimRunUnit, PutRunUnits, TransitionRun
+from cnes_control_plane.model.entities import Run, RunDependency, RunDispatch
+from cnes_control_plane.model.enums import RunState
+from cnes_control_plane.orchestration.planner import PlanRequest, RunPlan, plan_run
 from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
 from cnes_control_plane.persistence.dynamodb_keys import outbox_key
 from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
-from cnes_domain.billing.commands import AuthorizedRunCommand
-from cnes_domain.billing.models import BillingEnforcementMode, RunAuthorization
-from cnes_domain.control_plane.commands import ClaimRunUnit, PutRunUnits, TransitionRun
-from cnes_domain.control_plane.entities import OutboxEvent, Run, RunDependency, RunDispatch
-from cnes_domain.control_plane.enums import RunState
-from cnes_domain.orchestration.planner import PlanRequest, RunPlan, plan_run
-from cnes_domain.ports.processing import (
+from cnes_control_plane.ports.processing import (
     ExecutionCallbacks,
     ExecutionPermit,
     ExecutionPolicyConfig,
     ExecutionStatus,
     StartRunExecution,
 )
-from cnes_domain.profiles import BillingMode
 from data_processor.orchestration.coordinator import CoordinatorDependencies, PipelineCoordinator
 from data_processor.orchestration.publisher import DatasetPublisher
 from data_processor.orchestration.unit_worker import UnitWorker, UnitWorkerDependencies

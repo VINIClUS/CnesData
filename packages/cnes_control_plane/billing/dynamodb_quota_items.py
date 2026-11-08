@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
+from cnes_contracts.audit import OutboxEvent
 from cnes_control_plane.billing.dynamodb_items import (
     IDEMPOTENCY_ENTITY,
     canonical_json,
@@ -16,6 +17,8 @@ from cnes_control_plane.billing.dynamodb_items import (
     idempotency_item,
     utc_attribute,
 )
+from cnes_control_plane.billing.errors import EntitlementDenied, IdempotencyConflict
+from cnes_control_plane.billing.execution import RunBillingState
 from cnes_control_plane.billing.keys import (
     QUOTA_RESERVATION_DUE_PARTITION,
     QUOTA_RESERVATION_LOCATOR_SORT_KEY,
@@ -28,11 +31,7 @@ from cnes_control_plane.billing.keys import (
     run_billing_key,
     run_lookup_key,
 )
-from cnes_control_plane.persistence.dynamodb_keys import idempotency_key
-from cnes_data.dynamodb import Action, Item, payload, put_action
-from cnes_domain.billing.errors import EntitlementDenied, IdempotencyConflict
-from cnes_domain.billing.execution import RunBillingState
-from cnes_domain.billing.models import (
+from cnes_control_plane.billing.models import (
     AnalyticsAuthorization,
     CapacityKind,
     CapacityReservation,
@@ -43,8 +42,10 @@ from cnes_domain.billing.models import (
     RunAuthorization,
     SubscriptionStatus,
 )
-from cnes_domain.control_plane.entities import IdempotencyRecord, OutboxEvent
-from cnes_domain.control_plane.enums import DispatchOutcome, DispatchState
+from cnes_control_plane.model.entities import IdempotencyRecord
+from cnes_control_plane.model.enums import DispatchOutcome, DispatchState
+from cnes_control_plane.persistence.dynamodb_keys import idempotency_key
+from cnes_data.dynamodb import Action, Item, payload, put_action
 
 RESERVATION_ENTITY = "QUOTARESERVATION"
 CAPACITY_RESERVATION_ENTITY = "CAPACITYRESERVATION"

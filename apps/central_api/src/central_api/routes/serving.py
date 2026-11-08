@@ -17,16 +17,21 @@ from central_api.serving.aws_signed import (
     ServingSigningUnavailable,
     SignedServingRequest,
 )
-from cnes_domain.orchestration.source_catalog import build_source_catalog
-from cnes_domain.ports.object_store import ObjectStorePort  # noqa: TC001
-from cnes_domain.ports.serving import ServingAccessPort, ServingRequest
+from cnes_contracts.serving import ServingRequest
+from cnes_control_plane.orchestration.source_catalog import build_source_catalog
+from cnes_control_plane.ports.serving import (  # noqa: TC001 - FastAPI resolves annotations.
+    ServingAccessPort,
+)
+from cnes_data.object_store.ports import (  # noqa: TC001 - FastAPI resolves annotations at runtime.
+    ObjectStorePort,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
     from datetime import datetime
 
     from central_api.serving.aws_signed import S3SignedServingAccess
-    from cnes_domain.ports.serving import ServingGrant
+    from cnes_contracts.serving import ServingGrant
 
 router = APIRouter(prefix="/api/v1/dashboard/serving", tags=["dashboard-serving"])
 

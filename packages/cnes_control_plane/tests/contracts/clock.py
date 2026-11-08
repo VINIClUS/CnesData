@@ -6,7 +6,10 @@ from datetime import UTC, datetime, timedelta
 from itertools import pairwise
 from typing import Any, cast
 
-from cnes_domain.control_plane.commands import (
+from cnes_contracts.audit import OutboxEvent
+from cnes_contracts.errors import Conflict, FenceRejected, LeaseLost
+from cnes_contracts.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_control_plane.model.commands import (
     ClaimJob,
     ClaimRunUnit,
     CommitRunUnit,
@@ -16,25 +19,22 @@ from cnes_domain.control_plane.commands import (
     RenewJobLease,
     ReserveRunDispatch,
 )
-from cnes_domain.control_plane.entities import (
+from cnes_control_plane.model.entities import (
     Agent,
     Job,
     ManifestRef,
-    OutboxEvent,
     RawManifestRecord,
     Run,
     RunDependency,
     RunUnit,
 )
-from cnes_domain.control_plane.enums import AgentState, JobState, RunStage, RunState, RunUnitState
-from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost
-from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
-from cnes_domain.control_plane.queries import (
+from cnes_control_plane.model.enums import AgentState, JobState, RunStage, RunState, RunUnitState
+from cnes_control_plane.model.queries import (
     LatestSucceededJobQuery,
     RawIdentity,
     RawManifestChainQuery,
 )
-from cnes_domain.control_plane.transitions import transition_run
+from cnes_control_plane.model.transitions import transition_run
 from packages.cnes_control_plane.tests.contracts.outbox_memory import MemoryOutbox
 
 _NOW = datetime(2026, 7, 15, 12, tzinfo=UTC)

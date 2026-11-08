@@ -4,8 +4,8 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
-from cnes_domain.billing.commands import StripeBillingState
-from cnes_domain.billing.models import EntitlementSnapshot, PlanVersion, SubscriptionStatus
+from cnes_control_plane.billing.commands import StripeBillingState
+from cnes_control_plane.billing.models import EntitlementSnapshot, PlanVersion, SubscriptionStatus
 
 STRIPE_SNAPSHOT_VALIDITY_MARGIN_HOURS = 72
 COMPARED_FIELDS = (

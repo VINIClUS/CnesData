@@ -8,14 +8,14 @@ from apps.central_api.tests.routes.billing_fakes import NOW, Env
 from apps.central_api.tests.routes.test_tenants import OWNER_HEADERS, URL, TenantEnv, body
 from central_api.routes import tenants
 from central_api.services.billing_gates import ApiBillingGates, TenantAccountResolver
-from cnes_domain.billing.errors import BillingDependencyError, EntitlementDenied
-from cnes_domain.billing.models import EntitlementAction
-from cnes_domain.billing.shadow import (
+from cnes_contracts.modes import BillingMode
+from cnes_control_plane.billing.errors import BillingDependencyError, EntitlementDenied
+from cnes_control_plane.billing.models import EntitlementAction
+from cnes_control_plane.billing.shadow import (
     ShadowEntitlementObserver,
     ShadowObservation,
     ShadowObserverDependencies,
 )
-from cnes_domain.profiles import BillingMode
 
 
 class SpyObserver:

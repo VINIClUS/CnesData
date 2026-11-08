@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from central_api.local_backup import main
-from cnes_domain.profiles import parse_profile
+from cnes_runtime.profiles import parse_profile
 
 if TYPE_CHECKING:
     from pathlib import Path

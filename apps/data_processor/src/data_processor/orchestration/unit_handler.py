@@ -3,11 +3,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from cnes_domain.control_plane.commands import ClaimRunUnit
+from cnes_control_plane.model.commands import ClaimRunUnit
 
 if TYPE_CHECKING:
-    from cnes_domain.control_plane.entities import RunUnit
-    from cnes_domain.ports.processing import RunUnitMessage
+    from cnes_control_plane.model.entities import RunUnit
+    from cnes_control_plane.ports.processing import RunUnitMessage
     from data_processor.orchestration.unit_worker import UnitWorker
 
 

@@ -8,9 +8,8 @@ from enum import Enum, auto
 from typing import Protocol, cast
 from uuid import uuid4
 
-from cnes_control_plane.billing.keys import stripe_recovery_due_sort_key
-from cnes_domain.billing.errors import RetryableBillingError
-from cnes_domain.billing.inbox import (
+from cnes_control_plane.billing.errors import RetryableBillingError
+from cnes_control_plane.billing.inbox import (
     InboxDisposition,
     InboxProcessingState,
     InboxRecoveryRecord,
@@ -21,8 +20,9 @@ from cnes_domain.billing.inbox import (
     StripeEventPage,
     StripeRecoveryCursor,
 )
-from cnes_domain.billing.models import ReadConsistency
-from cnes_domain.billing.ports import (
+from cnes_control_plane.billing.keys import stripe_recovery_due_sort_key
+from cnes_control_plane.billing.models import ReadConsistency
+from cnes_control_plane.billing.ports import (
     ClockPort,
     RecoveryCursorPort,
     StripeGatewayPort,

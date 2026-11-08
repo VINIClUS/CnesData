@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from cnes_control_plane.billing.commands import SnapshotWrite
 from cnes_control_plane.billing.dynamodb_items import (
     SNAPSHOT_ENTITY,
     audit_outbox_event,
@@ -14,13 +15,12 @@ from cnes_control_plane.billing.dynamodb_items import (
     transact,
     utc_attribute,
 )
+from cnes_control_plane.billing.errors import RetryableBillingError, StaleInboxClaim
+from cnes_control_plane.billing.inbox import InboxClaim, InboxProcessingState
 from cnes_control_plane.billing.keys import entitlement_snapshot_key, stripe_event_key
+from cnes_control_plane.billing.models import EntitlementSnapshot, ReadConsistency
+from cnes_control_plane.billing.ports import ClockPort
 from cnes_data.dynamodb import Action, Item, item_key
-from cnes_domain.billing.commands import SnapshotWrite
-from cnes_domain.billing.errors import RetryableBillingError, StaleInboxClaim
-from cnes_domain.billing.inbox import InboxClaim, InboxProcessingState
-from cnes_domain.billing.models import EntitlementSnapshot, ReadConsistency
-from cnes_domain.billing.ports import ClockPort
 
 INBOX_STATE_ATTRIBUTE = "state"
 INBOX_ATTEMPT_ATTRIBUTE = "attempt"

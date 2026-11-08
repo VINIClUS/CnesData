@@ -10,25 +10,24 @@ from typing import TYPE_CHECKING, Literal, cast
 
 import pytest
 
+from cnes_contracts.errors import Conflict, ControlPlaneErrorCode, FenceRejected
 from cnes_contracts.manifests.outputs import OutputManifest
 from cnes_contracts.manifests.raw import SourceType
-from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
-from cnes_domain.control_plane.commands import (
+from cnes_control_plane.model.commands import (
     ClaimRunUnit,
     FinishRunDispatch,
     PutRunUnits,
     ReserveRunDispatch,
 )
-from cnes_domain.control_plane.entities import Run, RunDependency, RunDispatch, RunUnit
-from cnes_domain.control_plane.enums import (
+from cnes_control_plane.model.entities import Run, RunDependency, RunDispatch, RunUnit
+from cnes_control_plane.model.enums import (
     DispatchOutcome,
     DispatchState,
     RunStage,
     RunState,
     RunUnitState,
 )
-from cnes_domain.control_plane.errors import Conflict, ControlPlaneErrorCode, FenceRejected
-from cnes_domain.orchestration.planner import (
+from cnes_control_plane.orchestration.planner import (
     PlanRequest,
     RawManifestRef,
     RunPlan,
@@ -36,8 +35,8 @@ from cnes_domain.orchestration.planner import (
     plan_run,
     ready_units,
 )
-from cnes_domain.ports.object_store import ObjectStat
-from cnes_domain.ports.processing import (
+from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
+from cnes_control_plane.ports.processing import (
     CancelRunExecution,
     ExecutionCallbacks,
     ExecutionPermit,
@@ -45,6 +44,7 @@ from cnes_domain.ports.processing import (
     ExecutionStatus,
     StartRunExecution,
 )
+from cnes_data.object_store.ports import ObjectStat
 from data_processor.orchestration.coordinator import (
     CoordinatorDependencies,
     CoordinatorResult,
@@ -65,7 +65,7 @@ if TYPE_CHECKING:
     from contextlib import AbstractContextManager as ContextManager
     from typing import BinaryIO
 
-    from cnes_domain.control_plane.commands import BindRunDispatch
+    from cnes_control_plane.model.commands import BindRunDispatch
 
 _TENANT = "354130"
 _RUN_ID = "run-a"

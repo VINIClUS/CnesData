@@ -353,7 +353,7 @@ dataset, motivo e hora (id determinístico); negações repetidas na mesma hora 
 
 Com `BILLING_MODE=stripe` e `BILLING_ENFORCEMENT_MODE=shadow`, a decisão real dos gates de API
 continua sem medição (`execution_mode=disabled`) e um observador de domínio
-(`cnes_domain.billing.shadow`) avalia, depois que a decisão real permitiu, o que o `enforce`
+(`cnes_control_plane.billing.shadow`) avalia, depois que a decisão real permitiu, o que o `enforce`
 decidiria, na mesma ordem: conta (explícita ou link reverso com leitura forte), snapshot com
 leitura forte, `EntitlementPolicy(stripe)`, capacidade (`BILLING#<conta>/CAPACITY`,
 `agent_count`/`tenant_count`) e retenção do serving `read_only`. Cada negação hipotética vira

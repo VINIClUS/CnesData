@@ -11,8 +11,8 @@ import boto3
 import botocore.session
 import pytest
 
-from cnes_domain.refresh_tokens import RefreshTokenContext
 from cnes_identity.dynamodb_refresh_tokens import DynamoDBRefreshTokenStore
+from cnes_identity.refresh_contracts import RefreshTokenContext
 from packages.cnes_identity.tests.auth.dynamodb_refresh_cas_support import (
     USE,
     keys,
@@ -37,7 +37,7 @@ from packages.cnes_identity.tests.auth.dynamodb_refresh_support import (
 )
 
 if TYPE_CHECKING:
-    from cnes_domain.ports.refresh_tokens import RefreshTokenStore
+    from cnes_identity.refresh_port import RefreshTokenStore
 
 pytest_plugins = ("packages.cnes_identity.tests.auth.dynamodb_refresh_support",)
 TABLE = "refresh-tokens"

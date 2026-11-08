@@ -10,14 +10,14 @@ import pytest
 from botocore.exceptions import ClientError
 from moto import mock_aws
 
+from cnes_contracts.modes import BillingMode
 from cnes_control_plane.billing.dynamodb_catalog import DynamoBillingCatalog
 from cnes_control_plane.billing.keys import capacity_usage_key, pending_capacity_key
+from cnes_control_plane.billing.models import BillingEnforcementMode
 from cnes_control_plane.billing.settings import BillingSettings
+from cnes_control_plane.model.entities import Agent
+from cnes_control_plane.model.enums import AgentState
 from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
-from cnes_domain.billing.models import BillingEnforcementMode
-from cnes_domain.control_plane.entities import Agent
-from cnes_domain.control_plane.enums import AgentState
-from cnes_domain.profiles import BillingMode
 from packages.cnes_control_plane.tests.billing.billing_factories import (
     NOW,
     TABLE_NAME,

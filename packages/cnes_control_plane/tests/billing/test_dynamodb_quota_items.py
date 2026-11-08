@@ -11,12 +11,9 @@ from cnes_control_plane.billing.dynamodb_quota_items import (
     SnapshotExpectation,
     UsageGuard,
 )
-from cnes_domain.billing.errors import (
-    IdempotencyConflict,
-    PermanentBillingError,
-)
-from cnes_domain.billing.execution import RunBillingState
-from cnes_domain.billing.models import (
+from cnes_control_plane.billing.errors import IdempotencyConflict, PermanentBillingError
+from cnes_control_plane.billing.execution import RunBillingState
+from cnes_control_plane.billing.models import (
     AnalyticsAuthorization,
     CapacityKind,
     CapacityReservation,
@@ -26,8 +23,8 @@ from cnes_domain.billing.models import (
     RunAuthorization,
     SubscriptionStatus,
 )
-from cnes_domain.control_plane.entities import IdempotencyRecord
-from cnes_domain.control_plane.enums import DispatchOutcome, DispatchState
+from cnes_control_plane.model.entities import IdempotencyRecord
+from cnes_control_plane.model.enums import DispatchOutcome, DispatchState
 from packages.cnes_control_plane.tests.billing.billing_factories import NOW, TABLE_NAME
 from packages.cnes_control_plane.tests.billing.quota_support import ACCOUNT, HASH_A, HASH_B, TENANT
 

@@ -11,19 +11,19 @@ from unittest.mock import Mock, patch
 import pytest
 
 from cnes_control_plane.billing import BillingSettings
+from cnes_control_plane.billing.execution_policy import BillingConcurrencyPolicy
 from cnes_control_plane.execution.step_functions import (
     IncompatibleStateMachine,
     StepFunctionsExecutionProbe,
     StepFunctionsExecutor,
 )
+from cnes_control_plane.orchestration.dispatch_admission import EnvironmentAdmission
 from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
+from cnes_control_plane.ports.environment_gate import UNGATED_ADMISSION
 from cnes_data.object_store import S3ObjectStore
-from cnes_domain.billing import BillingConcurrencyPolicy
-from cnes_domain.orchestration.dispatch_admission import EnvironmentAdmission
-from cnes_domain.ports.environment_gate import UNGATED_ADMISSION
-from cnes_domain.profiles import parse_profile
 from cnes_runtime.aws import AwsRuntimeConfigurationError
 from cnes_runtime.aws.processor_settings import AwsRecoverySettings, AwsUnitSettings
+from cnes_runtime.profiles import parse_profile
 from data_processor import composition
 from data_processor.aws_composition import (
     AwsExecutionPolicy,

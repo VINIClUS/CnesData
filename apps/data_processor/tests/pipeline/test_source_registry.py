@@ -6,8 +6,8 @@ from typing import Any, cast
 import pytest
 
 from cnes_contracts.manifests.raw import SourceType
-from cnes_domain.control_plane.entities import RunDependency
-from cnes_domain.orchestration.source_catalog import (
+from cnes_control_plane.model.entities import RunDependency
+from cnes_control_plane.orchestration.source_catalog import (
     PipelineDefinition,
     PipelineLayout,
     SourceCatalog,

@@ -9,7 +9,8 @@ from fastapi.testclient import TestClient
 
 from central_api.routes import tenants
 from central_api.services.billing_gates import ApiBillingGates, TenantAccountResolver
-from cnes_domain.billing.errors import (
+from cnes_contracts.modes import BillingMode
+from cnes_control_plane.billing.errors import (
     BillingDependencyError,
     BillingTenantConflict,
     EntitlementDenied,
@@ -17,7 +18,7 @@ from cnes_domain.billing.errors import (
     PermanentBillingError,
     QuotaExceeded,
 )
-from cnes_domain.billing.models import (
+from cnes_control_plane.billing.models import (
     AccessLevel,
     BillingAccountStatus,
     CapacityKind,
@@ -27,14 +28,13 @@ from cnes_domain.billing.models import (
     ReadConsistency,
     ReservationStatus,
 )
-from cnes_domain.control_plane.entities import Tenant
-from cnes_domain.profiles import BillingMode
+from cnes_control_plane.model.entities import Tenant
 
 from .billing_fakes import NOW, Env, make_account, make_link
 
 if TYPE_CHECKING:
-    from cnes_domain.billing.gate import EntitlementGate
-    from cnes_domain.billing.ports import QuotaReservationPort
+    from cnes_control_plane.billing.gate import EntitlementGate
+    from cnes_control_plane.billing.ports import QuotaReservationPort
 
 URL = "/api/v1/billing/accounts/ba_01/tenants"
 KEY = "tenant-key-1"

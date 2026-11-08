@@ -6,8 +6,8 @@ from typing import Any, cast
 
 import pytest
 
-from cnes_domain.billing.models import ReservationStatus
-from cnes_domain.control_plane.enums import DispatchState, RunState
+from cnes_control_plane.billing.models import ReservationStatus
+from cnes_control_plane.model.enums import DispatchState, RunState
 from packages.cnes_control_plane.tests.billing.quota_support import ACCOUNT, TENANT
 from packages.cnes_control_plane.tests.billing.revocation_support import (
     LEASE_SECONDS,

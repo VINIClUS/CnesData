@@ -7,7 +7,17 @@ from typing import Any, cast
 
 import pytest
 
+from cnes_contracts.errors import Conflict
+from cnes_contracts.membership import Membership
+from cnes_control_plane.billing.commands import CreateBilledTenantCommand
 from cnes_control_plane.billing.dynamodb_items import audit_outbox_event
+from cnes_control_plane.billing.errors import (
+    BillingTenantConflict,
+    IdempotencyConflict,
+    PermanentBillingError,
+    RetryableBillingError,
+)
+from cnes_control_plane.model.entities import IdempotencyRecord, Tenant
 from cnes_control_plane.persistence.billed_tenant import (
     TENANT_SCOPE,
     billed_tenant_digest,
@@ -15,15 +25,6 @@ from cnes_control_plane.persistence.billed_tenant import (
 )
 from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
 from cnes_control_plane.persistence.sqlite_schema import serialize_model
-from cnes_domain.billing.commands import CreateBilledTenantCommand
-from cnes_domain.billing.errors import (
-    BillingTenantConflict,
-    IdempotencyConflict,
-    PermanentBillingError,
-    RetryableBillingError,
-)
-from cnes_domain.control_plane.entities import IdempotencyRecord, Membership, Tenant
-from cnes_domain.control_plane.errors import Conflict
 from packages.cnes_control_plane.tests.billing.billing_factories import make_link
 from packages.cnes_control_plane.tests.contracts.clock import MutableClock
 

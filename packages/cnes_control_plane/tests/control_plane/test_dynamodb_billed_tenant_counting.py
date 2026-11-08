@@ -6,16 +6,16 @@ from datetime import timedelta
 
 import pytest
 
+from cnes_contracts.modes import BillingMode
 from cnes_control_plane.billing.capacity_counters import PENDING_CAPACITY_ENTITY
 from cnes_control_plane.billing.dynamodb_quota_items import usage_counter
+from cnes_control_plane.billing.errors import RetryableBillingError
+from cnes_control_plane.billing.inbox import ReservationRecoveryRequest
 from cnes_control_plane.billing.keys import capacity_usage_key, pending_capacity_key
+from cnes_control_plane.billing.models import BillingEnforcementMode
 from cnes_control_plane.billing.settings import BillingSettings
 from cnes_control_plane.persistence.billed_tenant import TENANT_CAPACITY_SCOPE
 from cnes_control_plane.persistence.dynamodb_keys import idempotency_key
-from cnes_domain.billing.errors import RetryableBillingError
-from cnes_domain.billing.inbox import ReservationRecoveryRequest
-from cnes_domain.billing.models import BillingEnforcementMode
-from cnes_domain.profiles import BillingMode
 from packages.cnes_control_plane.tests.billing.billing_factories import TABLE_NAME
 from packages.cnes_control_plane.tests.billing.quota_support import ACCOUNT
 from packages.cnes_control_plane.tests.control_plane.billed_tenant_support import (

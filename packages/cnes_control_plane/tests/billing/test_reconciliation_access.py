@@ -5,14 +5,14 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
+from cnes_control_plane.billing.errors import BillingDependencyError, RetryableBillingError
+from cnes_control_plane.billing.inbox import ReconciliationRequest, ReconciliationResult
+from cnes_control_plane.billing.models import SubscriptionStatus
 from cnes_control_plane.billing.reconciliation import (
     RECONCILER_ACTOR_ID,
     BillingReconciler,
     ReconciliationDependencies,
 )
-from cnes_domain.billing.errors import BillingDependencyError, RetryableBillingError
-from cnes_domain.billing.inbox import ReconciliationRequest, ReconciliationResult
-from cnes_domain.billing.models import SubscriptionStatus
 from packages.cnes_control_plane.tests.billing.billing_factories import make_snapshot
 from packages.cnes_control_plane.tests.billing.reconciliation_support import (
     FEATURES,
@@ -22,7 +22,7 @@ from packages.cnes_control_plane.tests.billing.reconciliation_support import (
 )
 
 if TYPE_CHECKING:
-    from cnes_domain.billing.ports import (
+    from cnes_control_plane.billing.ports import (
         BillingCatalogPort,
         EntitlementProjectionPort,
         StripeGatewayPort,

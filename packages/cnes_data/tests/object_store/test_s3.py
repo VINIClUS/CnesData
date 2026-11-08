@@ -15,8 +15,8 @@ from botocore.exceptions import ClientError
 from botocore.stub import ANY, Stubber
 from moto import mock_aws
 
+from cnes_contracts.errors import Conflict
 from cnes_data.object_store.s3 import S3ObjectStore, S3PutOptions, S3Retention
-from cnes_domain.control_plane.errors import Conflict
 from packages.cnes_control_plane.tests.contracts.clock import MutableClock
 from packages.cnes_control_plane.tests.contracts.object_store_contract import (
     ObjectStoreCase,

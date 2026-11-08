@@ -33,17 +33,17 @@ from cnes_control_plane.execution.step_functions import (
     ProcessorExecutionUnavailable,
     StepFunctionsExecutor,
 )
-from cnes_control_plane.persistence.dynamodb_keys import run_entity_key
-from cnes_data.dynamodb import item_key
-from cnes_domain.control_plane.commands import PutRunUnits, ReserveRunDispatch
-from cnes_domain.control_plane.enums import DispatchState, RunState, RunUnitState
-from cnes_domain.control_plane.environment_gate import (
+from cnes_control_plane.model.commands import PutRunUnits, ReserveRunDispatch
+from cnes_control_plane.model.enums import DispatchState, RunState, RunUnitState
+from cnes_control_plane.model.environment_gate import (
     AcquireUnitPermit,
     BindUnitPermit,
     PermitHolder,
 )
-from cnes_domain.orchestration.planner import logical_wave_id
-from cnes_domain.ports.processing import StartRunExecution
+from cnes_control_plane.orchestration.planner import logical_wave_id
+from cnes_control_plane.persistence.dynamodb_keys import run_entity_key
+from cnes_control_plane.ports.processing import StartRunExecution
+from cnes_data.dynamodb import item_key
 from cnes_runtime.aws.processor_settings import AwsRecoverySettings
 from data_processor.aws_composition import AwsExecutionPolicy, build_aws_recovery_runtime
 from data_processor.orchestration.coordinator import RecoveryFailed, noop_execution_started

@@ -7,11 +7,11 @@ from typing import Any, cast
 import pytest
 from botocore.exceptions import ClientError, EndpointConnectionError
 
+from cnes_control_plane.billing.ports import SecretProviderPort
 from cnes_control_plane.billing.secrets_manager import (
     SecretProviderError,
     SecretsManagerSecretProvider,
 )
-from cnes_domain.billing.ports import SecretProviderPort
 
 _ARN = "arn:aws:secretsmanager:us-east-1:123456789012:secret:cnes/stripe"
 _VALUE = "sk_test_super_secret_value"

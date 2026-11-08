@@ -5,8 +5,8 @@ from typing import Any, cast
 from botocore.exceptions import ClientError
 from pydantic import BaseModel
 
-from cnes_domain.control_plane.errors import Conflict
-from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_contracts.errors import Conflict
+from cnes_contracts.errors import ControlPlaneErrorCode as ErrorCode
 
 type Item = dict[str, dict[str, Any]]
 type Action = dict[str, dict[str, Any]]

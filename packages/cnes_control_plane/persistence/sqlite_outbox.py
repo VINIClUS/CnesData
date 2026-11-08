@@ -4,16 +4,16 @@ import json
 from datetime import datetime, timedelta
 from typing import Any
 
-from cnes_control_plane.persistence.sqlite_schema import deserialize_model, serialize_model
-from cnes_domain.control_plane.entities import OutboxEvent
-from cnes_domain.control_plane.errors import Conflict, NotFound
-from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
-from cnes_domain.control_plane.outbox import (
+from cnes_contracts.audit import OutboxEvent
+from cnes_contracts.errors import Conflict, NotFound
+from cnes_contracts.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_control_plane.model.outbox import (
     OutboxCursor,
     OutboxPage,
     next_outbox_cursor,
     validate_outbox_advance,
 )
+from cnes_control_plane.persistence.sqlite_schema import deserialize_model, serialize_model
 
 
 def _load_cursor(connection: Any) -> OutboxCursor | None:

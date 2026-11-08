@@ -6,12 +6,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from cnes_control_plane.billing import disabled
-from cnes_control_plane.billing.disabled import (
-    DisabledEntitlementProjection,
-    DisabledQuotaReservations,
-    disabled_snapshot,
-)
-from cnes_domain.billing.commands import (
+from cnes_control_plane.billing.commands import (
     AnalyticsRequest,
     CapacityReservationCommand,
     ConsumeCapacityCommand,
@@ -23,9 +18,14 @@ from cnes_domain.billing.commands import (
     ReserveRunCommand,
     SnapshotWrite,
 )
-from cnes_domain.billing.errors import BillingDisabledError
-from cnes_domain.billing.inbox import InboxClaim
-from cnes_domain.billing.models import (
+from cnes_control_plane.billing.disabled import (
+    DisabledEntitlementProjection,
+    DisabledQuotaReservations,
+    disabled_snapshot,
+)
+from cnes_control_plane.billing.errors import BillingDisabledError
+from cnes_control_plane.billing.inbox import InboxClaim
+from cnes_control_plane.billing.models import (
     CapacityKind,
     QuotaLimits,
     ReadConsistency,
@@ -33,8 +33,8 @@ from cnes_domain.billing.models import (
     ReservationStatus,
     SubscriptionStatus,
 )
-from cnes_domain.billing.ports import EntitlementProjectionPort, QuotaReservationPort
-from cnes_domain.control_plane.entities import RunDependency
+from cnes_control_plane.billing.ports import EntitlementProjectionPort, QuotaReservationPort
+from cnes_control_plane.model.entities import RunDependency
 from packages.cnes_control_plane.tests.contracts.clock import MutableClock
 
 _NOW = datetime(2026, 9, 1, 12, tzinfo=UTC)

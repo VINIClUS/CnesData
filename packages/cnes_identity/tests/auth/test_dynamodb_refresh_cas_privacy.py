@@ -12,7 +12,7 @@ import boto3
 import botocore.session
 import pytest
 
-from cnes_domain.refresh_tokens import RefreshTokenUnavailable
+from cnes_identity.refresh_contracts import RefreshTokenUnavailable
 from packages.cnes_identity.tests.auth.dynamodb_refresh_cas_support import (
     CasCase,
     mutation,

@@ -7,7 +7,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import timedelta
 from enum import StrEnum
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Protocol, cast
 
 from cnes_identity.local_credentials import (
     MAX_PASSWORD_LENGTH,
@@ -27,9 +27,7 @@ if TYPE_CHECKING:
     from datetime import datetime
     from typing import Any
 
-    from cnes_domain.control_plane.entities import Membership
-    from cnes_domain.ports.control_plane import ControlPlanePort
-    from cnes_domain.profiles import ProfileSettings
+    from cnes_contracts.membership import Membership
 
 logger = logging.getLogger(__name__)
 
@@ -63,16 +61,25 @@ class AuthenticatedPrincipal:
     role: str
 
 
+class _MembershipReader(Protocol):
+    def get_membership(self, tenant_id: str, user_id: str) -> Membership | None: ...
+
+
+class _TenantProfile(Protocol):
+    @property
+    def tenant_id(self) -> str | None: ...
+
+
 @dataclass(frozen=True, slots=True)
 class LocalAuthDependencies:
     credentials: LocalCredentialStore
-    control_plane: ControlPlanePort
-    settings: ProfileSettings
+    control_plane: _MembershipReader
+    settings: _TenantProfile
     hasher: Callable[[str, bytes], bytes] = field(default=hash_password)
 
 
 def _principal_for(
-    user_id: str, email: str, settings: ProfileSettings, membership: Membership
+    user_id: str, email: str, settings: _TenantProfile, membership: Membership
 ) -> AuthenticatedPrincipal:
     return AuthenticatedPrincipal(
         user_id=user_id,
@@ -83,7 +90,7 @@ def _principal_for(
 
 
 def _require_membership(
-    control_plane: ControlPlanePort, settings: ProfileSettings, user_id: str
+    control_plane: _MembershipReader, settings: _TenantProfile, user_id: str
 ) -> Membership:
     membership = control_plane.get_membership(cast("str", settings.tenant_id), user_id)
     if membership is None:
@@ -92,8 +99,8 @@ def _require_membership(
 
 
 def _require_oidc_membership(
-    control_plane: ControlPlanePort,
-    settings: ProfileSettings,
+    control_plane: _MembershipReader,
+    settings: _TenantProfile,
     user_id: str,
     issuer: str,
 ) -> Membership:
@@ -169,8 +176,8 @@ class LocalAuthService:
 
 @dataclass(frozen=True, slots=True)
 class OidcMembershipResolver:
-    control_plane: ControlPlanePort
-    settings: ProfileSettings
+    control_plane: _MembershipReader
+    settings: _TenantProfile
 
     def resolve(self, claims: Mapping[str, Any]) -> AuthenticatedPrincipal:
         subject = str(claims.get("sub") or "").strip()

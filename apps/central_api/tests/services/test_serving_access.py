@@ -10,13 +10,15 @@ import pytest
 from central_api.services.serving_access import LocalServingAccess, ServingUnavailable
 from cnes_contracts.manifests.outputs import OutputManifest, RunManifest
 from cnes_contracts.manifests.raw import SourceType
-from cnes_domain.control_plane.entities import DatasetPointer, DatasetVersion, Membership
-from cnes_domain.ports.object_store import ObjectStat
-from cnes_domain.ports.serving import ServingAccessPort, ServingRequest
+from cnes_contracts.membership import Membership
+from cnes_contracts.serving import ServingRequest
+from cnes_control_plane.model.entities import DatasetPointer, DatasetVersion
+from cnes_control_plane.ports.serving import ServingAccessPort
+from cnes_data.object_store.ports import ObjectStat
 
 if TYPE_CHECKING:
-    from cnes_domain.ports.control_plane import ControlPlanePort
-    from cnes_domain.ports.object_store import ObjectStorePort
+    from cnes_control_plane.ports.control_plane import ControlPlanePort
+    from cnes_data.object_store.ports import ObjectStorePort
 
 NOW = datetime(2026, 7, 2, tzinfo=UTC)
 TENANT = "354130"

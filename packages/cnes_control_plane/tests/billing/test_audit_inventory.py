@@ -7,7 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[4]
 SCANNED_GLOBS = (
-    "packages/cnes_domain/billing/*.py",
+    "packages/cnes_control_plane/billing/*.py",
     "packages/cnes_control_plane/billing/*.py",
     "packages/cnes_control_plane/persistence/dynamodb_billing.py",
     "apps/central_api/src/central_api/routes/billing.py",

@@ -6,8 +6,8 @@ from typing import Any
 
 import pytest
 
-from cnes_domain.billing.errors import EntitlementDenied
-from cnes_domain.billing.models import (
+from cnes_control_plane.billing.errors import EntitlementDenied
+from cnes_control_plane.billing.models import (
     AccessLevel,
     EntitlementAction,
     EntitlementDecision,

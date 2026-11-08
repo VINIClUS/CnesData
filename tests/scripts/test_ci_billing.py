@@ -25,7 +25,7 @@ _PYTEST_INI = _ROOT / "pytest.ini"
 _OPENAPI = _ROOT / "docs/contracts/openapi.json"
 
 _ACCEPTANCE_PATHS = (
-    "packages/cnes_domain/tests/billing",
+    "packages/cnes_control_plane/tests/billing",
     "packages/cnes_control_plane/tests/billing",
     "apps/central_api/tests",
     "apps/billing_worker/tests",

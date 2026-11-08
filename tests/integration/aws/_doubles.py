@@ -18,9 +18,9 @@ if TYPE_CHECKING:
 
     from boto3.session import Session
 
-    from cnes_domain.control_plane.commands import BindRunDispatch
-    from cnes_domain.control_plane.entities import RunDispatch
-    from cnes_domain.ports.control_plane import ControlPlanePort
+    from cnes_control_plane.model.commands import BindRunDispatch
+    from cnes_control_plane.model.entities import RunDispatch
+    from cnes_control_plane.ports.control_plane import ControlPlanePort
 
 _PAGE_KEYS_IGNORED = frozenset({"ExclusiveStartKey", "Limit"})
 

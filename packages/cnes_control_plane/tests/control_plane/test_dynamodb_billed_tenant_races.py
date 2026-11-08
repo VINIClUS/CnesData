@@ -5,18 +5,18 @@ from typing import Any
 
 import pytest
 
-from cnes_control_plane.billing.settings import BillingSettings
-from cnes_control_plane.persistence.billed_tenant import TENANT_SCOPE
-from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
-from cnes_control_plane.persistence.dynamodb_keys import idempotency_key
-from cnes_domain.billing.commands import ConsumeCapacityCommand
-from cnes_domain.billing.errors import (
+from cnes_control_plane.billing.commands import ConsumeCapacityCommand
+from cnes_control_plane.billing.errors import (
     BillingTenantConflict,
     EntitlementDenied,
     PermanentBillingError,
     RetryableBillingError,
 )
-from cnes_domain.billing.models import ReservationStatus
+from cnes_control_plane.billing.models import ReservationStatus
+from cnes_control_plane.billing.settings import BillingSettings
+from cnes_control_plane.persistence.billed_tenant import TENANT_SCOPE
+from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
+from cnes_control_plane.persistence.dynamodb_keys import idempotency_key
 from packages.cnes_control_plane.tests.billing.billing_factories import (
     NOW,
     TABLE_NAME,

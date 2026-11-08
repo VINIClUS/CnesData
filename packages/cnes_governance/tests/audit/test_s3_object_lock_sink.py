@@ -15,7 +15,7 @@ from botocore.config import Config
 from botocore.exceptions import ClientError
 from botocore.stub import ANY, Stubber
 
-from cnes_domain.control_plane.errors import Conflict
+from cnes_contracts.errors import Conflict
 from cnes_governance.s3_object_lock_sink import S3ObjectLockAuditSink
 from packages.cnes_control_plane.tests.contracts.audit_sink_contract import (
     AuditSinkCase,

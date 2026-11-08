@@ -9,17 +9,18 @@ from unittest.mock import Mock
 
 import pytest
 
+from cnes_contracts.modes import BillingMode
 from cnes_control_plane.billing import BillingConfigurationError, BillingSettings
-from cnes_control_plane.billing.wiring import ChainedExecutionStarted
-from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
-from cnes_domain.billing import (
+from cnes_control_plane.billing.execution import RunExecutionPermit
+from cnes_control_plane.billing.execution_policy import (
     BillingConcurrencyPolicy,
     BillingExecutionStarted,
-    RunExecutionPermit,
 )
-from cnes_domain.billing.publication import BillingPublicationPolicy
-from cnes_domain.profiles import BillingMode, parse_profile
+from cnes_control_plane.billing.publication import BillingPublicationPolicy
+from cnes_control_plane.billing.wiring import ChainedExecutionStarted
+from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
 from cnes_runtime.aws.processor_settings import AwsRecoverySettings
+from cnes_runtime.profiles import parse_profile
 from data_processor.aws_composition import AwsExecutionPolicy, build_aws_recovery_runtime
 from data_processor.composition import build_local_processor_runtime
 from data_processor.orchestration.coordinator import noop_execution_started

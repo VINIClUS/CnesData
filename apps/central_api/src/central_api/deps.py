@@ -20,7 +20,7 @@ from central_api.composition import build_runtime
 from central_api.middleware import AuthenticatedUser
 from cnes_data.storage.query_counter import install_query_counter
 from cnes_data.storage.rls import install_rls_listener
-from cnes_domain.tenant import set_tenant_id
+from cnes_data.tenant import set_tenant_id
 from cnes_identity.oidc import OidcVerifier
 from cnes_observability.telemetry import instrument_engine
 from cnes_runtime import config
@@ -34,9 +34,9 @@ if TYPE_CHECKING:
 
     from central_api.composition import AwsApiServices, RuntimeComponents
     from central_api.routes.serving import ServingPrincipal
-    from cnes_domain.ports.control_plane import ControlPlanePort, TypedRawQueryPort
-    from cnes_domain.profiles import ProfileSettings
+    from cnes_control_plane.ports.control_plane import ControlPlanePort, TypedRawQueryPort
     from cnes_identity.local_auth import LocalAuthService
+    from cnes_runtime.profiles import ProfileSettings
 
     class _RawQueryControlPlane(ControlPlanePort, TypedRawQueryPort, Protocol):
         pass
@@ -119,7 +119,7 @@ def _build_local_state(app: FastAPI) -> None:
     from central_api.services.national_ingestion import NationalIngestionService
     from central_api.services.raw_upload import RawUploadService
     from cnes_data.ingestion import DatasusCnesFtpTransport, DatasusCnesRawAdapter
-    from cnes_domain.profiles import parse_profile
+    from cnes_runtime.profiles import parse_profile
 
     settings = parse_profile(os.environ)
     session = Session()

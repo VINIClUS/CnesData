@@ -6,6 +6,16 @@ import boto3
 import pytest
 from moto import mock_aws
 
+from cnes_contracts.errors import Conflict
+from cnes_control_plane.model.commands import CompleteJob, FailJob
+from cnes_control_plane.model.entities import RawResyncState
+from cnes_control_plane.model.enums import JobState
+from cnes_control_plane.model.queries import (
+    AgentRawManifestChainQuery,
+    LatestSucceededJobQuery,
+    RawIdentity,
+    RawResyncStateQuery,
+)
 from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
 from cnes_control_plane.persistence.dynamodb_keys import (
     key_component,
@@ -15,16 +25,6 @@ from cnes_control_plane.persistence.dynamodb_keys import (
 )
 from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
 from cnes_data.dynamodb import encode_model, item_key
-from cnes_domain.control_plane.commands import CompleteJob, FailJob
-from cnes_domain.control_plane.entities import RawResyncState
-from cnes_domain.control_plane.enums import JobState
-from cnes_domain.control_plane.errors import Conflict
-from cnes_domain.control_plane.queries import (
-    AgentRawManifestChainQuery,
-    LatestSucceededJobQuery,
-    RawIdentity,
-    RawResyncStateQuery,
-)
 from packages.cnes_control_plane.tests.contracts.clock import (
     _TENANT,
     MutableClock,

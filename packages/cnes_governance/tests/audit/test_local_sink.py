@@ -19,7 +19,7 @@ import polars as pl
 import pytest
 
 import cnes_governance.local_sink as local_sink_module
-from cnes_domain.control_plane.errors import Conflict
+from cnes_contracts.errors import Conflict
 from cnes_governance.local_sink import LocalAuditSink
 from packages.cnes_control_plane.tests.contracts.audit_sink_contract import (
     AuditSinkCase,
@@ -30,7 +30,7 @@ from packages.cnes_control_plane.tests.contracts.audit_sink_contract import (
 )
 
 if TYPE_CHECKING:
-    from cnes_domain.control_plane.entities import OutboxEvent
+    from cnes_contracts.audit import OutboxEvent
 
 
 class _LocalProbe:

@@ -37,14 +37,18 @@ from apps.data_processor.tests.orchestration.test_coordinator_environment_gate i
     gate,
     store,
 )
+from cnes_contracts.audit import OutboxEvent
+from cnes_control_plane.billing.errors import EntitlementDenied
 from cnes_control_plane.execution.step_functions import ProcessorExecutionUnavailable
-from cnes_domain.billing.errors import EntitlementDenied
-from cnes_domain.control_plane.commands import FinalizeRunCancellation, FinishRunDispatch
-from cnes_domain.control_plane.entities import OutboxEvent
-from cnes_domain.control_plane.enums import DispatchOutcome, RunState, RunUnitState
-from cnes_domain.control_plane.environment_gate import ClosePromotionFence
-from cnes_domain.ports.environment_gate import DeferralReason, DispatchDeferred, UnitAdmission
-from cnes_domain.ports.processing import (
+from cnes_control_plane.model.commands import FinalizeRunCancellation, FinishRunDispatch
+from cnes_control_plane.model.enums import DispatchOutcome, RunState, RunUnitState
+from cnes_control_plane.model.environment_gate import ClosePromotionFence
+from cnes_control_plane.ports.environment_gate import (
+    DeferralReason,
+    DispatchDeferred,
+    UnitAdmission,
+)
+from cnes_control_plane.ports.processing import (
     CancelRunExecution,
     ExecutionCallbacks,
     ExecutionPermit,
@@ -71,12 +75,12 @@ if TYPE_CHECKING:
     from apps.data_processor.tests.orchestration.test_coordinator_environment_gate import (
         _StepFunctions,
     )
+    from cnes_control_plane.model.entities import Run, RunDispatch, RunUnit
+    from cnes_control_plane.model.environment_gate import PermitHolder
     from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
     from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
-    from cnes_domain.control_plane.entities import Run, RunDispatch, RunUnit
-    from cnes_domain.control_plane.environment_gate import PermitHolder
-    from cnes_domain.ports.environment_gate import ExecutionObservation
-    from cnes_domain.ports.processing import ConcurrencyPolicy
+    from cnes_control_plane.ports.environment_gate import ExecutionObservation
+    from cnes_control_plane.ports.processing import ConcurrencyPolicy
 
 __all__ = ["adapter", "clock", "coordinator", "executor", "gate", "store"]
 _PERMIT_HELD = DispatchDeferred(DeferralReason.PERMIT_HELD)

@@ -7,6 +7,9 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from cnes_contracts.errors import Conflict
+from cnes_contracts.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_control_plane.model.entities import ManifestRef, RawManifestRecord
 from cnes_control_plane.persistence.dynamodb_keys import key_component, raw_partition, timestamp
 from cnes_data.dynamodb import (
     check_action,
@@ -16,9 +19,6 @@ from cnes_data.dynamodb import (
     put_action,
     query_pages,
 )
-from cnes_domain.control_plane.entities import ManifestRef, RawManifestRecord
-from cnes_domain.control_plane.errors import Conflict
-from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
 
 type Item = dict[str, dict[str, Any]]
 type Action = dict[str, dict[str, Any]]

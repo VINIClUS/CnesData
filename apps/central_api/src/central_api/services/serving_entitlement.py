@@ -11,20 +11,21 @@ from typing import TYPE_CHECKING, Protocol
 
 from central_api.services.billing_gates import BillingAccountMissing
 from central_api.services.serving_access import ServingUnavailable
+from cnes_control_plane.billing.commands import GateRequest
 from cnes_control_plane.billing.dynamodb_items import deterministic_id
-from cnes_domain.billing.commands import GateRequest
-from cnes_domain.billing.errors import BillingError, EntitlementDenied
-from cnes_domain.billing.models import AccessLevel, BillingAuditEvent, EntitlementAction
-from cnes_domain.billing.shadow import ShadowObservation
+from cnes_control_plane.billing.errors import BillingError, EntitlementDenied
+from cnes_control_plane.billing.models import AccessLevel, BillingAuditEvent, EntitlementAction
+from cnes_control_plane.billing.shadow import ShadowObservation
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from datetime import datetime
 
     from central_api.services.billing_gates import ApiBillingGates
-    from cnes_domain.billing.models import EntitlementDecision
-    from cnes_domain.control_plane.entities import DatasetVersion
-    from cnes_domain.ports.serving import ServingAccessPort, ServingGrant, ServingRequest
+    from cnes_contracts.serving import ServingGrant, ServingRequest
+    from cnes_control_plane.billing.models import EntitlementDecision
+    from cnes_control_plane.model.entities import DatasetVersion
+    from cnes_control_plane.ports.serving import ServingAccessPort
 
 logger = logging.getLogger(__name__)
 

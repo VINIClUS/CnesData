@@ -6,9 +6,9 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
-from cnes_domain.control_plane.commands import BeginIdempotency, ClaimRunUnit
-from cnes_domain.control_plane.enums import RunUnitState
-from cnes_domain.control_plane.errors import Conflict, FenceRejected
+from cnes_contracts.errors import Conflict, FenceRejected
+from cnes_control_plane.model.commands import BeginIdempotency, ClaimRunUnit
+from cnes_control_plane.model.enums import RunUnitState
 from data_processor.orchestration.attempt_store import unit_attempt_prefix
 from tests.integration.aws._harness import (
     LEASE_SECONDS,

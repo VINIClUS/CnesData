@@ -6,40 +6,44 @@ from datetime import timedelta
 from typing import Any
 from uuid import uuid4
 
+from cnes_contracts.modes import BillingMode
+from cnes_control_plane.billing.commands import CreateRunRequest
 from cnes_control_plane.billing.disabled import (
     DisabledEntitlementProjection,
     DisabledQuotaReservations,
 )
-from cnes_control_plane.billing.metrics import build_billing_metrics
-from cnes_control_plane.billing.settings import BillingConfigurationError, BillingSettings
-from cnes_domain.billing.commands import CreateRunRequest
-from cnes_domain.billing.execution_policy import (
+from cnes_control_plane.billing.execution_policy import (
     BillingConcurrencyPolicy,
     BillingExecutionDependencies,
     BillingExecutionStarted,
     ExecutionBindingPort,
 )
-from cnes_domain.billing.gate import (
+from cnes_control_plane.billing.gate import (
     EntitlementGate,
     EntitlementGateDependencies,
     RunReservationSettings,
 )
-from cnes_domain.billing.models import (
+from cnes_control_plane.billing.metrics import build_billing_metrics
+from cnes_control_plane.billing.models import (
     BillingEnforcementMode,
     EntitlementAction,
     RunAuthorization,
 )
-from cnes_domain.billing.policy import EntitlementPolicy
-from cnes_domain.billing.ports import BillingAuditPort, ClockPort, QuotaReservationPort
-from cnes_domain.billing.shadow import (
+from cnes_control_plane.billing.policy import EntitlementPolicy
+from cnes_control_plane.billing.ports import BillingAuditPort, ClockPort, QuotaReservationPort
+from cnes_control_plane.billing.settings import BillingConfigurationError, BillingSettings
+from cnes_control_plane.billing.shadow import (
     NULL_SHADOW_OBSERVER,
     ShadowEntitlementObserver,
     ShadowObservation,
     ShadowObserver,
     ShadowObserverDependencies,
 )
-from cnes_domain.ports.processing import ExecutionCallbacks, ExecutionPermit, ExecutionStarted
-from cnes_domain.profiles import BillingMode
+from cnes_control_plane.ports.processing import (
+    ExecutionCallbacks,
+    ExecutionPermit,
+    ExecutionStarted,
+)
 
 RESERVATION_TTL = timedelta(minutes=15)
 

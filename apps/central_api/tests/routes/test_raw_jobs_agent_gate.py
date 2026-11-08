@@ -15,7 +15,9 @@ from central_api.routes.raw_jobs import (
 from central_api.schemas.raw_api import EdgeIdentity
 from central_api.services.agent_admission import AgentAdmission
 from central_api.services.billing_gates import ApiBillingGates, BillingAccountMissing
-from cnes_domain.billing.errors import (
+from cnes_contracts.errors import Conflict, ControlPlaneErrorCode
+from cnes_contracts.modes import BillingMode
+from cnes_control_plane.billing.errors import (
     BillingDependencyError,
     EntitlementDenied,
     IdempotencyConflict,
@@ -23,17 +25,15 @@ from cnes_domain.billing.errors import (
     PublishDenied,
     QuotaExceeded,
 )
-from cnes_domain.control_plane.errors import Conflict, ControlPlaneErrorCode
-from cnes_domain.profiles import BillingMode
 
 if TYPE_CHECKING:
     from central_api.services.agent_admission import EdgeAgentRegistry
     from central_api.services.billing_gates import TenantAccountResolver
-    from cnes_domain.billing.gate import EntitlementGate
-    from cnes_domain.ports.control_plane import ControlPlanePort
+    from cnes_control_plane.billing.gate import EntitlementGate
+    from cnes_control_plane.ports.control_plane import ControlPlanePort
 
 if TYPE_CHECKING:
-    from cnes_domain.billing.ports import QuotaReservationPort
+    from cnes_control_plane.billing.ports import QuotaReservationPort
 
 NOW = datetime(2026, 7, 15, 12, tzinfo=UTC)
 

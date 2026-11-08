@@ -8,23 +8,23 @@ from unittest.mock import patch
 
 import pytest
 
+from cnes_contracts.modes import BillingMode
+from cnes_control_plane.billing.commands import CreateRunRequest, GateRequest, ReserveRunCommand
 from cnes_control_plane.billing.disabled import (
     DisabledEntitlementProjection,
     DisabledQuotaReservations,
 )
-from cnes_domain.billing.commands import CreateRunRequest, GateRequest, ReserveRunCommand
-from cnes_domain.billing.gate import (
+from cnes_control_plane.billing.gate import (
     EntitlementGate,
     EntitlementGateDependencies,
     RunReservationSettings,
 )
-from cnes_domain.billing.models import ReadConsistency
-from cnes_domain.billing.policy import EntitlementPolicy
-from cnes_domain.control_plane.entities import RunDependency
-from cnes_domain.profiles import BillingMode
+from cnes_control_plane.billing.models import ReadConsistency
+from cnes_control_plane.billing.policy import EntitlementPolicy
+from cnes_control_plane.model.entities import RunDependency
 
 if TYPE_CHECKING:
-    from cnes_domain.billing.models import EntitlementSnapshot
+    from cnes_control_plane.billing.models import EntitlementSnapshot
 
 _NOW = datetime(2026, 9, 1, 12, tzinfo=UTC)
 _REMOTE_MODULES = ("stripe", "boto3", "botocore")

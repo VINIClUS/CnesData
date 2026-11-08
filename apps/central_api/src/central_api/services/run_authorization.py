@@ -3,15 +3,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from cnes_domain.billing.commands import AuthorizedRunCommand
-from cnes_domain.control_plane.enums import RunState
+from cnes_control_plane.billing.commands import AuthorizedRunCommand
+from cnes_control_plane.model.enums import RunState
 
 if TYPE_CHECKING:
     from central_api.services.run_planning import RunPlanningService
-    from cnes_domain.billing.commands import CreateRunRequest
-    from cnes_domain.billing.gate import EntitlementGate
-    from cnes_domain.control_plane.entities import Run
-    from cnes_domain.ports.control_plane import ControlPlanePort
+    from cnes_control_plane.billing.commands import CreateRunRequest
+    from cnes_control_plane.billing.gate import EntitlementGate
+    from cnes_control_plane.model.entities import Run
+    from cnes_control_plane.ports.control_plane import ControlPlanePort
 
 _LAUNCHABLE_STATES = frozenset({RunState.PLANNED, RunState.WAITING_INPUTS})
 

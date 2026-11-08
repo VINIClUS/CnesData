@@ -18,10 +18,10 @@ from cnes_contracts.manifests.processing import (
     ReconcileResult,
 )
 from cnes_contracts.manifests.raw import RawManifest, SnapshotMode, SourceType
-from cnes_domain.control_plane.entities import ManifestRef, Run, RunUnit
-from cnes_domain.control_plane.enums import RunStage, RunState, RunUnitState
-from cnes_domain.orchestration.source_catalog import SourceCatalog, build_source_catalog
-from cnes_domain.ports.object_store import ObjectStat
+from cnes_control_plane.model.entities import ManifestRef, Run, RunUnit
+from cnes_control_plane.model.enums import RunStage, RunState, RunUnitState
+from cnes_control_plane.orchestration.source_catalog import SourceCatalog, build_source_catalog
+from cnes_data.object_store.ports import ObjectStat
 from data_processor.orchestration.attempt_store import AttemptObjectStore
 from data_processor.pipeline.source_registry import SourcePipeline, SourceRegistry
 from data_processor.pipeline.stage_processor import (
@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from contextlib import AbstractContextManager as ContextManager
     from typing import BinaryIO
 
-    from cnes_domain.ports.control_plane import ControlPlanePort
+    from cnes_control_plane.ports.control_plane import ControlPlanePort
 
 _TENANT = "354130"
 _RUN_ID = "run-1"

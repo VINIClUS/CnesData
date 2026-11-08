@@ -5,8 +5,8 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+from cnes_control_plane.billing.models import PlanVersion, QuotaLimits
 from cnes_control_plane.billing.stripe_gateway import StripeGateway, StripeGatewayConfig
-from cnes_domain.billing.models import PlanVersion, QuotaLimits
 
 ORIGIN = "https://app.example.test"
 SUCCESS_URL = f"{ORIGIN}/billing/success?session_id={{CHECKOUT_SESSION_ID}}"

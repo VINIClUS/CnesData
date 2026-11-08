@@ -8,13 +8,13 @@ import boto3
 import pytest
 from moto import mock_aws
 
+from cnes_control_plane.billing.commands import SnapshotWrite
 from cnes_control_plane.billing.dynamodb_projection import DynamoEntitlementProjection
+from cnes_control_plane.billing.errors import StaleInboxClaim
+from cnes_control_plane.billing.inbox import InboxClaim
 from cnes_control_plane.billing.keys import stripe_event_key
+from cnes_control_plane.billing.models import ReadConsistency
 from cnes_data.dynamodb import item_key
-from cnes_domain.billing.commands import SnapshotWrite
-from cnes_domain.billing.errors import StaleInboxClaim
-from cnes_domain.billing.inbox import InboxClaim
-from cnes_domain.billing.models import ReadConsistency
 from packages.cnes_control_plane.tests.billing.billing_factories import (
     NOW,
     TABLE_NAME,

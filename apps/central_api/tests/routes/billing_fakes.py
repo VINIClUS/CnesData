@@ -19,8 +19,10 @@ from central_api.routes.billing import (
     router,
 )
 from central_api.routes.raw_jobs import get_control_plane
-from cnes_domain.billing.commands import HostedSession, PendingCheckout, StripeCustomer
-from cnes_domain.billing.models import (
+from cnes_contracts.membership import Membership
+from cnes_contracts.modes import BillingMode
+from cnes_control_plane.billing.commands import HostedSession, PendingCheckout, StripeCustomer
+from cnes_control_plane.billing.models import (
     BillingAccount,
     BillingAccountStatus,
     BillingAccountTenantLink,
@@ -29,15 +31,13 @@ from cnes_domain.billing.models import (
     QuotaLimits,
     SubscriptionStatus,
 )
-from cnes_domain.billing.ports import (
+from cnes_control_plane.billing.ports import (
     BillingAuditPort,
     BillingCatalogPort,
     EntitlementProjectionPort,
     StripeGatewayPort,
 )
-from cnes_domain.control_plane.entities import Membership
-from cnes_domain.ports.control_plane import ControlPlanePort
-from cnes_domain.profiles import BillingMode
+from cnes_control_plane.ports.control_plane import ControlPlanePort
 from cnes_identity.oidc import OidcPrincipal
 
 NOW = datetime(2026, 9, 30, 12, tzinfo=UTC)

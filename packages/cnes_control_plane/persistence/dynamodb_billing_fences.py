@@ -4,21 +4,21 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from cnes_control_plane.persistence.dynamodb_host import DynamoDBHost
-from cnes_data.dynamodb import Action, Item, check_action
-from cnes_domain.billing.execution import PublicationGuard
-from cnes_domain.billing.publication import (
+from cnes_contracts.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_contracts.errors import FenceRejected
+from cnes_contracts.modes import BillingMode
+from cnes_control_plane.billing.execution import PublicationGuard
+from cnes_control_plane.billing.publication import (
     require_publication_companion,
     require_publication_snapshot,
     unit_companion_allows,
 )
-from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
-from cnes_domain.control_plane.errors import FenceRejected
-from cnes_domain.profiles import BillingMode
+from cnes_control_plane.persistence.dynamodb_host import DynamoDBHost
+from cnes_data.dynamodb import Action, Item, check_action
 
 if TYPE_CHECKING:
-    from cnes_domain.billing.execution import RunBillingState
-    from cnes_domain.control_plane.commands import CommitRunUnit, FailRunUnit, PublishDataset
+    from cnes_control_plane.billing.execution import RunBillingState
+    from cnes_control_plane.model.commands import CommitRunUnit, FailRunUnit, PublishDataset
 
 
 def _decode_companion(item: Item | None) -> RunBillingState | None:

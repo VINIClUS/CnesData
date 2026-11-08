@@ -9,18 +9,18 @@ import boto3
 import pytest
 from moto import mock_aws
 
-from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
-from cnes_control_plane.persistence.dynamodb_keys import run_entity_key
-from cnes_data.dynamodb import item_key
-from cnes_domain.control_plane.entities import RunDependency
-from cnes_domain.control_plane.enums import RunState
-from cnes_domain.control_plane.queries import (
+from cnes_control_plane.model.entities import RunDependency
+from cnes_control_plane.model.enums import RunState
+from cnes_control_plane.model.queries import (
     LatestSucceededJobQuery,
     RawIdentity,
     RawManifestChainQuery,
     WaitingRunsForDependencyQuery,
 )
-from cnes_domain.ports.control_plane import ControlPlanePort, TypedRawQueryPort
+from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
+from cnes_control_plane.persistence.dynamodb_keys import run_entity_key
+from cnes_control_plane.ports.control_plane import ControlPlanePort, TypedRawQueryPort
+from cnes_data.dynamodb import item_key
 from packages.cnes_control_plane.tests.contracts.clock import (
     _NOW,
     _TENANT,

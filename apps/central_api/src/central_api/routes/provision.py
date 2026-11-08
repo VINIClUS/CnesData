@@ -6,7 +6,7 @@ from cryptography.x509.oid import NameOID
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
-from cnes_domain.tenant import set_tenant_id
+from cnes_data.tenant import set_tenant_id
 from cnes_identity import CertProvisionResponse
 from cnes_identity.errors import OAuthError
 

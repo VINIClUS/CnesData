@@ -9,14 +9,14 @@ from unittest.mock import Mock
 import pytest
 
 from central_api.services.run_authorization import RunAuthorizationService
-from cnes_domain.billing.commands import AuthorizedRunCommand, CreateRunRequest
-from cnes_domain.billing.errors import EntitlementDenied
-from cnes_domain.billing.models import RunAuthorization
-from cnes_domain.control_plane.entities import Run, RunDependency
-from cnes_domain.control_plane.enums import RunState
+from cnes_control_plane.billing.commands import AuthorizedRunCommand, CreateRunRequest
+from cnes_control_plane.billing.errors import EntitlementDenied
+from cnes_control_plane.billing.models import RunAuthorization
+from cnes_control_plane.model.entities import Run, RunDependency
+from cnes_control_plane.model.enums import RunState
 
 if TYPE_CHECKING:
-    from cnes_domain.billing.gate import EntitlementGate
+    from cnes_control_plane.billing.gate import EntitlementGate
 
 _NOW = datetime(2026, 1, 15, 12, tzinfo=UTC)
 _ACCOUNT = "ba_01"

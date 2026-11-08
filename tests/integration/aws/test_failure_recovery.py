@@ -9,15 +9,15 @@ from botocore.exceptions import ClientError, EndpointConnectionError
 
 from central_api.composition import build_runtime
 from central_api.services.serving_access import ServingUnavailable
+from cnes_contracts.errors import Conflict
 from cnes_control_plane.billing import BillingSettings
+from cnes_control_plane.billing.errors import BillingDependencyError
 from cnes_control_plane.execution.step_functions import (
     IncompatibleStateMachine,
     ProcessorExecutionUnavailable,
 )
-from cnes_domain.billing.errors import BillingDependencyError
-from cnes_domain.control_plane.enums import DispatchState, RunStage, RunState, RunUnitState
-from cnes_domain.control_plane.errors import Conflict
-from cnes_domain.outbox_dispatcher import DispatchResult, dispatch_once
+from cnes_control_plane.model.enums import DispatchState, RunStage, RunState, RunUnitState
+from cnes_control_plane.outbox_dispatcher import DispatchResult, dispatch_once
 from cnes_runtime.aws.processor_settings import (
     AwsAuditDispatchSettings,
     AwsRecoverySettings,

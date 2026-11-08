@@ -10,11 +10,36 @@ from typing import Any
 import boto3
 from moto import mock_aws
 
+from cnes_contracts.audit import OutboxEvent
 from cnes_control_plane.billing.dynamodb_items import encode_snapshot
 from cnes_control_plane.billing.dynamodb_quota import DynamoQuotaReservations
 from cnes_control_plane.billing.dynamodb_quota_items import decode_reservation
 from cnes_control_plane.billing.dynamodb_revocation import DynamoRevocationStore
+from cnes_control_plane.billing.execution import RunBillingState, RunExecutionBindingCommand
 from cnes_control_plane.billing.keys import reservation_key, run_lookup_key, usage_key
+from cnes_control_plane.billing.models import QuotaReservation, ReservationStatus
+from cnes_control_plane.billing.revocation import (
+    CancelRunUnitsCommand,
+    CancelRunUnitsResult,
+    RevokeRunCommand,
+)
+from cnes_control_plane.model.commands import (
+    BindRunDispatch,
+    ClaimRunUnit,
+    CommitRunUnit,
+    FinishRunDispatch,
+    PutRunUnits,
+    ReserveRunDispatch,
+    TransitionRun,
+)
+from cnes_control_plane.model.entities import ManifestRef, Run, RunDispatch, RunUnit
+from cnes_control_plane.model.enums import (
+    DispatchOutcome,
+    DispatchState,
+    RunStage,
+    RunState,
+    RunUnitState,
+)
 from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
 from cnes_control_plane.persistence.dynamodb_keys import (
     dispatch_key,
@@ -24,36 +49,6 @@ from cnes_control_plane.persistence.dynamodb_keys import (
 )
 from cnes_control_plane.persistence.dynamodb_run_codec import run_item
 from cnes_data.dynamodb import encode_model, item_key
-from cnes_domain.billing.execution import RunBillingState, RunExecutionBindingCommand
-from cnes_domain.billing.models import QuotaReservation, ReservationStatus
-from cnes_domain.billing.revocation import (
-    CancelRunUnitsCommand,
-    CancelRunUnitsResult,
-    RevokeRunCommand,
-)
-from cnes_domain.control_plane.commands import (
-    BindRunDispatch,
-    ClaimRunUnit,
-    CommitRunUnit,
-    FinishRunDispatch,
-    PutRunUnits,
-    ReserveRunDispatch,
-    TransitionRun,
-)
-from cnes_domain.control_plane.entities import (
-    ManifestRef,
-    OutboxEvent,
-    Run,
-    RunDispatch,
-    RunUnit,
-)
-from cnes_domain.control_plane.enums import (
-    DispatchOutcome,
-    DispatchState,
-    RunStage,
-    RunState,
-    RunUnitState,
-)
 from packages.cnes_control_plane.tests.billing.billing_factories import (
     NOW,
     TABLE_NAME,

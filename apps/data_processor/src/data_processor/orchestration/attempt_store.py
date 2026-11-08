@@ -9,8 +9,8 @@ if TYPE_CHECKING:
     from contextlib import AbstractContextManager as ContextManager
     from typing import BinaryIO
 
-    from cnes_domain.control_plane.entities import RunUnit
-    from cnes_domain.ports.object_store import ObjectStat, ObjectStorePort
+    from cnes_control_plane.model.entities import RunUnit
+    from cnes_data.object_store.ports import ObjectStat, ObjectStorePort
 
 _FORBIDDEN_SEGMENTS = frozenset({"", ".", ".."})
 

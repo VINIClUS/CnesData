@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
+from cnes_contracts.modes import RuntimeProfile
 from cnes_control_plane.billing import (
     LOCAL_BILLING_SETTINGS,
     BillingSettings,
@@ -11,12 +12,12 @@ from cnes_control_plane.billing import (
 )
 from cnes_control_plane.billing.wiring import BillingGateResources
 from cnes_control_plane.execution.local_pool import LocalWorkerPool
+from cnes_control_plane.model.entities import Tenant
 from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
+from cnes_control_plane.ports.processing import ExecutionPolicyConfig
 from cnes_data.object_store import FilesystemObjectStore
-from cnes_domain.control_plane.entities import Tenant
-from cnes_domain.ports.processing import ExecutionPolicyConfig
-from cnes_domain.profiles import ProfileNotImplemented, RuntimeProfile
 from cnes_governance.local_sink import LocalAuditSink
+from cnes_runtime.profiles import ProfileNotImplemented
 from data_processor.orchestration.coordinator import (
     CoordinatorDependencies,
     PipelineCoordinator,
@@ -41,11 +42,11 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from datetime import datetime
 
-    from cnes_domain.control_plane.entities import RunUnit
-    from cnes_domain.ports.audit import AuditSinkPort
-    from cnes_domain.ports.control_plane import ControlPlanePort
-    from cnes_domain.ports.object_store import ObjectStorePort
-    from cnes_domain.profiles import ProfileSettings
+    from cnes_control_plane.model.entities import RunUnit
+    from cnes_control_plane.ports.audit import AuditSinkPort
+    from cnes_control_plane.ports.control_plane import ControlPlanePort
+    from cnes_data.object_store.ports import ObjectStorePort
+    from cnes_runtime.profiles import ProfileSettings
     from data_processor.pipeline.source_registry import SourceRegistry
 
 _DEPLOYMENT_LIMIT = 4

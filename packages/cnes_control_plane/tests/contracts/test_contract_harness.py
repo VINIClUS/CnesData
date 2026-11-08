@@ -5,18 +5,18 @@ from typing import Any, cast
 
 import pytest
 
-from cnes_domain.control_plane.commands import IdempotencyOutcome
-from cnes_domain.control_plane.entities import DatasetPointer, IdempotencyRecord, RunDispatch
-from cnes_domain.control_plane.enums import (
+from cnes_contracts.errors import Conflict, FenceRejected, LeaseLost
+from cnes_contracts.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_control_plane.model.commands import IdempotencyOutcome
+from cnes_control_plane.model.entities import DatasetPointer, IdempotencyRecord, RunDispatch
+from cnes_control_plane.model.enums import (
     AgentState,
     DispatchState,
     JobState,
     RunState,
     RunUnitState,
 )
-from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost
-from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
-from cnes_domain.control_plane.transitions import transition_run, transition_run_unit
+from cnes_control_plane.model.transitions import transition_run, transition_run_unit
 from packages.cnes_control_plane.tests.contracts.clock import MutableClock, _HarnessState
 from packages.cnes_control_plane.tests.contracts.control_plane_contract import (
     ControlPlaneCase,

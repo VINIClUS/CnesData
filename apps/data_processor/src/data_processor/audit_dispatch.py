@@ -1,6 +1,6 @@
 """Fronteira pública do despacho dedicado de auditoria."""
 
-from cnes_domain.outbox_dispatcher import dispatch_once
+from cnes_control_plane.outbox_dispatcher import dispatch_once
 from data_processor.aws_composition import AwsAuditRuntime
 
 

@@ -6,35 +6,35 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
+from cnes_control_plane.billing.commands import SnapshotWrite
 from cnes_control_plane.billing.dynamodb_catalog import DynamoBillingCatalog
 from cnes_control_plane.billing.dynamodb_projection import DynamoEntitlementProjection
 from cnes_control_plane.billing.dynamodb_quota_items import (
     decode_capacity_reservation,
     encode_capacity_reservation,
 )
+from cnes_control_plane.billing.inbox import ReservationRecoveryRequest
 from cnes_control_plane.billing.keys import (
     capacity_reservation_key,
     capacity_usage_key,
     revocation_sweep_cursor_key,
 )
-from cnes_control_plane.billing.reconciliation_cursor import DynamoReconciliationCursor
-from cnes_control_plane.billing.revocation_sweep import RevocationSweep, RevocationSweepDependencies
-from cnes_control_plane.persistence.dynamodb_codec import item_key
-from cnes_control_plane.persistence.dynamodb_keys import idempotency_key
-from cnes_control_plane.persistence.edge_registration import EDGE_AGENT_SCOPE
-from cnes_domain.billing.commands import SnapshotWrite
-from cnes_domain.billing.inbox import ReservationRecoveryRequest
-from cnes_domain.billing.models import (
+from cnes_control_plane.billing.models import (
     CapacityKind,
     CapacityReservation,
     EntitlementSnapshot,
     ReservationStatus,
 )
-from cnes_domain.billing.revocation import (
+from cnes_control_plane.billing.reconciliation_cursor import DynamoReconciliationCursor
+from cnes_control_plane.billing.revocation import (
     ImmediateRevocationCommand,
     RevocationPhase,
     RevocationSettings,
 )
+from cnes_control_plane.billing.revocation_sweep import RevocationSweep, RevocationSweepDependencies
+from cnes_control_plane.persistence.dynamodb_codec import item_key
+from cnes_control_plane.persistence.dynamodb_keys import idempotency_key
+from cnes_control_plane.persistence.edge_registration import EDGE_AGENT_SCOPE
 from packages.cnes_control_plane.tests.billing.billing_factories import (
     NOW,
     make_create_command,
@@ -57,7 +57,7 @@ from packages.cnes_control_plane.tests.billing.test_dynamodb_revocation_service 
 )
 
 if TYPE_CHECKING:
-    from cnes_domain.billing.execution import RunBillingState
+    from cnes_control_plane.billing.execution import RunBillingState
 
 PAST_EXPIRY = RESERVATION_TTL + timedelta(minutes=1)
 PAGE_OF_ONE = RevocationSettings(run_page_size=1)

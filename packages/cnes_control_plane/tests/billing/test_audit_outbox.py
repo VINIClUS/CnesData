@@ -10,14 +10,14 @@ import pytest
 from botocore.exceptions import ClientError
 from moto import mock_aws
 
+from cnes_contracts.audit import OutboxEvent
 from cnes_control_plane.billing.audit_outbox import BestEffortBillingAudit, DynamoBillingAudit
+from cnes_control_plane.billing.errors import BillingDependencyError
 from cnes_control_plane.billing.keys import BILLING_AUDIT_TENANT_ID
+from cnes_control_plane.billing.ports import BillingAuditPort
 from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
 from cnes_control_plane.persistence.dynamodb_keys import outbox_key
 from cnes_data.dynamodb import decode_model, item_key
-from cnes_domain.billing.errors import BillingDependencyError
-from cnes_domain.billing.ports import BillingAuditPort
-from cnes_domain.control_plane.entities import OutboxEvent
 from packages.cnes_control_plane.tests.billing.billing_factories import (
     NOW,
     TABLE_NAME,

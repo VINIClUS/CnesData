@@ -29,7 +29,7 @@ from data_processor.sources.sihd.reconcile import reconcile_sihd
 from data_processor.sources.sihd.serving import _assert_no_pii, materialize_sihd
 
 if TYPE_CHECKING:
-    from cnes_domain.ports.object_store import ObjectStat
+    from cnes_data.object_store.ports import ObjectStat
 
 _TARGET = f"serving/{TENANT}/{RUN_ID}/overview.json"
 

@@ -27,19 +27,20 @@ from apps.data_processor.tests.orchestration.test_publisher import (
     _run,
     _seed_manifest,
 )
+from cnes_contracts.audit import OutboxEvent
 from cnes_contracts.manifests.outputs import OutputManifest, RunManifest
 from cnes_contracts.manifests.raw import SourceType
-from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
-from cnes_data.object_store.s3 import S3ObjectStore
-from cnes_domain.control_plane.commands import (
+from cnes_control_plane.model.commands import (
     ClaimRunUnit,
     CommitRunUnit,
     FinishRunDispatch,
     PutRunUnits,
     ReserveRunDispatch,
 )
-from cnes_domain.control_plane.entities import ManifestRef, OutboxEvent, RunDependency, RunUnit
-from cnes_domain.control_plane.enums import DispatchOutcome, RunStage, RunState, RunUnitState
+from cnes_control_plane.model.entities import ManifestRef, RunDependency, RunUnit
+from cnes_control_plane.model.enums import DispatchOutcome, RunStage, RunState, RunUnitState
+from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
+from cnes_data.object_store.s3 import S3ObjectStore
 from cnes_governance.s3_object_lock_sink import S3ObjectLockAuditSink
 from data_processor.orchestration.unit_worker import UnitWorker
 from data_processor.pipeline.source_registry import SourceRegistry

@@ -12,14 +12,14 @@ import boto3
 import pytest
 from moto import mock_aws
 
-from cnes_domain.ports.refresh_tokens import RefreshTokenStore
-from cnes_domain.refresh_tokens import (
+from cnes_identity.dynamodb_refresh_tokens import DynamoDBRefreshTokenStore
+from cnes_identity.refresh_contracts import (
     RefreshTokenContext,
     RefreshTokenInput,
     RefreshTokenRecord,
     RefreshTokenUnavailable,
 )
-from cnes_identity.dynamodb_refresh_tokens import DynamoDBRefreshTokenStore
+from cnes_identity.refresh_port import RefreshTokenStore
 from cnes_identity.sqlite_refresh_tokens import SQLiteRefreshTokenStore
 
 if TYPE_CHECKING:

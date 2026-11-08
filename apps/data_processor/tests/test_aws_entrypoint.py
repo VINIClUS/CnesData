@@ -7,7 +7,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from cnes_domain.ports.processing import RunUnitMessage
+from cnes_control_plane.ports.processing import RunUnitMessage
 from data_processor.aws_composition import AwsRecoveryRuntime, AwsUnitRuntime
 from data_processor.aws_entrypoint import (
     AwsInvocation,

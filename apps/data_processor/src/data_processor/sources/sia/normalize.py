@@ -27,7 +27,7 @@ from data_processor.sources.sia.reference_data import REFERENCE_SUBTYPES, normal
 if TYPE_CHECKING:
     from cnes_contracts.manifests.processing import NormalizeRequest
     from cnes_contracts.manifests.raw import RawManifest
-    from cnes_domain.ports.object_store import ObjectStorePort
+    from cnes_data.object_store.ports import ObjectStorePort
 
 logger = logging.getLogger(__name__)
 

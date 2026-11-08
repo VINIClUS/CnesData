@@ -8,13 +8,14 @@ from hashlib import sha256
 from typing import TYPE_CHECKING
 
 from central_api.services.raw_ingestion import RawAcceptance, RegisterRawManifest
+from cnes_contracts.audit import OutboxEvent
+from cnes_contracts.errors import Conflict
+from cnes_contracts.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_control_plane.model.commands import ClaimJob
+from cnes_control_plane.model.entities import Agent, Job
+from cnes_control_plane.model.enums import AgentState, JobState
+from cnes_control_plane.model.queries import RawManifestByIdQuery
 from cnes_data.ingestion import DatasusCnesRequest
-from cnes_domain.control_plane.commands import ClaimJob
-from cnes_domain.control_plane.entities import Agent, Job, OutboxEvent
-from cnes_domain.control_plane.enums import AgentState, JobState
-from cnes_domain.control_plane.errors import Conflict
-from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
-from cnes_domain.control_plane.queries import RawManifestByIdQuery
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -24,8 +25,8 @@ if TYPE_CHECKING:
     from pydantic import BaseModel
 
     from central_api.services.raw_ingestion import RawIngestionService
+    from cnes_control_plane.ports.control_plane import ControlPlanePort, TypedRawQueryPort
     from cnes_data.ingestion import DatasusCnesRawAdapter
-    from cnes_domain.ports.control_plane import ControlPlanePort, TypedRawQueryPort
 
     class _ControlPlane(ControlPlanePort, TypedRawQueryPort, Protocol):
         pass

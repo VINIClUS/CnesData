@@ -13,9 +13,9 @@ from typing import Any
 from botocore.exceptions import ClientError
 
 from central_api.composition import api_billing_gates
+from cnes_contracts.membership import Membership
+from cnes_control_plane.billing.models import BillingEnforcementMode, SubscriptionStatus
 from cnes_control_plane.billing.wiring import BillingGateResources
-from cnes_domain.billing.models import BillingEnforcementMode, SubscriptionStatus
-from cnes_domain.control_plane.entities import Membership
 from packages.cnes_control_plane.tests.billing.billing_factories import NOW, TABLE_NAME
 from packages.cnes_control_plane.tests.billing.quota_support import TENANT
 from packages.cnes_control_plane.tests.billing.shadow_support import shadow_events

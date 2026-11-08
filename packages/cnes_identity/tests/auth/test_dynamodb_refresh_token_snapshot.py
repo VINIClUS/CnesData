@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from cnes_domain.refresh_tokens import RefreshTokenContext, RefreshTokenUnavailable
+from cnes_identity.refresh_contracts import RefreshTokenContext, RefreshTokenUnavailable
 from packages.cnes_identity.tests.auth.dynamodb_refresh_support import (
     DIGEST,
     NOW,

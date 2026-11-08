@@ -5,7 +5,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl
 
-from cnes_domain.billing.revocation_models import REASON_CODE_PATTERN
+from cnes_control_plane.billing.revocation_models import REASON_CODE_PATTERN
 
 _Key = Annotated[str, Field(min_length=16, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")]
 _Id = Annotated[str, Field(min_length=1, max_length=128)]

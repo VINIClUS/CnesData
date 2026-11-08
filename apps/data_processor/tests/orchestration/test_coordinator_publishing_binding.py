@@ -26,9 +26,9 @@ from apps.data_processor.tests.orchestration.test_coordinator_late_binding impor
     race,
     store,
 )
-from cnes_domain.control_plane.commands import FinishRunDispatch, ReserveRunDispatch
-from cnes_domain.control_plane.enums import DispatchOutcome, RunState, RunUnitState
-from cnes_domain.control_plane.errors import Conflict, ControlPlaneErrorCode
+from cnes_contracts.errors import Conflict, ControlPlaneErrorCode
+from cnes_control_plane.model.commands import FinishRunDispatch, ReserveRunDispatch
+from cnes_control_plane.model.enums import DispatchOutcome, RunState, RunUnitState
 from data_processor.orchestration.coordinator import PipelineCoordinator
 from data_processor.orchestration.unit_worker import (
     UnitWorker,
@@ -39,7 +39,7 @@ from data_processor.orchestration.unit_worker import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from cnes_domain.ports.processing import StartRunExecution
+    from cnes_control_plane.ports.processing import StartRunExecution
     from data_processor.orchestration.coordinator import CoordinatorResult
     from data_processor.orchestration.publisher import PublishRequest, PublishResult
 

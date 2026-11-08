@@ -14,7 +14,7 @@ from cnes_contracts.manifests.raw import SourceType
 
 if TYPE_CHECKING:
     from cnes_contracts.manifests.processing import ReconcileRequest
-    from cnes_domain.ports.object_store import ObjectStat, ObjectStorePort
+    from cnes_data.object_store.ports import ObjectStat, ObjectStorePort
 
 type Row = dict[str, object]
 type NaturalKey = tuple[str, str, str, str]

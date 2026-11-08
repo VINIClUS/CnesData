@@ -21,19 +21,19 @@ from central_api.routes.billing import (
     get_stripe_gateway,
     router,
 )
-from cnes_domain.billing.errors import (
+from cnes_contracts.modes import BillingMode
+from cnes_control_plane.billing.errors import (
     BillingDependencyError,
     BillingTenantConflict,
     IdempotencyConflict,
     PermanentBillingError,
     RetryableBillingError,
 )
-from cnes_domain.billing.models import (
+from cnes_control_plane.billing.models import (
     BillingAccountStatus,
     ReadConsistency,
     SubscriptionStatus,
 )
-from cnes_domain.profiles import BillingMode
 
 from .billing_fakes import (
     CLIENT_KEY,

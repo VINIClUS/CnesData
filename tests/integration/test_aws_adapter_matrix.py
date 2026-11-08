@@ -12,14 +12,15 @@ import boto3
 import pytest
 from botocore.config import Config
 
-from cnes_domain.control_plane.entities import Job, OutboxEvent
-from cnes_domain.control_plane.enums import JobState
-from cnes_domain.control_plane.errors import Conflict
-from cnes_domain.outbox_dispatcher import DispatchResult, dispatch_once
+from cnes_contracts.audit import OutboxEvent
+from cnes_contracts.errors import Conflict
+from cnes_control_plane.model.entities import Job
+from cnes_control_plane.model.enums import JobState
+from cnes_control_plane.outbox_dispatcher import DispatchResult, dispatch_once
 
 if TYPE_CHECKING:
-    from cnes_domain.control_plane.outbox import OutboxCursor, OutboxPage
-    from cnes_domain.ports.control_plane import ControlPlanePort
+    from cnes_control_plane.model.outbox import OutboxCursor, OutboxPage
+    from cnes_control_plane.ports.control_plane import ControlPlanePort
 
 NOW = datetime(2026, 9, 6, 12, tzinfo=UTC)
 DELIVERED_AT = NOW + timedelta(seconds=1)

@@ -13,11 +13,13 @@ import pytest
 
 from central_api.composition import build_local_runtime
 from central_api.local_backup import create_backup, restore_backup
-from cnes_domain.control_plane.entities import AccessRequest, Agent, Membership, OutboxEvent
-from cnes_domain.control_plane.enums import AccessRequestState, AgentState
-from cnes_domain.profiles import local_state_db, parse_profile
+from cnes_contracts.audit import OutboxEvent
+from cnes_contracts.membership import Membership
+from cnes_control_plane.model.entities import AccessRequest, Agent
+from cnes_control_plane.model.enums import AccessRequestState, AgentState
 from cnes_governance.local_sink import LocalAuditSink
 from cnes_identity.local_credentials import LocalCredentialStore, build_user
+from cnes_runtime.profiles import local_state_db, parse_profile
 
 pytestmark = [pytest.mark.chaos, pytest.mark.local_profile]
 

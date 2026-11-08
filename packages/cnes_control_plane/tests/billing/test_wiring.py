@@ -12,6 +12,7 @@ from uuid import UUID
 import pytest
 from botocore.exceptions import ClientError
 
+from cnes_contracts.modes import BillingMode
 from cnes_control_plane.billing import (
     LOCAL_BILLING_SETTINGS,
     BillingConfigurationError,
@@ -21,22 +22,24 @@ from cnes_control_plane.billing import (
     build_execution_callbacks,
 )
 from cnes_control_plane.billing.cache import LocalEntitlementCache
+from cnes_control_plane.billing.errors import EntitlementDenied
+from cnes_control_plane.billing.execution_policy import (
+    BillingConcurrencyPolicy,
+    BillingExecutionStarted,
+)
+from cnes_control_plane.billing.models import (
+    BillingEnforcementMode,
+    EntitlementAction,
+    SubscriptionStatus,
+)
+from cnes_control_plane.billing.shadow import ShadowObservation
 from cnes_control_plane.billing.wiring import (
     RESERVATION_TTL,
     ChainedExecutionStarted,
     ShadowEntitlementGate,
 )
-from cnes_domain.billing.errors import EntitlementDenied
-from cnes_domain.billing.execution_policy import BillingConcurrencyPolicy, BillingExecutionStarted
-from cnes_domain.billing.models import (
-    BillingEnforcementMode,
-    EntitlementAction,
-    SubscriptionStatus,
-)
-from cnes_domain.billing.shadow import ShadowObservation
-from cnes_domain.control_plane.entities import Run, RunDependency, RunDispatch
-from cnes_domain.control_plane.enums import DispatchState, RunState
-from cnes_domain.profiles import BillingMode
+from cnes_control_plane.model.entities import Run, RunDependency, RunDispatch
+from cnes_control_plane.model.enums import DispatchState, RunState
 from packages.cnes_control_plane.tests.billing.billing_factories import (
     NOW,
     TABLE_NAME,
@@ -54,7 +57,7 @@ from packages.cnes_control_plane.tests.billing.shadow_support import shadow_even
 OFF = BillingEnforcementMode.OFF
 SHADOW = BillingEnforcementMode.SHADOW
 ENFORCE = BillingEnforcementMode.ENFORCE
-SHADOW_LOGGER = "cnes_domain.billing.shadow"
+SHADOW_LOGGER = "cnes_control_plane.billing.shadow"
 
 
 def _clock() -> datetime:

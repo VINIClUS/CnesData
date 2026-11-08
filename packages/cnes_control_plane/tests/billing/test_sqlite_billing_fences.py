@@ -7,13 +7,13 @@ from typing import Any
 
 import pytest
 
+from cnes_contracts.errors import FenceRejected
 from cnes_control_plane.billing.dynamodb_quota_items import encode_run_billing_state
+from cnes_control_plane.billing.errors import BillingDisabledError, PublishDenied
+from cnes_control_plane.model.commands import FailRunUnit
+from cnes_control_plane.model.enums import RunState, RunUnitState
 from cnes_control_plane.persistence.dynamodb_billing import authorized_run_records
 from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
-from cnes_domain.billing.errors import BillingDisabledError, PublishDenied
-from cnes_domain.control_plane.commands import FailRunUnit
-from cnes_domain.control_plane.enums import RunState, RunUnitState
-from cnes_domain.control_plane.errors import FenceRejected
 from packages.cnes_control_plane.tests.billing.billing_factories import NOW
 from packages.cnes_control_plane.tests.billing.test_control_plane_extensions import authorized
 from packages.cnes_control_plane.tests.contracts.clock import (

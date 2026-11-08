@@ -6,10 +6,10 @@ pytest.importorskip("moto")
 
 from typing import Any
 
-from cnes_domain.billing.inbox import ReconciliationRequest
-from cnes_domain.billing.models import ReservationStatus, SubscriptionStatus
-from cnes_domain.billing.revocation import RevocationPhase
-from cnes_domain.control_plane.enums import RunState, RunUnitState
+from cnes_control_plane.billing.inbox import ReconciliationRequest
+from cnes_control_plane.billing.models import ReservationStatus, SubscriptionStatus
+from cnes_control_plane.billing.revocation import RevocationPhase
+from cnes_control_plane.model.enums import RunState, RunUnitState
 from packages.cnes_control_plane.tests.billing.quota_support import ACCOUNT
 from packages.cnes_control_plane.tests.billing.revocation_support import (
     RevEnv,

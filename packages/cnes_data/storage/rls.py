@@ -4,7 +4,7 @@ import logging
 
 from sqlalchemy import Connection, Engine, event, text
 
-from cnes_domain.tenant import tenant_id_ctx
+from cnes_data.tenant import tenant_id_ctx
 
 logger = logging.getLogger(__name__)
 

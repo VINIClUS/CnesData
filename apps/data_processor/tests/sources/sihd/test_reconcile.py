@@ -25,7 +25,7 @@ from data_processor.sources.sihd.reconcile import reconcile_sihd
 
 if TYPE_CHECKING:
     from cnes_contracts.manifests.processing import ReconcileResult
-    from cnes_domain.ports.object_store import ObjectStat
+    from cnes_data.object_store.ports import ObjectStat
 
 _INTERNACOES = "normalized-run-1-unit-internacao-1-internacoes"
 _PROCEDIMENTOS = "normalized-run-1-unit-proc-aih-1-procedimentos_aih"

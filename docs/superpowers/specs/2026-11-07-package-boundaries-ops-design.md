@@ -12,22 +12,23 @@ de infraestrutura, implantar serviços ou executar Terraform.
 | Pacote | Responsabilidade | Dependências locais permitidas |
 |---|---|---|
 | cnes_contracts | DTOs, manifests, modelos públicos, colunas | nenhuma |
-| cnes_domain | regras, entidades, ports, processamento e tenant | contracts |
+| cnes_domain | competência, validações e transformações de negócio CNES/SUS | contracts |
 | cnes_observability | logging, OTel, tracer, contador de queries | nenhuma |
 | cnes_data | storage, RLS, ingestão, object stores, Alembic, helpers DynamoDB | contracts, domain, observability |
 | cnes_identity | JWT/OIDC, credenciais locais, device flow, mTLS | contracts, domain, data |
-| cnes_governance | eventos de auditoria e sinks local/Object Lock | domain, data |
-| cnes_control_plane | persistência de controle, billing, quotas, execução | contracts, domain, data, observability |
+| cnes_governance | auditoria operacional e sinks local/Object Lock | contracts, data |
+| cnes_control_plane | modelos/políticas operacionais, billing, quotas, execução e persistência | contracts, domain, data, observability |
 | cnes_runtime | configuração compartilhada e composição AWS | demais capacidades |
 
 Bibliotecas não importam apps; o grafo entre bibliotecas é acíclico. Core não lê
-ambiente nem configura I/O/telemetria. Pandera permanece no Core. Ports genéricos
-ficam no Core; o protocolo legado dependente de Engine fica em Data.
+ambiente nem configura I/O/telemetria. Pandera permanece no Core. Ports pertencem
+à capacidade consumidora; contratos de I/O e o protocolo legado com Engine
+pertencem a Data. Protocols operacionais não entram no Domain por serem abstratos.
 
 Billing e control plane permanecem juntos para preservar transações de quota,
 criação de tenants e revogação. Sec pertence aos componentes que aplicam seus
 controles: Identity, RLS em Data, billing secrets e scanners CI. Reliability fica
-nas primitivas do Core e na recuperação/leases/outbox de cada componente.
+no circuit breaker de Data e na recuperação/leases/outbox de Control Plane.
 Governance não inclui as regras externas de auditoria de saúde.
 
 ## Migração
@@ -92,3 +93,30 @@ da refatoração são comparados à develop integrada, incluindo os OIDs IANA at
 os ports de certificados/refresh tokens e a composição AWS adicionada nessa base.
 Primitivas genéricas DynamoDB e protocolo de conexões SQLite pertencem a Data;
 Identity não importa adaptadores concretos de Control Plane, mesmo para tipos.
+
+## Definição restrita de Domain solicitada pelo usuário
+
+Domain representa somente competência, identificadores e invariantes dos dados
+CNES/SUS e suas transformações de negócio. Pureza é necessária, mas insuficiente:
+um módulo entra no Core somente se expressar uma regra desses dados. O gate de
+arquitetura mantém um inventário explícito das áreas permitidas.
+
+- Billing, entidades/estados de controle, planejamento de execução, quotas, leases,
+  gates e outbox pertencem a Control Plane, inclusive suas partes puras.
+- Certificados, tokens e autenticação pertencem a Identity. Leads públicos têm
+  DTOs em Contracts e port/stores em Data.
+- Tenant ContextVar, mapeamento para persistência, ports de storage e circuit
+  breaker de I/O pertencem a Data.
+- Perfis, parsing de configuração e políticas de release/retenção de artefatos
+  pertencem a Runtime. Identity recebe interfaces estreitas em vez de Runtime.
+- Contracts compartilha o vocabulário de erros e os DTOs estruturais Membership
+  e OutboxEvent, preservando serialização/rehidratação. Não recebe decisões de
+  autorização, billing, transições, retry, execução ou retenção.
+
+Esta decisão substitui a concentração anterior de ports e primitivas técnicas
+em Domain. Não cria pacotes adicionais nem altera contratos externos.
+
+A origem dos arquivos de produção AWS muda para Ops, mas os caminhos dentro de
+production-config/config.tar permanecem deploy/compose.production.yaml e
+deploy/aws/config. O contrato do candidato e seus consumidores não mudam;
+checksums e testes de empacotamento verificam os bytes reais com esses aliases.

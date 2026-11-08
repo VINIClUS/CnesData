@@ -13,13 +13,13 @@ from apps.billing_worker.tests.support import (
     make_worker,
 )
 from billing_worker.main import main
-from cnes_control_plane.billing.settings import BillingConfigurationError
-from cnes_domain.billing.errors import (
+from cnes_control_plane.billing.errors import (
     BillingDependencyError,
     PermanentBillingError,
     RetryableBillingError,
 )
-from cnes_domain.billing.inbox import ReconciliationRequest, RecoveryRequest
+from cnes_control_plane.billing.inbox import ReconciliationRequest, RecoveryRequest
+from cnes_control_plane.billing.settings import BillingConfigurationError
 
 
 def _injetar(**overrides: object):

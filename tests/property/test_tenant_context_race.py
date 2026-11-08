@@ -17,7 +17,7 @@ from hypothesis import strategies as st
 ))
 def test_context_var_isolada_por_thread(tenants, executor):
     """Cada thread deve ver seu proprio tenant — nunca vazamento."""
-    from cnes_domain.tenant import get_tenant_id, set_tenant_id
+    from cnes_data.tenant import get_tenant_id, set_tenant_id
 
     results: dict[int, tuple[str, str | None]] = {}
     lock = threading.Lock()

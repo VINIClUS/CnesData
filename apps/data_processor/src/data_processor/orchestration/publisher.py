@@ -8,18 +8,19 @@ from hashlib import sha256
 from io import BytesIO
 from typing import TYPE_CHECKING
 
+from cnes_contracts.audit import OutboxEvent
 from cnes_contracts.manifests.outputs import OutputManifest, RunManifest
-from cnes_domain.control_plane.commands import PublicationPermit, PublishDataset
-from cnes_domain.control_plane.entities import DatasetVersion, OutboxEvent
-from cnes_domain.control_plane.enums import RunStage, RunState, RunUnitState
+from cnes_control_plane.model.commands import PublicationPermit, PublishDataset
+from cnes_control_plane.model.entities import DatasetVersion
+from cnes_control_plane.model.enums import RunStage, RunState, RunUnitState
 from data_processor.orchestration.attempt_store import attempt_object_key, unit_attempt_prefix
 
 if TYPE_CHECKING:
     from datetime import datetime
 
-    from cnes_domain.control_plane.entities import DatasetPointer, ManifestRef, Run, RunUnit
-    from cnes_domain.ports.control_plane import ControlPlanePort
-    from cnes_domain.ports.object_store import ObjectStorePort
+    from cnes_control_plane.model.entities import DatasetPointer, ManifestRef, Run, RunUnit
+    from cnes_control_plane.ports.control_plane import ControlPlanePort
+    from cnes_data.object_store.ports import ObjectStorePort
 
 logger = logging.getLogger(__name__)
 

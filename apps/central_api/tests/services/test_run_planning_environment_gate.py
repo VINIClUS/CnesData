@@ -27,12 +27,11 @@ from central_api.services.run_planning import (
     RunPlanningDependencies,
     RunPlanningService,
 )
-from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
-from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
-from cnes_domain.billing.errors import EntitlementDenied
-from cnes_domain.control_plane.commands import ClaimRunUnit
-from cnes_domain.control_plane.enums import DispatchOutcome, DispatchState, RunState
-from cnes_domain.control_plane.environment_gate import (
+from cnes_contracts.errors import FenceRejected
+from cnes_control_plane.billing.errors import EntitlementDenied
+from cnes_control_plane.model.commands import ClaimRunUnit
+from cnes_control_plane.model.enums import DispatchOutcome, DispatchState, RunState
+from cnes_control_plane.model.environment_gate import (
     AcquireUnitPermit,
     AcquisitionStatus,
     BindUnitPermit,
@@ -40,13 +39,14 @@ from cnes_domain.control_plane.environment_gate import (
     PermitHolder,
     UnitPermit,
 )
-from cnes_domain.control_plane.errors import FenceRejected
-from cnes_domain.orchestration.dispatch_admission import (
+from cnes_control_plane.orchestration.dispatch_admission import (
     ABSENCE_PROOF_GRACE_SECONDS,
     EnvironmentAdmission,
 )
-from cnes_domain.orchestration.source_catalog import build_source_catalog
-from cnes_domain.ports.environment_gate import (
+from cnes_control_plane.orchestration.source_catalog import build_source_catalog
+from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
+from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
+from cnes_control_plane.ports.environment_gate import (
     UNGATED_ADMISSION,
     DeferralReason,
     DispatchDeferred,
@@ -54,16 +54,20 @@ from cnes_domain.ports.environment_gate import (
     ExecutionPresence,
     UnitAdmission,
 )
-from cnes_domain.ports.processing import ExecutionCallbacks, ExecutionPolicyConfig, ExecutionStatus
-from cnes_domain.profiles import parse_profile
+from cnes_control_plane.ports.processing import (
+    ExecutionCallbacks,
+    ExecutionPolicyConfig,
+    ExecutionStatus,
+)
+from cnes_runtime.profiles import parse_profile
 from data_processor.orchestration.coordinator import allow_execution, noop_execution_started
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
     from pathlib import Path
 
-    from cnes_domain.control_plane.entities import Run, RunDispatch
-    from cnes_domain.ports.processing import (
+    from cnes_control_plane.model.entities import Run, RunDispatch
+    from cnes_control_plane.ports.processing import (
         CancelRunExecution,
         ExecutionPermit,
         ExecutionStarted,

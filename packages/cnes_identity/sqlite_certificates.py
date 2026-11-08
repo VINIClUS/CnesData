@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from typing import TYPE_CHECKING
 
-from cnes_domain.auth.certificates import (
+from cnes_identity.certificates import (
     CertificateConflict,
     CertificateRecord,
     CertificateStoreUnavailable,
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from cnes_data import SQLiteConnectionsPort
-    from cnes_domain.auth.certificates import CertificateKey
+    from cnes_identity.certificates import CertificateKey
 
 _COLUMNS = (
     "tenant_id",

@@ -11,16 +11,16 @@ from cnes_contracts.manifests.processing import (
     ReconcileRequest,
 )
 from cnes_contracts.manifests.raw import RawManifest, SourceType
-from cnes_domain.control_plane.enums import RunStage, RunUnitState
+from cnes_control_plane.model.enums import RunStage, RunUnitState
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from datetime import datetime
 
-    from cnes_domain.control_plane.entities import ManifestRef, Run, RunUnit
-    from cnes_domain.orchestration.source_catalog import PipelineLayout, SubtypeLayout
-    from cnes_domain.ports.control_plane import ControlPlanePort
-    from cnes_domain.ports.object_store import ObjectStorePort
+    from cnes_control_plane.model.entities import ManifestRef, Run, RunUnit
+    from cnes_control_plane.orchestration.source_catalog import PipelineLayout, SubtypeLayout
+    from cnes_control_plane.ports.control_plane import ControlPlanePort
+    from cnes_data.object_store.ports import ObjectStorePort
     from data_processor.orchestration.attempt_store import AttemptObjectStore
     from data_processor.pipeline.source_registry import SourcePipeline, SourceRegistry
 

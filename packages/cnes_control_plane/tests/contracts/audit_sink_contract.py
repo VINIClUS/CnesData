@@ -9,9 +9,9 @@ from datetime import UTC, datetime
 from hashlib import sha256
 from typing import Any, Protocol
 
-from cnes_domain.control_plane.entities import OutboxEvent
-from cnes_domain.control_plane.errors import Conflict
-from cnes_domain.ports.audit import AuditSinkPort
+from cnes_contracts.audit import OutboxEvent
+from cnes_contracts.errors import Conflict
+from cnes_control_plane.ports.audit import AuditSinkPort
 
 
 @dataclass(frozen=True, slots=True)

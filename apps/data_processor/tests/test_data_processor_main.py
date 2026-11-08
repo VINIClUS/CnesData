@@ -202,9 +202,9 @@ class TestPollUntilShutdown:
 
 
 def _control_plane_com_run_falho():
-    from cnes_domain.control_plane.entities import Run, RunDependency
-    from cnes_domain.control_plane.enums import RunState
-    from cnes_domain.ports.control_plane import ControlPlanePort
+    from cnes_control_plane.model.entities import Run, RunDependency
+    from cnes_control_plane.model.enums import RunState
+    from cnes_control_plane.ports.control_plane import ControlPlanePort
 
     def run(run_id: str, state: RunState) -> Run:
         return Run(
@@ -228,7 +228,7 @@ def _control_plane_com_run_falho():
 
 
 def _runtime_com_run_falho():
-    from cnes_domain.ports.processing import (
+    from cnes_control_plane.ports.processing import (
         ExecutionCallbacks,
         ExecutionPolicyConfig,
         ProcessorExecutorPort,

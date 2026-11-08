@@ -10,12 +10,12 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
+from cnes_data.circuit_breaker import CircuitBreaker
 from cnes_data.ingestion import datasus_cnes_transport as transport_module
 from cnes_data.ingestion.datasus_cnes_transport import (
     DatasusCnesFtpTransport,
     DatasusCnesRequest,
 )
-from cnes_domain.pipeline.circuit_breaker import CircuitBreaker
 
 if TYPE_CHECKING:
     from collections.abc import Callable

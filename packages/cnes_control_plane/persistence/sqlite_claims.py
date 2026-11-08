@@ -5,6 +5,12 @@ from datetime import timedelta
 from hashlib import sha256
 from typing import TYPE_CHECKING, Any, cast
 
+from cnes_contracts.errors import Conflict, FenceRejected, LeaseLost
+from cnes_contracts.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_control_plane.model import enums
+from cnes_control_plane.model.entities import RunDispatch, RunUnit
+from cnes_control_plane.model.enums import JobState, RunUnitState
+from cnes_control_plane.model.transitions import transition_run, transition_run_unit
 from cnes_control_plane.persistence import sqlite_raw_registration
 from cnes_control_plane.persistence.sqlite_dispatch import (
     put_run_dispatch_bind,
@@ -25,22 +31,12 @@ from cnes_control_plane.persistence.sqlite_schema import (
     validate_run_dispatch_wave,
     validate_run_unit_terminal_replay,
 )
-from cnes_domain.control_plane.entities import RunDispatch, RunUnit
-from cnes_domain.control_plane.enums import (
-    AgentState,
-    DispatchState,
-    JobState,
-    RunState,
-    RunUnitState,
-)
-from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost
-from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
-from cnes_domain.control_plane.transitions import transition_run, transition_run_unit
 
 if TYPE_CHECKING:
     from datetime import datetime
 
-    from cnes_domain.control_plane.commands import (
+    from cnes_contracts.audit import OutboxEvent
+    from cnes_control_plane.model.commands import (
         BindRunDispatch,
         CancelJob,
         ClaimJob,
@@ -55,13 +51,13 @@ if TYPE_CHECKING:
         RenewJobLease,
         ReserveRunDispatch,
     )
-    from cnes_domain.control_plane.entities import Job, OutboxEvent
+    from cnes_control_plane.model.entities import Job
 def _validate_job_fence(store: Any, connection: Any, command: Any) -> Job:
     job = store.get_job_record(connection, command.tenant_id, command.job_id)
     agent = None if job is None else store.get_agent_record(connection, job.tenant_id, job.agent_id)
     if job is None or job.state is not JobState.LEASED:
         raise LeaseLost(ErrorCode.JOB_NOT_LEASED)
-    if agent is None or agent.state is AgentState.REVOKED:
+    if agent is None or agent.state is enums.AgentState.REVOKED:
         raise LeaseLost(ErrorCode.AGENT_REVOKED)
     if job.lease_owner != command.owner:
         raise LeaseLost(ErrorCode.OWNER_MISMATCH)
@@ -75,7 +71,7 @@ def claim_job(store: Any, command: ClaimJob) -> Job | None:
         job = store.get_job_record(connection, command.tenant_id, command.job_id)
         agent = None if job is None else store.get_agent_record(
             connection, job.tenant_id, job.agent_id)
-        if job is None or agent is None or agent.state is AgentState.REVOKED:
+        if job is None or agent is None or agent.state is enums.AgentState.REVOKED:
             return None
         retryable = job.state in {JobState.PENDING, JobState.FAILED_RETRYABLE}
         expired = job.state is JobState.LEASED and (
@@ -266,7 +262,7 @@ def _has_live_unit_lease(connection: Any, command: Any, dispatch: RunDispatch | 
 def reserve_run_dispatch(store: Any, command: ReserveRunDispatch) -> RunDispatch:
     with store.write_transaction() as connection:
         run = store.get_run_record(connection, command.tenant_id, command.run_id)
-        if run is None or run.state is not RunState.PROCESSING:
+        if run is None or run.state is not enums.RunState.PROCESSING:
             raise Conflict(ErrorCode.PARENT_NOT_PROCESSING)
         registered = {unit.unit_id for unit in _list_run_units(
             connection, command.tenant_id, command.run_id)}
@@ -279,11 +275,11 @@ def reserve_run_dispatch(store: Any, command: ReserveRunDispatch) -> RunDispatch
             same_wave
             and cast("RunDispatch", current).lease_until > command.now
             and cast("RunDispatch", current).state
-            in {DispatchState.RESERVED, DispatchState.STARTED}
+            in {enums.DispatchState.RESERVED, enums.DispatchState.STARTED}
         )
         if replay:
             return cast("RunDispatch", current)
-        live = current and current.state is not DispatchState.TERMINAL
+        live = current and current.state is not enums.DispatchState.TERMINAL
         lease_live = current is not None and current.lease_until > command.now
         if _has_live_unit_lease(connection, command, current) or (live and lease_live):
             raise Conflict(ErrorCode.DISPATCH_LIVE)
@@ -298,7 +294,7 @@ def reserve_run_dispatch(store: Any, command: ReserveRunDispatch) -> RunDispatch
             dispatch_id=sha256(identity.encode()).hexdigest()[:16],
             generation=generation,
             unit_ids=command.unit_ids,
-            state=DispatchState.RESERVED,
+            state=enums.DispatchState.RESERVED,
             lease_until=command.now + timedelta(seconds=command.lease_seconds),
         )
         _put_dispatch(connection, dispatch)
@@ -309,10 +305,10 @@ def get_active_run_dispatch(store: Any, tenant_id: str, run_id: str) -> RunDispa
             "SELECT d.data FROM run_dispatches d JOIN runs r "
             "ON r.tenant_id = d.tenant_id AND r.run_id = d.run_id "
             "WHERE d.tenant_id = ? AND d.run_id = ? AND r.state = ?",
-            (tenant_id, run_id, RunState.PROCESSING.value),
+            (tenant_id, run_id, enums.RunState.PROCESSING.value),
         ).fetchone()
     dispatch = None if row is None else deserialize_model(row[0], RunDispatch)
-    if dispatch is None or dispatch.state is DispatchState.TERMINAL:
+    if dispatch is None or dispatch.state is enums.DispatchState.TERMINAL:
         return None
     return dispatch if dispatch.lease_until > store.now() else None
 
@@ -322,18 +318,18 @@ def bind_run_dispatch(store: Any, command: BindRunDispatch) -> RunDispatch:
         if replay is not None:
             return replay
         run = store.get_run_record(connection, command.tenant_id, command.run_id)
-        if run is None or run.state is not RunState.PROCESSING:
+        if run is None or run.state is not enums.RunState.PROCESSING:
             raise Conflict(ErrorCode.PARENT_NOT_PROCESSING)
         dispatch = _get_dispatch(connection, command.tenant_id, command.run_id)
         if dispatch is None or dispatch.dispatch_id != command.dispatch_id:
             raise Conflict(ErrorCode.DISPATCH_STALE)
         if dispatch.lease_until <= command.now:
             raise Conflict(ErrorCode.DISPATCH_EXPIRED)
-        if dispatch.state is not DispatchState.RESERVED:
+        if dispatch.state is not enums.DispatchState.RESERVED:
             raise Conflict(ErrorCode.DISPATCH_TERMINAL)
         started = dispatch.model_copy(
             update={
-                "state": DispatchState.STARTED,
+                "state": enums.DispatchState.STARTED,
                 "execution_ref": command.execution_ref,
                 "lease_until": command.now + timedelta(seconds=command.lease_seconds),
             }
@@ -352,7 +348,7 @@ def finish_run_dispatch(store: Any, command: FinishRunDispatch) -> RunDispatch:
         if dispatch.lease_until <= command.finished_at:
             raise Conflict(ErrorCode.DISPATCH_EXPIRED)
         finished = dispatch.model_copy(
-            update={"state": DispatchState.TERMINAL, "terminal_outcome": command.outcome}
+            update={"state": enums.DispatchState.TERMINAL, "terminal_outcome": command.outcome}
         )
         _put_dispatch(connection, finished)
         put_run_dispatch_finish(connection, command, finished)
@@ -367,12 +363,12 @@ def claim_run_unit(store: Any, command: ClaimRunUnit) -> RunUnit | None:
         valid_dispatch = (
             dispatch is not None
             and dispatch.dispatch_id == command.dispatch_id
-            and dispatch.state is not DispatchState.TERMINAL
+            and dispatch.state is not enums.DispatchState.TERMINAL
             and dispatch.lease_until > command.now
             and command.unit_id in dispatch.unit_ids
         )
         ids = (command.tenant_id, command.run_id, command.dispatch_id)
-        invalid = unit is None or run is None or run.state is not RunState.PROCESSING
+        invalid = unit is None or run is None or run.state is not enums.RunState.PROCESSING
         invalid = invalid or not store.unit_companion_allows(connection, *ids)
         if invalid or not valid_dispatch:
             return None
@@ -402,11 +398,11 @@ def _validate_unit_fence(store: Any, connection: Any, command: Any) -> tuple[Run
     unit = next((item for item in units if item.unit_id == command.unit_id), None)
     run = store.get_run_record(connection, command.tenant_id, command.run_id)
     dispatch = _get_dispatch(connection, command.tenant_id, command.run_id)
-    if run is None or run.state is not RunState.PROCESSING:
+    if run is None or run.state is not enums.RunState.PROCESSING:
         raise LeaseLost(ErrorCode.PARENT_NOT_PROCESSING)
     if dispatch is None or dispatch.dispatch_id != command.dispatch_id:
         raise LeaseLost(ErrorCode.DISPATCH_MISMATCH)
-    if dispatch.state not in {DispatchState.RESERVED, DispatchState.STARTED}:
+    if dispatch.state not in {enums.DispatchState.RESERVED, enums.DispatchState.STARTED}:
         raise LeaseLost(ErrorCode.DISPATCH_INACTIVE)
     if dispatch.lease_until <= store.now():
         raise LeaseLost(ErrorCode.DISPATCH_EXPIRED)
@@ -482,10 +478,10 @@ def finalize_run_cancellation(
 ) -> Any:
     with store.write_transaction() as connection:
         run = store.get_run_record(connection, command.tenant_id, command.run_id)
-        if run is not None and run.state is RunState.CANCELED:
+        if run is not None and run.state is enums.RunState.CANCELED:
             validate_run_cancellation(connection, command, event)
             return run
-        if run is None or run.state is not RunState.CANCEL_REQUESTED:
+        if run is None or run.state is not enums.RunState.CANCEL_REQUESTED:
             raise Conflict(ErrorCode.RUN_NOT_CANCELING)
         terminal = {
             RunUnitState.SUCCEEDED, RunUnitState.SUCCEEDED_DEGRADED,
@@ -498,7 +494,7 @@ def finalize_run_cancellation(
                 canceled = transition_run_unit(unit, RunUnitState.CANCELED, run).model_copy(
                     update={"lease_owner": None, "lease_until": None})
                 _put_run_unit(connection, canceled)
-        canceled_run = transition_run(run, RunState.CANCELED)
+        canceled_run = transition_run(run, enums.RunState.CANCELED)
         store.put_run_record(connection, canceled_run)
         put_run_cancellation(connection, command, event)
         return canceled_run

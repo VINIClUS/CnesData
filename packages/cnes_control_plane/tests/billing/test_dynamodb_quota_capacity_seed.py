@@ -4,10 +4,10 @@ import logging
 
 import pytest
 
+from cnes_control_plane.billing.errors import EntitlementDenied, QuotaExceeded
 from cnes_control_plane.billing.keys import capacity_usage_key, usage_key
+from cnes_control_plane.billing.models import CapacityKind, RunAuthorization
 from cnes_data.dynamodb import item_key
-from cnes_domain.billing.errors import EntitlementDenied, QuotaExceeded
-from cnes_domain.billing.models import CapacityKind, RunAuthorization
 from packages.cnes_control_plane.tests.billing.billing_factories import TABLE_NAME
 from packages.cnes_control_plane.tests.billing.quota_support import (
     ACCOUNT,

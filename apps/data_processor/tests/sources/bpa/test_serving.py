@@ -21,7 +21,7 @@ from cnes_contracts.manifests.processing import (
     ReconcileRequest,
 )
 from cnes_contracts.manifests.raw import RawManifest, SourceType
-from cnes_domain.ports.object_store import ObjectStat
+from cnes_data.object_store.ports import ObjectStat
 from data_processor.sources.bpa import serving
 from data_processor.sources.bpa.contract import BPA_LAYOUT
 from data_processor.sources.bpa.normalize import normalize_bpa

@@ -5,36 +5,39 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
-from cnes_domain.control_plane.commands import (
+from cnes_contracts.audit import OutboxEvent
+from cnes_contracts.errors import Conflict, ControlPlaneErrorCode
+from cnes_control_plane.model.commands import (
     BindRunDispatch,
     FinalizeRunCancellation,
     FinishRunDispatch,
     ReserveRunDispatch,
     TransitionRun,
 )
-from cnes_domain.control_plane.entities import OutboxEvent
-from cnes_domain.control_plane.enums import DispatchOutcome, DispatchState, RunState, RunUnitState
-from cnes_domain.control_plane.errors import Conflict, ControlPlaneErrorCode
-from cnes_domain.orchestration.dispatch_admission import dispatch_holder, settle_run_dispatches
-from cnes_domain.orchestration.fan_in import decide_fan_in
-from cnes_domain.orchestration.planner import (
+from cnes_control_plane.model.enums import DispatchOutcome, DispatchState, RunState, RunUnitState
+from cnes_control_plane.orchestration.dispatch_admission import (
+    dispatch_holder,
+    settle_run_dispatches,
+)
+from cnes_control_plane.orchestration.fan_in import decide_fan_in
+from cnes_control_plane.orchestration.planner import (
     RunPlan,
     execution_request,
     logical_wave_id,
     ready_units,
 )
-from cnes_domain.ports.environment_gate import UNGATED_ADMISSION, DispatchDeferred
-from cnes_domain.ports.processing import CancelRunExecution, ExecutionPermit, ExecutionStatus
+from cnes_control_plane.ports.environment_gate import UNGATED_ADMISSION, DispatchDeferred
+from cnes_control_plane.ports.processing import CancelRunExecution, ExecutionPermit, ExecutionStatus
 from data_processor.orchestration.publisher import PublishRequest
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from datetime import datetime
 
-    from cnes_domain.control_plane.entities import Run, RunDispatch, RunUnit
-    from cnes_domain.ports.control_plane import ControlPlanePort
-    from cnes_domain.ports.environment_gate import DeferralReason
-    from cnes_domain.ports.processing import (
+    from cnes_control_plane.model.entities import Run, RunDispatch, RunUnit
+    from cnes_control_plane.ports.control_plane import ControlPlanePort
+    from cnes_control_plane.ports.environment_gate import DeferralReason
+    from cnes_control_plane.ports.processing import (
         ExecutionPolicyConfig,
         ProcessorExecutorPort,
         StartRunExecution,

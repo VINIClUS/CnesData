@@ -30,25 +30,25 @@ from cnes_control_plane.billing.dynamodb_projection import DynamoEntitlementProj
 from cnes_control_plane.billing.dynamodb_quota_items import decode_capacity_reservation
 from cnes_control_plane.billing.dynamodb_revocation import DynamoRevocationStore
 from cnes_control_plane.billing.keys import capacity_usage_key
-from cnes_control_plane.billing.wiring import BillingGateResources
-from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
-from cnes_control_plane.persistence.dynamodb_keys import pointer_key, version_key
-from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
-from cnes_data.dynamodb import encode_model
-from cnes_data.object_store.filesystem import FilesystemObjectStore
-from cnes_domain.billing.models import (
+from cnes_control_plane.billing.models import (
     BillingEnforcementMode,
     CapacityReservation,
     EntitlementSnapshot,
     QuotaLimits,
     ReadConsistency,
 )
-from cnes_domain.billing.revocation import (
+from cnes_control_plane.billing.revocation import (
     ImmediateRevocationService,
     RevocationDependencies,
     RevocationSettings,
 )
-from cnes_domain.control_plane.entities import DatasetPointer, DatasetVersion
+from cnes_control_plane.billing.wiring import BillingGateResources
+from cnes_control_plane.model.entities import DatasetPointer, DatasetVersion
+from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
+from cnes_control_plane.persistence.dynamodb_keys import pointer_key, version_key
+from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
+from cnes_data.dynamodb import encode_model
+from cnes_data.object_store.filesystem import FilesystemObjectStore
 from cnes_identity.oidc import OidcPrincipal
 from packages.cnes_control_plane.tests.billing.billing_factories import (
     NOW,

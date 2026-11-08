@@ -3,9 +3,9 @@ from typing import Any, cast
 
 import pytest
 
+from cnes_contracts.errors import Conflict
+from cnes_control_plane.model.enums import AgentState
 from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
-from cnes_domain.control_plane.enums import AgentState
-from cnes_domain.control_plane.errors import Conflict
 
 NOW = datetime(2026, 9, 26, tzinfo=UTC)
 

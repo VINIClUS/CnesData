@@ -4,7 +4,7 @@ import json
 from datetime import datetime
 from typing import Any
 
-from cnes_domain.control_plane.outbox import (
+from cnes_control_plane.model.outbox import (
     OutboxCursor,
     OutboxPage,
     next_outbox_cursor,

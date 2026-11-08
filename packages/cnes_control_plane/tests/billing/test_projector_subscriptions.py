@@ -4,9 +4,9 @@ from datetime import timedelta
 
 import pytest
 
-from cnes_domain.billing.commands import StripeStateRequest
-from cnes_domain.billing.inbox import InboxProcessingState
-from cnes_domain.billing.models import SubscriptionStatus
+from cnes_control_plane.billing.commands import StripeStateRequest
+from cnes_control_plane.billing.inbox import InboxProcessingState
+from cnes_control_plane.billing.models import SubscriptionStatus
 from packages.cnes_control_plane.tests.billing.billing_factories import NOW
 from packages.cnes_control_plane.tests.billing.test_projector import (
     CUSTOMER,

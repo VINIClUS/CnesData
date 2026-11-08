@@ -4,13 +4,13 @@ from unittest.mock import MagicMock
 
 import requests
 
+from cnes_data.circuit_breaker import CircuitBreaker
 from cnes_data.ingestion.cnes_oficial_web_adapter import (
     STATUS_CONFIRMADO,
     STATUS_INDISPONIVEL,
     STATUS_LAG,
     CnesOficialWebAdapter,
 )
-from cnes_domain.pipeline.circuit_breaker import CircuitBreaker
 
 _CNES = "0985333"
 

@@ -5,19 +5,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol, Self, cast
 
+from cnes_contracts.modes import BillingMode
+from cnes_control_plane.billing.inbox import RecoveryRequest
 from cnes_control_plane.billing.settings import BillingConfigurationError
 from cnes_control_plane.billing.stripe_gateway import StripeGateway, StripeGatewayConfig
-from cnes_domain.billing.inbox import RecoveryRequest
-from cnes_domain.profiles import BillingMode
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from cnes_control_plane.billing.projector import ProjectorDependencies
-    from cnes_control_plane.billing.recovery import WebhookRecovery
-    from cnes_control_plane.billing.stripe_gateway import StripeClientProtocol
-    from cnes_control_plane.billing.webhook_verifier import StripeWebhookVerifier
-    from cnes_domain.billing.ports import (
+    from cnes_control_plane.billing.ports import (
         BillingAuditPort,
         BillingCatalogPort,
         ClockPort,
@@ -26,6 +22,10 @@ if TYPE_CHECKING:
         StripeGatewayPort,
         WebhookInboxPort,
     )
+    from cnes_control_plane.billing.projector import ProjectorDependencies
+    from cnes_control_plane.billing.recovery import WebhookRecovery
+    from cnes_control_plane.billing.stripe_gateway import StripeClientProtocol
+    from cnes_control_plane.billing.webhook_verifier import StripeWebhookVerifier
 
 __all__ = [
     "BillingStorage",

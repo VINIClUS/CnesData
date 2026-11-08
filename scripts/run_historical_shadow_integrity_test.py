@@ -19,7 +19,7 @@ from scripts.run_historical_shadow import main, write_report
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from cnes_domain.ports.object_store import ObjectStat
+    from cnes_data.object_store.ports import ObjectStat
 
 _ROOT = Path(__file__).resolve().parents[1]
 _TENANT = "354130"

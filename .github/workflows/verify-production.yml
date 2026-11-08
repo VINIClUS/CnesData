@@ -12,10 +12,11 @@
 # and use image@digest. image.id binds the loaded local image; it can be a manifest digest.
 # production-dashboard: dist.tar (dist contents at archive root), source.sha, run.id,
 # run.attempt, SHA256SUMS. This is the exact production build exercised by the dist gate.
-# production-config: config.tar preserves repo-relative ops/deploy/aws/compose.production.yaml,
-# ops/deploy/aws/config, uv.lock, apps/web_dashboard/bun.lock,
+# production-config: config.tar preserves deploy/compose.production.yaml,
+# deploy/aws/config, uv.lock, apps/web_dashboard/bun.lock,
 # infra/opentofu/env/prod/.terraform.lock.hcl, infra/opentofu/modules/observability/cost-manifest.json,
 # policies and schemas/cost-manifest.schema.json.
+# Sources for the two deploy files live under ops/deploy/aws; archive names stay stable.
 # source.sha, run.id, run.attempt, SHA256SUMS identify that archive. No rendered env or secret.
 # Verify every SHA256SUMS/manifest.sha256 before consumption. Retention: 30 days; expired
 # artifacts require a new successful verification run, never reconstruction from mutable tags.
@@ -267,7 +268,10 @@ jobs:
       - name: Package validated configuration and locks
         run: |
           mkdir -p config-artifact
-          tar -cf config-artifact/config.tar ops/deploy/aws/compose.production.yaml ops/deploy/aws/config \
+          tar -cf config-artifact/config.tar \
+            --transform='s,^ops/deploy/aws/compose\.production\.yaml$,deploy/compose.production.yaml,' \
+            --transform='s,^ops/deploy/aws/config$,deploy/aws/config,' \
+            ops/deploy/aws/compose.production.yaml ops/deploy/aws/config \
             uv.lock apps/web_dashboard/bun.lock infra/opentofu/env/prod/.terraform.lock.hcl \
             infra/opentofu/modules/observability/cost-manifest.json policies \
             schemas/cost-manifest.schema.json

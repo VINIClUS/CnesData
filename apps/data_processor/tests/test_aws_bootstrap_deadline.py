@@ -16,7 +16,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from cnes_domain.ports.processing import RunUnitMessage
+from cnes_control_plane.ports.processing import RunUnitMessage
 from cnes_runtime.aws.settings import AwsRuntimeConfigurationError
 from data_processor.aws_composition import AwsRecoveryRuntime, AwsUnitRuntime
 
@@ -64,8 +64,7 @@ def probe(monkeypatch: pytest.MonkeyPatch) -> Any:
 
 def _invalid(case: str) -> tuple[dict[str, str], list[str]]:
     cases: dict[str, tuple[Mapping[str, str | None], list[str]]] = {
-        "unknown": ({}, ["desconhecido"]),
-        "partial": ({"TENANT_ID": "354130"}, ["recover-once"]),
+        "unknown": ({}, ["desconhecido"]), "partial": ({"TENANT_ID": "354130"}, ["recover-once"]),
         "envelope": (_UNIT | {"LEASE_SECONDS": "29"}, []),
         "unit-settings": (_UNIT | {"AWS_DATA_BUCKET": None}, []),
         "recovery-settings": ({"AWS_PROCESSOR_RECOVERY_BATCH_SIZE": "99"}, ["recover-once"]),

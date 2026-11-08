@@ -8,7 +8,7 @@ from uuid import UUID
 
 from botocore.exceptions import BotoCoreError, ClientError
 
-from cnes_domain.public_leads import (
+from cnes_contracts.public_leads import (
     STRING_LIMITS,
     PublicLead,
     PublicLeadConflict,

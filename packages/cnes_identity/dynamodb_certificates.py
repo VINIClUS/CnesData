@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, cast
 
 from botocore.exceptions import BotoCoreError, ClientError
 
+from cnes_contracts.errors import Conflict
 from cnes_data.dynamodb import (
     Item,
     decode_model,
@@ -16,13 +17,12 @@ from cnes_data.dynamodb import (
     payload,
     put_action,
 )
-from cnes_domain.auth.certificates import (
+from cnes_identity.certificates import (
     CertificateConflict,
     CertificateRecord,
     CertificateStoreUnavailable,
     validate_certificate_instant_utc,
 )
-from cnes_domain.control_plane.errors import Conflict
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from botocore.client import BaseClient
     from types_boto3_dynamodb.client import DynamoDBClient
 
-    from cnes_domain.auth.certificates import CertificateKey
+    from cnes_identity.certificates import CertificateKey
 
 
 class DynamoDBCertificateRegister:

@@ -6,7 +6,7 @@ from datetime import datetime
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
-from cnes_domain.tenant import set_tenant_id
+from cnes_data.tenant import set_tenant_id
 
 
 @dataclass

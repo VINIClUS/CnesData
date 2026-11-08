@@ -20,14 +20,14 @@ from apps.central_api.tests.services.test_serving_entitlement import (
 )
 from central_api.services.billing_gates import ApiBillingGates
 from central_api.services.serving_access import ServingUnavailable
-from cnes_domain.billing.errors import BillingDependencyError
-from cnes_domain.billing.models import EntitlementAction, SubscriptionStatus
-from cnes_domain.billing.shadow import (
+from cnes_contracts.modes import BillingMode
+from cnes_control_plane.billing.errors import BillingDependencyError
+from cnes_control_plane.billing.models import EntitlementAction, SubscriptionStatus
+from cnes_control_plane.billing.shadow import (
     ShadowEntitlementObserver,
     ShadowObservation,
     ShadowObserverDependencies,
 )
-from cnes_domain.profiles import BillingMode
 
 
 class SpyObserver:

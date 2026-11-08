@@ -32,7 +32,14 @@ from central_api.services.raw_upload import (
     RawUploadTooLarge,
 )
 from central_api.validation_errors import validation_error
-from cnes_domain.billing.errors import (
+from cnes_contracts.errors import (
+    Conflict,
+    ControlPlaneErrorCode,
+    FenceRejected,
+    LeaseLost,
+    NotFound,
+)
+from cnes_control_plane.billing.errors import (
     BillingError,
     EntitlementDenied,
     IdempotencyConflict,
@@ -40,18 +47,13 @@ from cnes_domain.billing.errors import (
     QuotaExceeded,
     RetryableBillingError,
 )
-from cnes_domain.control_plane.commands import ClaimJob, RenewJobLease
-from cnes_domain.control_plane.errors import (
-    Conflict,
-    ControlPlaneErrorCode,
-    FenceRejected,
-    LeaseLost,
-    NotFound,
+from cnes_control_plane.model.commands import ClaimJob, RenewJobLease
+from cnes_control_plane.ports.control_plane import (  # noqa: TC001 - FastAPI resolves annotations at runtime.
+    ControlPlanePort,
 )
-from cnes_domain.ports.control_plane import ControlPlanePort  # noqa: TC001
 
 if TYPE_CHECKING:
-    from cnes_domain.control_plane.entities import Job
+    from cnes_control_plane.model.entities import Job
 
 EDGE_JOB_LEASE_SECONDS = 300
 logger = logging.getLogger(__name__)

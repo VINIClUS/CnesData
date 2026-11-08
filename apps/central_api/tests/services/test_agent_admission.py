@@ -13,9 +13,15 @@ from central_api.services.billing_gates import (
     BillingAccountMissing,
     TenantAccountResolver,
 )
-from cnes_control_plane.persistence.edge_registration import EdgeAgentCreation, EntitlementFence
-from cnes_domain.billing.errors import EntitlementDenied, QuotaExceeded, RetryableBillingError
-from cnes_domain.billing.models import (
+from cnes_contracts.errors import Conflict
+from cnes_contracts.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_contracts.modes import BillingMode
+from cnes_control_plane.billing.errors import (
+    EntitlementDenied,
+    QuotaExceeded,
+    RetryableBillingError,
+)
+from cnes_control_plane.billing.models import (
     AccessLevel,
     CapacityKind,
     CapacityReservation,
@@ -23,15 +29,13 @@ from cnes_domain.billing.models import (
     EntitlementDecision,
     ReservationStatus,
 )
-from cnes_domain.control_plane.entities import Agent
-from cnes_domain.control_plane.enums import AgentState
-from cnes_domain.control_plane.errors import Conflict
-from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
-from cnes_domain.profiles import BillingMode
+from cnes_control_plane.model.entities import Agent
+from cnes_control_plane.model.enums import AgentState
+from cnes_control_plane.persistence.edge_registration import EdgeAgentCreation, EntitlementFence
 
 if TYPE_CHECKING:
-    from cnes_domain.billing.gate import EntitlementGate
-    from cnes_domain.billing.ports import QuotaReservationPort
+    from cnes_control_plane.billing.gate import EntitlementGate
+    from cnes_control_plane.billing.ports import QuotaReservationPort
 
 NOW = datetime(2026, 7, 15, 12, tzinfo=UTC)
 FINGERPRINT = sha256(b"certificate").hexdigest()

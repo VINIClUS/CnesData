@@ -30,17 +30,18 @@ from apps.data_processor.tests.test_aws_unit_composition import (
     _seed_graph,
     _seed_output,
 )
+from cnes_contracts.errors import ControlPlaneErrorCode, LeaseLost
+from cnes_control_plane.billing.commands import SnapshotWrite
 from cnes_control_plane.billing.dynamodb_projection import DynamoEntitlementProjection
+from cnes_control_plane.billing.errors import EntitlementDenied
+from cnes_control_plane.billing.execution import RunExecutionPermit
+from cnes_control_plane.billing.execution_policy import BillingConcurrencyPolicy
+from cnes_control_plane.billing.models import ReadConsistency, SubscriptionStatus
 from cnes_control_plane.billing.settings import BillingSettings
-from cnes_domain.billing import BillingConcurrencyPolicy, RunExecutionPermit
-from cnes_domain.billing.commands import SnapshotWrite
-from cnes_domain.billing.errors import EntitlementDenied
-from cnes_domain.billing.models import ReadConsistency, SubscriptionStatus
-from cnes_domain.control_plane.commands import TransitionRun
-from cnes_domain.control_plane.entities import RunDispatch
-from cnes_domain.control_plane.enums import DispatchState, RunState
-from cnes_domain.control_plane.errors import ControlPlaneErrorCode, LeaseLost
-from cnes_domain.ports.processing import ExecutionPermit
+from cnes_control_plane.model.commands import TransitionRun
+from cnes_control_plane.model.entities import RunDispatch
+from cnes_control_plane.model.enums import DispatchState, RunState
+from cnes_control_plane.ports.processing import ExecutionPermit
 from cnes_runtime.aws.processor_settings import AwsRecoverySettings, AwsUnitSettings
 from data_processor.aws_composition import (
     AwsExecutionPolicy,

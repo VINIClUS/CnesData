@@ -11,10 +11,10 @@ import pytest
 from botocore.exceptions import ClientError
 from moto import mock_aws
 
+from cnes_contracts.errors import Conflict
+from cnes_control_plane.outbox_dispatcher import DispatchResult, dispatch_once
 from cnes_control_plane.persistence.dynamodb_keys import outbox_key
 from cnes_data.dynamodb import item_key
-from cnes_domain.control_plane.errors import Conflict
-from cnes_domain.outbox_dispatcher import DispatchResult, dispatch_once
 from packages.cnes_control_plane.tests.contracts.clock import _NOW
 from packages.cnes_control_plane.tests.control_plane.outbox_cursor_support import (
     OutboxHarness,

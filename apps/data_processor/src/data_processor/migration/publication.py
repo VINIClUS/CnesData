@@ -9,8 +9,8 @@ from cnes_contracts.manifests.outputs import OutputManifest, RunManifest
 from data_processor.migration.report import sha256_hex
 
 if TYPE_CHECKING:
-    from cnes_domain.ports.control_plane import ControlPlanePort
-    from cnes_domain.ports.object_store import ObjectStorePort
+    from cnes_control_plane.ports.control_plane import ControlPlanePort
+    from cnes_data.object_store.ports import ObjectStorePort
 
 
 class ShadowRunError(Exception):

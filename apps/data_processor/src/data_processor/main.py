@@ -16,7 +16,7 @@ from boto3.session import Session
 
 from cnes_control_plane.billing.settings import BillingConfigurationError, BillingSettings
 from cnes_control_plane.execution.step_functions import IncompatibleStateMachine
-from cnes_domain.outbox_dispatcher import dispatch_once
+from cnes_control_plane.outbox_dispatcher import dispatch_once
 from cnes_observability import configure_json_stdout
 from cnes_observability.telemetry import init_telemetry
 from cnes_runtime.aws.processor_settings import (
@@ -44,8 +44,8 @@ from data_processor.orchestration.coordinator import noop_execution_started
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from cnes_domain.ports.audit import AuditSinkPort
-    from cnes_domain.ports.control_plane import ControlPlanePort
+    from cnes_control_plane.ports.audit import AuditSinkPort
+    from cnes_control_plane.ports.control_plane import ControlPlanePort
     from data_processor.aws_composition import AwsModeRuntime
     from data_processor.orchestration.coordinator import PipelineCoordinator
 
@@ -134,7 +134,7 @@ async def _poll_until_shutdown(
 
 async def _run_local_profile() -> None:
     """Compõe o runtime local e mantém o processo vivo drenando runs recuperáveis."""
-    from cnes_domain.profiles import parse_profile
+    from cnes_runtime.profiles import parse_profile
     from data_processor.composition import build_local_processor_runtime
     from data_processor.config import POLL_INTERVAL
 

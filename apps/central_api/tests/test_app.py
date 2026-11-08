@@ -252,7 +252,7 @@ class TestAdminTokenGuard:
 
 class TestTenantHeader:
     def test_header_x_tenant_id_sozinho_nao_define_tenant(self, app):
-        from cnes_domain.tenant import tenant_id_ctx
+        from cnes_data.tenant import tenant_id_ctx
 
         @app.get("/__tenant_probe")
         def probe() -> dict:

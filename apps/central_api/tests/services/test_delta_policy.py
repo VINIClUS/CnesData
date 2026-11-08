@@ -5,7 +5,7 @@ import pytest
 
 from central_api.services.delta_policy import DeltaPolicy, ResyncReason, _DeltaContext
 from cnes_contracts import RawManifest, SnapshotMode, SourceType, manifest_sha256
-from cnes_domain.control_plane.entities import RawResyncState
+from cnes_control_plane.model.entities import RawResyncState
 
 NOW = datetime(2026, 7, 15, 12, tzinfo=UTC)
 HASH = "a" * 64

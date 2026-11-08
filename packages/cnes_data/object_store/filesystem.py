@@ -15,9 +15,9 @@ from stat import S_ISREG
 from typing import TYPE_CHECKING
 from weakref import finalize
 
+from cnes_contracts.errors import Conflict
 from cnes_data.object_store._common import require_digest, stream_with_digest, validate_key
-from cnes_domain.control_plane.errors import Conflict
-from cnes_domain.ports.object_store import ObjectStat
+from cnes_data.object_store.ports import ObjectStat
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator

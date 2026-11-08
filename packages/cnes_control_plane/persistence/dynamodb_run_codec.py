@@ -1,5 +1,9 @@
 """Canonical DynamoDB encoding of Run items and dependency markers."""
 
+from cnes_contracts.errors import Conflict
+from cnes_contracts.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_control_plane.model.entities import Run
+from cnes_control_plane.model.enums import RunState
 from cnes_control_plane.persistence.dynamodb_codec import encode_marker
 from cnes_control_plane.persistence.dynamodb_keys import (
     dependency_marker_key,
@@ -8,10 +12,6 @@ from cnes_control_plane.persistence.dynamodb_keys import (
     timestamp,
 )
 from cnes_data.dynamodb import Action, Item, encode_model, put_action
-from cnes_domain.control_plane.entities import Run
-from cnes_domain.control_plane.enums import RunState
-from cnes_domain.control_plane.errors import Conflict
-from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
 
 RECOVERABLE_RUN_STATES = {
     RunState.WAITING_INPUTS,

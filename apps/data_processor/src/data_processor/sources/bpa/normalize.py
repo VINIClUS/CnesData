@@ -33,8 +33,8 @@ if TYPE_CHECKING:
 
     from cnes_contracts.manifests.processing import NormalizeRequest
     from cnes_contracts.manifests.raw import RawManifest
-    from cnes_domain.orchestration.source_catalog import SubtypeLayout
-    from cnes_domain.ports.object_store import ObjectStorePort
+    from cnes_control_plane.orchestration.source_catalog import SubtypeLayout
+    from cnes_data.object_store.ports import ObjectStorePort
 
     type _CastSchema = Mapping[ColumnNameOrSelector | PolarsDataType, PolarsDataType]
 

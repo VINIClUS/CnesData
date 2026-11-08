@@ -21,13 +21,13 @@ from central_api.routes.billing_errors import mapped_errors
 from central_api.routes.raw_jobs import get_control_plane
 from central_api.services.billing_gates import ApiBillingGates
 from central_api.validation_errors import validation_error
-from cnes_domain.billing.commands import (
+from cnes_control_plane.billing.commands import (
     CapacityReservationCommand,
     CreateBilledTenantCommand,
     GateRequest,
     ReleaseCapacityCommand,
 )
-from cnes_domain.billing.errors import (
+from cnes_control_plane.billing.errors import (
     BillingError,
     BillingTenantConflict,
     EntitlementDenied,
@@ -35,7 +35,7 @@ from cnes_domain.billing.errors import (
     PermanentBillingError,
     QuotaExceeded,
 )
-from cnes_domain.billing.models import (
+from cnes_control_plane.billing.models import (
     BillingAccount,
     BillingAccountStatus,
     BillingAccountTenantLink,
@@ -45,9 +45,9 @@ from cnes_domain.billing.models import (
     ReadConsistency,
     ReservationStatus,
 )
-from cnes_domain.billing.shadow import ShadowObservation
-from cnes_domain.control_plane.entities import Tenant
-from cnes_domain.ports.control_plane import ControlPlanePort
+from cnes_control_plane.billing.shadow import ShadowObservation
+from cnes_control_plane.model.entities import Tenant
+from cnes_control_plane.ports.control_plane import ControlPlanePort
 
 logger = logging.getLogger(__name__)
 

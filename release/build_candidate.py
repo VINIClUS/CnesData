@@ -39,7 +39,7 @@ SOURCE_PATHS = (
     "infra/opentofu/modules/processor-registry/main.tf",
 )
 CONFIG_PATHS = {
-    "compose": "ops/deploy/aws/compose.production.yaml", "python": "uv.lock",
+    "compose": "deploy/compose.production.yaml", "python": "uv.lock",
     "dashboard": "apps/web_dashboard/bun.lock",
     "opentofu": "infra/opentofu/env/prod/.terraform.lock.hcl",
 }

@@ -6,37 +6,35 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
+from cnes_contracts.audit import OutboxEvent
 from cnes_control_plane.billing.audit_outbox import DynamoBillingAudit
 from cnes_control_plane.billing.dynamodb_projection import DynamoEntitlementProjection
 from cnes_control_plane.billing.dynamodb_quota_items import decode_reservation
 from cnes_control_plane.billing.dynamodb_revocation import DynamoRevocationStore
 from cnes_control_plane.billing.keys import reservation_key
-from cnes_control_plane.billing.wiring import BillingGateResources, build_entitlement_gate
-from cnes_domain.billing.models import QuotaReservation
-from cnes_domain.billing.publication import BillingPublicationPolicy, PublicationPolicyDependencies
-from cnes_domain.billing.revocation import (
+from cnes_control_plane.billing.models import QuotaReservation
+from cnes_control_plane.billing.publication import (
+    BillingPublicationPolicy,
+    PublicationPolicyDependencies,
+)
+from cnes_control_plane.billing.revocation import (
     ImmediateRevocationCommand,
     ImmediateRevocationService,
     RevocationDependencies,
     RevocationResult,
     RevocationSettings,
 )
-from cnes_domain.control_plane.commands import (
+from cnes_control_plane.billing.wiring import BillingGateResources, build_entitlement_gate
+from cnes_control_plane.model.commands import (
     CommitRunUnit,
     FailRunUnit,
     PublicationPermit,
     PublishDataset,
     TransitionRun,
 )
-from cnes_domain.control_plane.entities import (
-    DatasetPointer,
-    DatasetVersion,
-    ManifestRef,
-    OutboxEvent,
-    Run,
-)
-from cnes_domain.control_plane.enums import RunState
-from cnes_domain.ports.processing import CancelRunExecution
+from cnes_control_plane.model.entities import DatasetPointer, DatasetVersion, ManifestRef, Run
+from cnes_control_plane.model.enums import RunState
+from cnes_control_plane.ports.processing import CancelRunExecution
 from data_processor.orchestration.publisher import (
     DatasetPublisher,
     PublicationPolicy,
@@ -64,8 +62,8 @@ from tests.integration.billing._execution_stack import (
 )
 
 if TYPE_CHECKING:
+    from cnes_control_plane.model.entities import RunDispatch
     from cnes_data.dynamodb import Item
-    from cnes_domain.control_plane.entities import RunDispatch
     from packages.cnes_control_plane.tests.billing.revocation_support import RevEnv
 
 SQLITE_DISABLED = Case("sqlite-disabled", dynamo=False, stripe=False)

@@ -10,11 +10,11 @@ from cnes_control_plane.billing.dynamodb_quota_items import (
     encode_reservation,
     encode_run_billing_state,
 )
+from cnes_control_plane.billing.errors import RetryableBillingError
+from cnes_control_plane.billing.models import ReservationStatus
+from cnes_control_plane.billing.revocation import FailDeniedPublicationCommand
+from cnes_control_plane.model.enums import RunState
 from cnes_control_plane.persistence.dynamodb_run_codec import run_item
-from cnes_domain.billing.errors import RetryableBillingError
-from cnes_domain.billing.models import ReservationStatus
-from cnes_domain.billing.revocation import FailDeniedPublicationCommand
-from cnes_domain.control_plane.enums import RunState
 from packages.cnes_control_plane.tests.billing.quota_support import NOW, TENANT
 from packages.cnes_control_plane.tests.billing.revocation_support import (
     RUN_ID,

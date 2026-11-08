@@ -17,7 +17,7 @@ from pydantic import ValidationError
 
 from cnes_contracts.manifests.processing import NormalizeRequest, NormalizeResult
 from cnes_contracts.manifests.raw import RawManifest, SourceType
-from cnes_domain.ports.object_store import ObjectStat
+from cnes_data.object_store.ports import ObjectStat
 from data_processor.sources.bpa.contract import BPA_DEPENDENCIES, BPA_LAYOUT
 from data_processor.sources.bpa.normalize import normalize_bpa
 

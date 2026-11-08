@@ -6,6 +6,8 @@ from typing import Any
 import pytest
 from botocore.exceptions import EndpointConnectionError
 
+from cnes_control_plane.billing.errors import BillingDependencyError, PermanentBillingError
+from cnes_control_plane.billing.inbox import InboxProcessingState, InboxRecoveryRecord
 from cnes_control_plane.billing.keys import STRIPE_RECOVERY_DUE_PARTITION, stripe_event_key
 from cnes_control_plane.billing.webhook_inbox import WebhookInbox
 from cnes_control_plane.billing.webhook_inbox_items import (
@@ -13,8 +15,6 @@ from cnes_control_plane.billing.webhook_inbox_items import (
     retry_delay_seconds,
 )
 from cnes_data.dynamodb import item_key
-from cnes_domain.billing.errors import BillingDependencyError, PermanentBillingError
-from cnes_domain.billing.inbox import InboxProcessingState, InboxRecoveryRecord
 from packages.cnes_control_plane.tests.billing.billing_factories import NOW, TABLE_NAME
 from packages.cnes_control_plane.tests.billing.test_webhook_inbox import (
     EVENTUAL,

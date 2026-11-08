@@ -6,15 +6,15 @@ import boto3
 import pytest
 from moto import mock_aws
 
+from cnes_contracts.errors import Conflict
+from cnes_contracts.errors import ControlPlaneErrorCode as ErrorCode
 from cnes_control_plane.billing.dynamodb_quota import RUN_FIXED_ACTIONS
+from cnes_control_plane.billing.errors import PermanentBillingError
+from cnes_control_plane.model.entities import Run, RunDependency
+from cnes_control_plane.model.enums import RunState
+from cnes_control_plane.model.queries import RawIdentity, WaitingRunsForDependencyQuery
 from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
 from cnes_control_plane.persistence.dynamodb_run_codec import run_dependency_actions
-from cnes_domain.billing.errors import PermanentBillingError
-from cnes_domain.control_plane.entities import Run, RunDependency
-from cnes_domain.control_plane.enums import RunState
-from cnes_domain.control_plane.errors import Conflict
-from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
-from cnes_domain.control_plane.queries import RawIdentity, WaitingRunsForDependencyQuery
 from packages.cnes_control_plane.tests.billing.billing_factories import (
     NOW,
     TABLE_NAME,

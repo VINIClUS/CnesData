@@ -2,16 +2,16 @@
 
 from dataclasses import dataclass
 
-from cnes_domain.billing.execution_policy import local_billing_account_id
-from cnes_domain.billing.gate import EntitlementGate
-from cnes_domain.billing.ports import BillingAuditPort, QuotaReservationPort
-from cnes_domain.billing.shadow import (
+from cnes_contracts.modes import BillingMode
+from cnes_control_plane.billing.execution_policy import local_billing_account_id
+from cnes_control_plane.billing.gate import EntitlementGate
+from cnes_control_plane.billing.ports import BillingAuditPort, QuotaReservationPort
+from cnes_control_plane.billing.shadow import (
     NULL_SHADOW_OBSERVER,
     ShadowObserver,
     TenantAccountReader,
     linked_billing_account,
 )
-from cnes_domain.profiles import BillingMode
 
 
 class BillingAccountMissing(Exception):

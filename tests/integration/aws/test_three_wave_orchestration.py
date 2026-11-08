@@ -5,14 +5,14 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
-from cnes_domain.control_plane.enums import (
+from cnes_contracts.errors import ControlPlaneErrorCode, FenceRejected
+from cnes_control_plane.model.enums import (
     DispatchOutcome,
     DispatchState,
     RunStage,
     RunState,
     RunUnitState,
 )
-from cnes_domain.control_plane.errors import ControlPlaneErrorCode, FenceRejected
 from tests.integration.aws._doubles import BindFailsOnce
 from tests.integration.aws._harness import (
     DATASET,
@@ -31,7 +31,7 @@ from tests.integration.aws._harness import (
 )
 
 if TYPE_CHECKING:
-    from cnes_domain.ports.control_plane import ControlPlanePort
+    from cnes_control_plane.ports.control_plane import ControlPlanePort
     from tests.integration.aws._harness import AwsTestRuntime
 
 pytestmark = [pytest.mark.dynamodb_local, pytest.mark.s3_integration]

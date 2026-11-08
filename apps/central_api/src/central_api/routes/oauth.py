@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 from central_api.deps import require_auth
 from central_api.middleware import AuthenticatedUser
 from central_api.ratelimit import limiter
-from cnes_domain.tenant import set_tenant_id
+from cnes_data.tenant import set_tenant_id
 from cnes_identity import (
     DeviceAuthorizationRequest,
     DeviceAuthorizationResponse,

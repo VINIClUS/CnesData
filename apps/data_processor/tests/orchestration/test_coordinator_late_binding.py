@@ -29,20 +29,16 @@ from apps.data_processor.tests.orchestration.test_coordinator_environment_gate i
     executor,
     gate,
 )
-from cnes_domain.control_plane.commands import (
+from cnes_contracts.errors import Conflict, ControlPlaneErrorCode
+from cnes_control_plane.model.commands import (
     BindRunDispatch,
     ClaimRunUnit,
     FinishRunDispatch,
     ReserveRunDispatch,
 )
-from cnes_domain.control_plane.enums import (
-    DispatchOutcome,
-    RunState,
-    RunUnitState,
-)
-from cnes_domain.control_plane.errors import Conflict, ControlPlaneErrorCode
-from cnes_domain.orchestration.dispatch_admission import EnvironmentAdmission
-from cnes_domain.ports.processing import ExecutionStatus
+from cnes_control_plane.model.enums import DispatchOutcome, RunState, RunUnitState
+from cnes_control_plane.orchestration.dispatch_admission import EnvironmentAdmission
+from cnes_control_plane.ports.processing import ExecutionStatus
 from data_processor.orchestration.coordinator import PipelineCoordinator
 from data_processor.orchestration.unit_worker import (
     UnitWorker,
@@ -60,10 +56,10 @@ if TYPE_CHECKING:
     from apps.data_processor.tests.orchestration.test_coordinator_environment_gate import (
         _StepFunctions,
     )
+    from cnes_control_plane.model.entities import Run
     from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
     from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
-    from cnes_domain.control_plane.entities import Run
-    from cnes_domain.ports.processing import StartRunExecution
+    from cnes_control_plane.ports.processing import StartRunExecution
 
 __all__ = ["adapter", "clock", "executor", "gate", "store"]
 _OPTIONAL = "CNES_NACIONAL/CNES_VINCULO"

@@ -11,7 +11,7 @@ from re import compile as re_compile
 from typing import Any, Protocol
 from urllib.parse import urlsplit
 
-from cnes_domain.billing.commands import (
+from cnes_control_plane.billing.commands import (
     CheckoutCommand,
     CreateStripeCustomerCommand,
     HostedSession,
@@ -20,9 +20,9 @@ from cnes_domain.billing.commands import (
     StripeCustomer,
     StripeStateRequest,
 )
-from cnes_domain.billing.errors import PermanentBillingError, RetryableBillingError
-from cnes_domain.billing.inbox import StripeEvent, StripeEventListRequest, StripeEventPage
-from cnes_domain.billing.models import PlanVersion, SubscriptionStatus
+from cnes_control_plane.billing.errors import PermanentBillingError, RetryableBillingError
+from cnes_control_plane.billing.inbox import StripeEvent, StripeEventListRequest, StripeEventPage
+from cnes_control_plane.billing.models import PlanVersion, SubscriptionStatus
 
 logger = logging.getLogger(__name__)
 

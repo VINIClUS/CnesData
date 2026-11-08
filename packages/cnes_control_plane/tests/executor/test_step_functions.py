@@ -21,7 +21,7 @@ from cnes_control_plane.execution.step_functions import (
     StepFunctionsExecutor,
     validate_state_machine,
 )
-from cnes_domain.ports.processing import (
+from cnes_control_plane.ports.processing import (
     CancelRunExecution,
     ExecutionStatus,
     ProcessorExecutorPort,

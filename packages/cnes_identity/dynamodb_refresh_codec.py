@@ -6,7 +6,7 @@ from re import fullmatch
 from typing import Any, Literal, cast
 
 from cnes_data.dynamodb import key_component
-from cnes_domain.refresh_tokens import RefreshTokenRecord, validate_refresh_token
+from cnes_identity.refresh_contracts import RefreshTokenRecord, validate_refresh_token
 
 type Projection = Literal["DIGEST", "AGENT"]
 type Item = dict[str, dict[str, str | bool]]

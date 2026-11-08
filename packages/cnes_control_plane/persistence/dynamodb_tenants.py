@@ -5,6 +5,23 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
+from cnes_contracts.modes import BillingMode
+from cnes_control_plane.billing.errors import (
+    BillingDependencyError,
+    BillingTenantConflict,
+    EntitlementDenied,
+    IdempotencyConflict,
+    PermanentBillingError,
+    RetryableBillingError,
+)
+from cnes_control_plane.billing.models import (
+    BillingAccountStatus,
+    CapacityKind,
+    EntitlementAction,
+    ReservationStatus,
+)
+from cnes_control_plane.billing.policy import EntitlementPolicy, require_allowed
+from cnes_control_plane.model.entities import Tenant
 from cnes_control_plane.persistence.billed_tenant import (
     TENANT_SCOPE,
     billed_tenant_digest,
@@ -30,32 +47,16 @@ from cnes_data.dynamodb import (
     payload,
     put_action,
 )
-from cnes_domain.billing.errors import (
-    BillingDependencyError,
-    BillingTenantConflict,
-    EntitlementDenied,
-    IdempotencyConflict,
-    PermanentBillingError,
-    RetryableBillingError,
-)
-from cnes_domain.billing.models import (
-    BillingAccountStatus,
-    CapacityKind,
-    EntitlementAction,
-    ReservationStatus,
-)
-from cnes_domain.billing.policy import EntitlementPolicy, require_allowed
-from cnes_domain.control_plane.entities import Membership, Tenant
-from cnes_domain.profiles import BillingMode
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from datetime import datetime
 
+    from cnes_contracts.membership import Membership
+    from cnes_control_plane.billing.commands import CreateBilledTenantCommand
+    from cnes_control_plane.billing.models import CapacityReservation, EntitlementSnapshot
     from cnes_control_plane.billing.settings import BillingSettings
-    from cnes_domain.billing.commands import CreateBilledTenantCommand
-    from cnes_domain.billing.models import CapacityReservation, EntitlementSnapshot
-    from cnes_domain.control_plane.entities import IdempotencyRecord
+    from cnes_control_plane.model.entities import IdempotencyRecord
 
 type _Prior = tuple[Item | None, IdempotencyRecord | None]
 _NO_VERSION = 0

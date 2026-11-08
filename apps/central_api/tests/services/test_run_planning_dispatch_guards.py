@@ -42,20 +42,20 @@ from apps.central_api.tests.services.test_run_planning_environment_gate import (
 )
 from central_api.services.run_planning import RunPlanningService
 from cnes_control_plane.execution.step_functions import ProcessorExecutionUnavailable
+from cnes_control_plane.model.entities import RawManifestRecord
+from cnes_control_plane.model.enums import DispatchState, RunState
+from cnes_control_plane.model.environment_gate import AcquisitionStatus, ClosePromotionFence
+from cnes_control_plane.model.execution_quota import execution_period
+from cnes_control_plane.orchestration.dispatch_admission import EnvironmentAdmission
 from cnes_control_plane.persistence.dynamodb_environment_gate import attempts_key
-from cnes_data.dynamodb import item_key
-from cnes_domain.control_plane.entities import RawManifestRecord
-from cnes_domain.control_plane.enums import DispatchState, RunState
-from cnes_domain.control_plane.environment_gate import AcquisitionStatus, ClosePromotionFence
-from cnes_domain.control_plane.execution_quota import execution_period
-from cnes_domain.orchestration.dispatch_admission import EnvironmentAdmission
-from cnes_domain.ports.environment_gate import (
+from cnes_control_plane.ports.environment_gate import (
     UNGATED_ADMISSION,
     DeferralReason,
     DispatchDeferred,
     UnitAdmission,
 )
-from cnes_domain.ports.processing import ExecutionCallbacks, ExecutionPermit, ExecutionStatus
+from cnes_control_plane.ports.processing import ExecutionCallbacks, ExecutionPermit, ExecutionStatus
+from cnes_data.dynamodb import item_key
 from data_processor.orchestration.coordinator import (
     CoordinatorDependencies,
     PipelineCoordinator,
@@ -75,11 +75,11 @@ if TYPE_CHECKING:
         _StepFunctions,
     )
     from central_api.services.run_planning import RunLaunchResult
+    from cnes_control_plane.model.entities import Run, RunDispatch, RunUnit
+    from cnes_control_plane.model.environment_gate import PermitHolder
     from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
     from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
-    from cnes_domain.control_plane.entities import Run, RunDispatch, RunUnit
-    from cnes_domain.control_plane.environment_gate import PermitHolder
-    from cnes_domain.ports.environment_gate import ExecutionObservation
+    from cnes_control_plane.ports.environment_gate import ExecutionObservation
     from data_processor.orchestration.coordinator import CoordinatorResult
 
 type _Pass = Callable[[], RunLaunchResult | CoordinatorResult]

@@ -33,7 +33,7 @@ dev-dependencies = [
 
 [tool.pyright]
 typeCheckingMode = "standard"
-strict = ["apps/*/src", "packages/*/*.py", "packages/*/alembic", "packages/*/aws", "packages/*/billing", "packages/*/contracts", "packages/*/control_plane", "packages/*/execution", "packages/*/ingestion", "packages/*/manifests", "packages/*/models", "packages/*/object_store", "packages/*/orchestration", "packages/*/persistence", "packages/*/pipeline", "packages/*/ports", "packages/*/processing", "packages/*/storage", "packages/*/validation"]
+strict = ["apps/*/src", "packages/*/*.py", "packages/*/alembic", "packages/*/artifacts", "packages/*/aws", "packages/*/billing", "packages/*/contracts", "packages/*/control_plane", "packages/*/execution", "packages/*/ingestion", "packages/*/manifests", "packages/*/model", "packages/*/models", "packages/*/object_store", "packages/*/orchestration", "packages/*/persistence", "packages/*/pipeline", "packages/*/ports", "packages/*/processing", "packages/*/public_leads", "packages/*/storage", "packages/*/validation"]
 pythonVersion = "3.13"
 venvPath = "."
 venv = ".venv"

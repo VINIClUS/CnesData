@@ -15,7 +15,7 @@ from cnes_contracts.manifests.processing import MaterializeResult
 if TYPE_CHECKING:
     from cnes_contracts.manifests.outputs import JsonValue
     from cnes_contracts.manifests.processing import MaterializeRequest
-    from cnes_domain.ports.object_store import ObjectStat, ObjectStorePort
+    from cnes_data.object_store.ports import ObjectStat, ObjectStorePort
 
 _SCHEMA_VERSION = "cnes-serving-v1"
 _DOCUMENT_NAME = "overview"

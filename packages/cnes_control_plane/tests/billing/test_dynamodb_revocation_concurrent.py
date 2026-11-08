@@ -4,11 +4,11 @@ from typing import Any, cast
 
 import pytest
 
+from cnes_contracts.audit import OutboxEvent
 from cnes_control_plane.billing.audit_outbox import DynamoBillingAudit
-from cnes_domain.billing.revocation import RevocationPhase
-from cnes_domain.control_plane.commands import FinalizeRunCancellation
-from cnes_domain.control_plane.entities import OutboxEvent
-from cnes_domain.control_plane.enums import RunState
+from cnes_control_plane.billing.revocation import RevocationPhase
+from cnes_control_plane.model.commands import FinalizeRunCancellation
+from cnes_control_plane.model.enums import RunState
 from packages.cnes_control_plane.tests.billing.billing_factories import NOW
 from packages.cnes_control_plane.tests.billing.quota_support import ACCOUNT, TENANT
 from packages.cnes_control_plane.tests.billing.revocation_support import (

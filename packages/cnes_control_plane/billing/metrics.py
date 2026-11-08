@@ -9,8 +9,8 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import Any, TextIO
 
-from cnes_domain.billing.models import BillingMetric, SubscriptionStatus
-from cnes_domain.billing.ports import BillingMetricsPort
+from cnes_control_plane.billing.models import BillingMetric, SubscriptionStatus
+from cnes_control_plane.billing.ports import BillingMetricsPort
 from cnes_observability.json_logging import JsonLogFormatter
 
 BILLING_METRICS_NAMESPACE = "CnesData/Billing"

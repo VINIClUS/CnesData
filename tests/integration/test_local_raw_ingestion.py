@@ -22,9 +22,10 @@ from central_api.routes.raw_jobs import (
 )
 from central_api.schemas.raw_api import EdgeIdentity
 from cnes_contracts import RawManifest, SnapshotMode, SourceType, manifest_sha256
-from cnes_domain.control_plane.entities import Agent, Job, OutboxEvent
-from cnes_domain.control_plane.enums import AgentState, JobState
-from cnes_domain.control_plane.queries import RawIdentity, RawManifestChainQuery
+from cnes_contracts.audit import OutboxEvent
+from cnes_control_plane.model.entities import Agent, Job
+from cnes_control_plane.model.enums import AgentState, JobState
+from cnes_control_plane.model.queries import RawIdentity, RawManifestChainQuery
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

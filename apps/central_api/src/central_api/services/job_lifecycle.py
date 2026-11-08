@@ -6,24 +6,25 @@ import re
 from hashlib import sha256
 from typing import TYPE_CHECKING
 
-from cnes_domain.control_plane.entities import OutboxEvent
-from cnes_domain.control_plane.enums import AgentState
-from cnes_domain.control_plane.errors import Conflict
-from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_contracts.audit import OutboxEvent
+from cnes_contracts.errors import Conflict
+from cnes_contracts.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_control_plane.model.enums import AgentState
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from datetime import datetime
 
-    from cnes_domain.control_plane.commands import (
+    from cnes_contracts.schema import JsonValue
+    from cnes_control_plane.model.commands import (
         CancelJob,
         ClaimJob,
         CompleteJob,
         FailJob,
         RenewJobLease,
     )
-    from cnes_domain.control_plane.entities import Job, JsonValue
-    from cnes_domain.ports.control_plane import ControlPlanePort
+    from cnes_control_plane.model.entities import Job
+    from cnes_control_plane.ports.control_plane import ControlPlanePort
 
 DEFAULT_MAX_ATTEMPTS = 5
 _ERROR_CODE = re.compile(r"^[A-Z0-9_]{1,64}$")

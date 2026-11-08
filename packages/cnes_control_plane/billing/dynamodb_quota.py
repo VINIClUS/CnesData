@@ -5,6 +5,11 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
+from cnes_control_plane.billing.commands import (
+    CreateRunRequest,
+    ReserveAnalyticsCommand,
+    ReserveRunCommand,
+)
 from cnes_control_plane.billing.dynamodb_items import (
     decode_snapshot,
     get_item,
@@ -40,23 +45,15 @@ from cnes_control_plane.billing.dynamodb_quota_items import (
 )
 from cnes_control_plane.billing.dynamodb_quota_recovery import DynamoQuotaRecoveryMixin
 from cnes_control_plane.billing.dynamodb_quota_settlement import DynamoQuotaSettlementMixin
-from cnes_control_plane.billing.keys import Key, entitlement_snapshot_key, usage_key
-from cnes_control_plane.persistence.dynamodb_keys import idempotency_key
-from cnes_control_plane.persistence.dynamodb_run_codec import run_dependency_actions, run_item
-from cnes_data.dynamodb import Action, Item
-from cnes_domain.billing.commands import (
-    CreateRunRequest,
-    ReserveAnalyticsCommand,
-    ReserveRunCommand,
-)
-from cnes_domain.billing.errors import (
+from cnes_control_plane.billing.errors import (
     EntitlementDenied,
     PermanentBillingError,
     QuotaExceeded,
     RetryableBillingError,
 )
-from cnes_domain.billing.execution import RunBillingState
-from cnes_domain.billing.models import (
+from cnes_control_plane.billing.execution import RunBillingState
+from cnes_control_plane.billing.keys import Key, entitlement_snapshot_key, usage_key
+from cnes_control_plane.billing.models import (
     AnalyticsAuthorization,
     EntitlementSnapshot,
     QuotaReservation,
@@ -64,9 +61,12 @@ from cnes_domain.billing.models import (
     ReservationStatus,
     RunAuthorization,
 )
-from cnes_domain.billing.ports import ClockPort
-from cnes_domain.control_plane.entities import IdempotencyRecord, Run
-from cnes_domain.control_plane.enums import RunState
+from cnes_control_plane.billing.ports import ClockPort
+from cnes_control_plane.model.entities import IdempotencyRecord, Run
+from cnes_control_plane.model.enums import RunState
+from cnes_control_plane.persistence.dynamodb_keys import idempotency_key
+from cnes_control_plane.persistence.dynamodb_run_codec import run_dependency_actions, run_item
+from cnes_data.dynamodb import Action, Item
 
 RUN_FIXED_ACTIONS = 8
 CONFLICT_CODE = "quota_reservation_conflict"

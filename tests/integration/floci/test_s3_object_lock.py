@@ -10,8 +10,8 @@ from uuid import uuid4
 import pytest
 from botocore.exceptions import ClientError
 
-from cnes_domain.control_plane.entities import OutboxEvent
-from cnes_domain.control_plane.errors import Conflict
+from cnes_contracts.audit import OutboxEvent
+from cnes_contracts.errors import Conflict
 from cnes_governance import S3ObjectLockAuditSink
 from tests.integration.floci._floci import outcome, unique_name
 from tests.integration.floci._iam import create_user, delete_user, statement

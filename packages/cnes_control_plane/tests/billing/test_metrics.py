@@ -19,8 +19,8 @@ from cnes_control_plane.billing.metrics import (
     billing_metric,
     build_billing_metrics,
 )
-from cnes_domain.billing.models import BillingMetric, SubscriptionStatus
-from cnes_domain.billing.ports import BillingMetricsPort
+from cnes_control_plane.billing.models import BillingMetric, SubscriptionStatus
+from cnes_control_plane.billing.ports import BillingMetricsPort
 from cnes_observability.json_logging import configure_json_stdout
 
 from .billing_factories import NOW

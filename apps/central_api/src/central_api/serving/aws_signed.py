@@ -13,8 +13,9 @@ if TYPE_CHECKING:
     from botocore.client import BaseClient
     from types_boto3_s3.client import S3Client
 
-    from cnes_domain.ports.object_store import ObjectStorePort
-    from cnes_domain.ports.serving import ServingAccessPort, ServingGrant, ServingRequest
+    from cnes_contracts.serving import ServingGrant, ServingRequest
+    from cnes_control_plane.ports.serving import ServingAccessPort
+    from cnes_data.object_store.ports import ObjectStorePort
 
 logger = logging.getLogger(__name__)
 

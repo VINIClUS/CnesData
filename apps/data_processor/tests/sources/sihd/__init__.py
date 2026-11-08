@@ -15,7 +15,7 @@ import polars as pl
 
 from cnes_contracts.manifests.processing import NormalizeRequest, ReconcileRequest
 from cnes_contracts.manifests.raw import RawManifest, SourceType
-from cnes_domain.ports.object_store import ObjectStat
+from cnes_data.object_store.ports import ObjectStat
 
 if TYPE_CHECKING:
     from contextlib import AbstractContextManager as ContextManager

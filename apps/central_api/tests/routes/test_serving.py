@@ -24,8 +24,8 @@ from central_api.serving import (
     SignedServingGrant,
     SignedServingRequest,
 )
-from cnes_domain.ports.object_store import ObjectStat
-from cnes_domain.ports.serving import ServingGrant, ServingRequest
+from cnes_contracts.serving import ServingGrant, ServingRequest
+from cnes_data.object_store.ports import ObjectStat
 
 if TYPE_CHECKING:
     from central_api.serving.aws_signed import S3SignedServingAccess

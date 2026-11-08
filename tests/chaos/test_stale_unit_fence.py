@@ -34,7 +34,7 @@ class _FakeObjectStore:
     objects: dict[str, bytes] = field(default_factory=dict)
 
     def put(self, key: str, body: BinaryIO, expected_sha256: str):
-        from cnes_domain.ports.object_store import ObjectStat
+        from cnes_data.object_store.ports import ObjectStat
 
         data = body.read()
         self.objects[key] = data
@@ -44,7 +44,7 @@ class _FakeObjectStore:
         return nullcontext(BytesIO(self.objects[key]))
 
     def stat(self, key: str):
-        from cnes_domain.ports.object_store import ObjectStat
+        from cnes_data.object_store.ports import ObjectStat
 
         data = self.objects.get(key)
         if data is None:
@@ -64,17 +64,13 @@ def test_worker_atrasado_nao_sobrescreve_output_apos_supersede(tmp_path):
     """Invariant: a stale worker whose dispatch is superseded mid-flight never
     commits into RunUnit.output_manifests — its writes stay confined to tmp/."""
     try:
+        from cnes_contracts.errors import FenceRejected, LeaseLost
         from cnes_contracts.manifests.outputs import OutputManifest
         from cnes_contracts.manifests.raw import SourceType
+        from cnes_control_plane.model.commands import ClaimRunUnit, PutRunUnits, ReserveRunDispatch
+        from cnes_control_plane.model.entities import ManifestRef, Run, RunDependency, RunUnit
+        from cnes_control_plane.model.enums import RunStage, RunState, RunUnitState
         from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
-        from cnes_domain.control_plane.commands import (
-            ClaimRunUnit,
-            PutRunUnits,
-            ReserveRunDispatch,
-        )
-        from cnes_domain.control_plane.entities import ManifestRef, Run, RunDependency, RunUnit
-        from cnes_domain.control_plane.enums import RunStage, RunState, RunUnitState
-        from cnes_domain.control_plane.errors import FenceRejected, LeaseLost
         from data_processor.orchestration.unit_worker import UnitWorker, UnitWorkerDependencies
     except ImportError:
         pytest.skip("control plane / orchestration modules not available")

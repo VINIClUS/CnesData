@@ -5,6 +5,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from cnes_contracts.modes import BillingMode
 from cnes_control_plane.billing import (
     LOCAL_BILLING_SETTINGS,
     BillingConfigurationError,
@@ -17,10 +18,9 @@ from cnes_control_plane.billing import (
 )
 from cnes_control_plane.billing.disabled import DisabledQuotaReservations
 from cnes_control_plane.billing.dynamodb_quota import DynamoQuotaReservations
+from cnes_control_plane.billing.gate import EntitlementGate
+from cnes_control_plane.billing.models import BillingEnforcementMode
 from cnes_control_plane.billing.wiring import ShadowEntitlementGate
-from cnes_domain.billing.gate import EntitlementGate
-from cnes_domain.billing.models import BillingEnforcementMode
-from cnes_domain.profiles import BillingMode
 from packages.cnes_control_plane.tests.billing.billing_factories import NOW, TABLE_NAME
 from packages.cnes_control_plane.tests.billing.quota_support import quota_env
 

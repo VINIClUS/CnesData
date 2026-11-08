@@ -31,14 +31,14 @@ from cnes_control_plane.execution.step_functions import (
     StepFunctionsExecutionProbe,
     StepFunctionsExecutor,
 )
+from cnes_control_plane.orchestration.dispatch_admission import EnvironmentAdmission
+from cnes_control_plane.orchestration.source_catalog import SourceCatalog
 from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
+from cnes_control_plane.ports.environment_gate import UNGATED_ADMISSION
 from cnes_data.object_store import S3ObjectStore
-from cnes_domain.orchestration.dispatch_admission import EnvironmentAdmission
-from cnes_domain.orchestration.source_catalog import SourceCatalog
-from cnes_domain.ports.environment_gate import UNGATED_ADMISSION
-from cnes_domain.profiles import parse_profile
 from cnes_identity import OidcVerifier
 from cnes_runtime.aws import AwsClients, AwsRuntimeConfigurationError, AwsRuntimeSettings
+from cnes_runtime.profiles import parse_profile
 from packages.cnes_runtime.tests.aws.production_values import (
     PRODUCTION_STATE_MACHINE_ARN,
     PRODUCTION_VALUES,

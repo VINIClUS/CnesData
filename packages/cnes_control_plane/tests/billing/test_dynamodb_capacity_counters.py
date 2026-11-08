@@ -10,10 +10,10 @@ from botocore.exceptions import ClientError
 from moto import mock_aws
 
 from cnes_control_plane.billing.dynamodb_capacity_counters import DynamoCapacityCounters
+from cnes_control_plane.billing.errors import BillingDependencyError, PermanentBillingError
 from cnes_control_plane.billing.keys import capacity_usage_key
+from cnes_control_plane.billing.models import CapacityKind
 from cnes_data.dynamodb import item_key
-from cnes_domain.billing.errors import BillingDependencyError, PermanentBillingError
-from cnes_domain.billing.models import CapacityKind
 from packages.cnes_control_plane.tests.billing.billing_factories import TABLE_NAME, create_table
 from packages.cnes_control_plane.tests.billing.shadow_support import seed_capacity
 

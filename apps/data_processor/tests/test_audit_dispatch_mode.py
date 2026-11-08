@@ -12,7 +12,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from cnes_control_plane.billing.dynamodb_items import audit_outbox_event
-from cnes_domain.billing.models import BillingAuditEvent
+from cnes_control_plane.billing.models import BillingAuditEvent
 from packages.cnes_control_plane.tests.contracts.clock import _NOW
 from packages.cnes_control_plane.tests.control_plane.outbox_cursor_support import (
     OutboxHarness,

@@ -5,6 +5,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
+from cnes_contracts.errors import Conflict
+from cnes_contracts.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_control_plane.model.commands import PublishDataset
+from cnes_control_plane.model.entities import (
+    AccessRequest,
+    DatasetPointer,
+    DatasetVersion,
+    Job,
+    ManifestRef,
+    RawManifestRecord,
+)
+from cnes_control_plane.model.enums import AccessRequestState, JobState, RunState
+from cnes_control_plane.model.transitions import transition_run as apply_run_transition
 from cnes_control_plane.persistence.sqlite_schema import (
     deserialize_model,
     put_access_request_decision,
@@ -13,27 +26,15 @@ from cnes_control_plane.persistence.sqlite_schema import (
     validate_access_request_decision,
     validate_run_transition,
 )
-from cnes_domain.control_plane.commands import PublishDataset
-from cnes_domain.control_plane.entities import (
-    AccessRequest,
-    DatasetPointer,
-    DatasetVersion,
-    Job,
-    ManifestRef,
-    RawManifestRecord,
-)
-from cnes_domain.control_plane.enums import AccessRequestState, JobState, RunState
-from cnes_domain.control_plane.errors import Conflict
-from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
-from cnes_domain.control_plane.transitions import transition_run as apply_run_transition
 
 if TYPE_CHECKING:
     import sqlite3
     from datetime import datetime
 
-    from cnes_domain.control_plane.commands import TransitionRun
-    from cnes_domain.control_plane.entities import OutboxEvent, Run
-    from cnes_domain.control_plane.queries import (
+    from cnes_contracts.audit import OutboxEvent
+    from cnes_control_plane.model.commands import TransitionRun
+    from cnes_control_plane.model.entities import Run
+    from cnes_control_plane.model.queries import (
         LatestSucceededJobQuery,
         RawManifestChainQuery,
         WaitingRunsForDependencyQuery,

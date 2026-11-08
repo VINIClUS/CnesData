@@ -9,26 +9,20 @@ if TYPE_CHECKING:
 
     from pydantic import BaseModel
 
+    from cnes_contracts.audit import OutboxEvent
     from cnes_control_plane.billing.dynamodb_quota import DynamoQuotaReservations
+    from cnes_control_plane.billing.execution import RunBillingState
     from cnes_control_plane.billing.settings import BillingSettings
-    from cnes_control_plane.persistence.dynamodb_billing import ClaimDeferred
-    from cnes_data.dynamodb import Action, Item
-    from cnes_domain.billing.execution import RunBillingState
-    from cnes_domain.control_plane.commands import (
+    from cnes_control_plane.model.commands import (
         ClaimRunUnit,
         CommitRunUnit,
         FailRunUnit,
         PublishDataset,
     )
-    from cnes_domain.control_plane.entities import (
-        Job,
-        OutboxEvent,
-        RawManifestRecord,
-        Run,
-        RunDispatch,
-        RunUnit,
-    )
-    from cnes_domain.control_plane.queries import LatestSucceededJobQuery
+    from cnes_control_plane.model.entities import Job, RawManifestRecord, Run, RunDispatch, RunUnit
+    from cnes_control_plane.model.queries import LatestSucceededJobQuery
+    from cnes_control_plane.persistence.dynamodb_billing import ClaimDeferred
+    from cnes_data.dynamodb import Action, Item
 
     class DynamoDBHost:
         _client: Any

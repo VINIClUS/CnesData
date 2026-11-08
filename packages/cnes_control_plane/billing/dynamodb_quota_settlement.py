@@ -7,6 +7,7 @@ from typing import Any
 
 from botocore.exceptions import BotoCoreError, ClientError
 
+from cnes_control_plane.billing.commands import ConsumeReservationCommand, ReleaseReservationCommand
 from cnes_control_plane.billing.dynamodb_items import (
     UNAVAILABLE_CODE,
     get_item,
@@ -22,16 +23,12 @@ from cnes_control_plane.billing.dynamodb_quota_items import (
     scan_attributes,
     settle_usage_update,
 )
+from cnes_control_plane.billing.errors import BillingDependencyError, RetryableBillingError
 from cnes_control_plane.billing.keys import QUOTA_RESERVATION_LOCATOR_INDEX as LOCATOR_INDEX
 from cnes_control_plane.billing.keys import quota_reservation_locator, usage_key
+from cnes_control_plane.billing.models import QuotaReservation, ReservationStatus
+from cnes_control_plane.billing.ports import ClockPort
 from cnes_data.dynamodb import Action, Item, payload, put_action
-from cnes_domain.billing.commands import ConsumeReservationCommand, ReleaseReservationCommand
-from cnes_domain.billing.errors import (
-    BillingDependencyError,
-    RetryableBillingError,
-)
-from cnes_domain.billing.models import QuotaReservation, ReservationStatus
-from cnes_domain.billing.ports import ClockPort
 
 _MAX_ATTEMPTS = 3
 _NOT_FOUND = "quota_reservation_not_found"

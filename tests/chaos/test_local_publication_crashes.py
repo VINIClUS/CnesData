@@ -12,12 +12,12 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
+from cnes_contracts.errors import Conflict, ControlPlaneErrorCode
 from cnes_contracts.manifests.outputs import OutputManifest
+from cnes_control_plane.model.entities import ManifestRef, Run, RunDependency, RunUnit
+from cnes_control_plane.model.enums import RunStage, RunState, RunUnitState
 from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
 from cnes_data.object_store.filesystem import FilesystemObjectStore
-from cnes_domain.control_plane.entities import ManifestRef, Run, RunDependency, RunUnit
-from cnes_domain.control_plane.enums import RunStage, RunState, RunUnitState
-from cnes_domain.control_plane.errors import Conflict, ControlPlaneErrorCode
 from data_processor.orchestration.attempt_store import attempt_object_key, unit_attempt_prefix
 from data_processor.orchestration.publisher import DatasetPublisher, PublishRequest, PublishResult
 

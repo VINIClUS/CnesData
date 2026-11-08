@@ -8,6 +8,12 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
+from cnes_contracts.audit import OutboxEvent
+from cnes_contracts.errors import Conflict
+from cnes_contracts.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_contracts.membership import Membership
+from cnes_control_plane.model.entities import AccessRequest, Agent, Job, Run, Tenant
+from cnes_control_plane.model.enums import AgentState, JobState
 from cnes_control_plane.persistence import (
     sqlite_claims,
     sqlite_idempotency,
@@ -27,24 +33,12 @@ from cnes_control_plane.persistence.sqlite_schema import (
     serialize_model,
 )
 from cnes_control_plane.persistence.sqlite_tenants import SQLiteBilledTenantMixin
-from cnes_domain.control_plane.entities import (
-    AccessRequest,
-    Agent,
-    Job,
-    Membership,
-    OutboxEvent,
-    Run,
-    Tenant,
-)
-from cnes_domain.control_plane.enums import AgentState, JobState
-from cnes_domain.control_plane.errors import Conflict
-from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
     from datetime import datetime
 
-    from cnes_domain.control_plane.commands import (
+    from cnes_control_plane.model.commands import (
         BeginIdempotency,
         BindRunDispatch,
         CancelJob,
@@ -63,7 +57,7 @@ if TYPE_CHECKING:
         ReserveRunDispatch,
         TransitionRun,
     )
-    from cnes_domain.control_plane.entities import (
+    from cnes_control_plane.model.entities import (
         DatasetPointer,
         DatasetVersion,
         ManifestRef,
@@ -71,8 +65,8 @@ if TYPE_CHECKING:
         RunDispatch,
         RunUnit,
     )
-    from cnes_domain.control_plane.outbox import OutboxCursor, OutboxPage
-    from cnes_domain.control_plane.queries import (
+    from cnes_control_plane.model.outbox import OutboxCursor, OutboxPage
+    from cnes_control_plane.model.queries import (
         LatestSucceededJobQuery,
         RawManifestChainQuery,
         WaitingRunsForDependencyQuery,

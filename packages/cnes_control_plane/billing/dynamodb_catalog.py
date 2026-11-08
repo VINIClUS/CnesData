@@ -7,6 +7,11 @@ from typing import Any, cast
 from botocore.exceptions import ClientError
 
 from cnes_control_plane.billing.capacity_counters import empty_capacity_seed, seed_capacity_actions
+from cnes_control_plane.billing.commands import (
+    AttachStripeCustomerCommand,
+    CreateBillingAccountCommand,
+    TransferOwnerCommand,
+)
 from cnes_control_plane.billing.dynamodb_catalog_checkout import DynamoPendingCheckoutMixin
 from cnes_control_plane.billing.dynamodb_catalog_plans import DynamoPlanCatalogMixin
 from cnes_control_plane.billing.dynamodb_catalog_replays import DynamoLateReplayMixin
@@ -36,6 +41,13 @@ from cnes_control_plane.billing.dynamodb_items import (
     transact,
     utc_attribute,
 )
+from cnes_control_plane.billing.errors import (
+    BillingDependencyError,
+    BillingTenantConflict,
+    IdempotencyConflict,
+    PermanentBillingError,
+    RetryableBillingError,
+)
 from cnes_control_plane.billing.keys import (
     BILLING_ACCOUNT_LIST_PARTITION,
     BILLING_ACCOUNT_LIST_PREFIX,
@@ -48,29 +60,17 @@ from cnes_control_plane.billing.keys import (
     tenant_account_key,
     tenant_entity_key,
 )
-from cnes_control_plane.persistence.dynamodb_keys import idempotency_key
-from cnes_data.dynamodb import Action, Item, item_key, payload, put_action
-from cnes_domain.billing.commands import (
-    AttachStripeCustomerCommand,
-    CreateBillingAccountCommand,
-    TransferOwnerCommand,
-)
-from cnes_domain.billing.errors import (
-    BillingDependencyError,
-    BillingTenantConflict,
-    IdempotencyConflict,
-    PermanentBillingError,
-    RetryableBillingError,
-)
-from cnes_domain.billing.models import (
+from cnes_control_plane.billing.models import (
     BillingAccount,
     BillingAccountPage,
     BillingAccountTenantLink,
     BillingAuditEvent,
     ReadConsistency,
 )
-from cnes_domain.billing.ports import ClockPort
-from cnes_domain.control_plane.entities import IdempotencyRecord
+from cnes_control_plane.billing.ports import ClockPort
+from cnes_control_plane.model.entities import IdempotencyRecord
+from cnes_control_plane.persistence.dynamodb_keys import idempotency_key
+from cnes_data.dynamodb import Action, Item, item_key, payload, put_action
 
 CREATE_SCOPE = "billing_account.create"
 IDEMPOTENCY_TTL = timedelta(days=1)

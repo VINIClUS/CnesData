@@ -9,8 +9,8 @@ from uuid import UUID
 
 import pytest
 
+from cnes_contracts import public_leads as domain
 from cnes_data.public_leads import sqlite as sqlite_module
-from cnes_domain import public_leads as domain
 
 PublicLead = domain.PublicLead
 PublicLeadInput = domain.PublicLeadInput

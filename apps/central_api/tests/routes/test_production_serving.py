@@ -28,8 +28,8 @@ from central_api.serving.aws_signed import (
     SignedServingRequest,
     SignedServingSettings,
 )
-from cnes_domain.ports.object_store import ObjectStat
-from cnes_domain.ports.serving import ServingGrant, ServingRequest
+from cnes_contracts.serving import ServingGrant, ServingRequest
+from cnes_data.object_store.ports import ObjectStat
 from cnes_runtime.aws.runtime import create_aws_clients
 from cnes_runtime.aws.settings import AwsRuntimeSettings
 from packages.cnes_runtime.tests.aws.production_values import PRODUCTION_VALUES
@@ -39,8 +39,8 @@ if TYPE_CHECKING:
     from httpx import Response
     from types_boto3_s3.client import S3Client
 
-    from cnes_domain.ports.object_store import ObjectStorePort
-    from cnes_domain.ports.serving import ServingAccessPort
+    from cnes_control_plane.ports.serving import ServingAccessPort
+    from cnes_data.object_store.ports import ObjectStorePort
 
 NOW = datetime(2026, 10, 12, 12, tzinfo=UTC)
 TENANT = "354130"

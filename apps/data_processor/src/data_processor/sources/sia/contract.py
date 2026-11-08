@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 import polars as pl
 
 from cnes_contracts.manifests.raw import SourceType
-from cnes_domain.orchestration.source_definitions.sia import (
+from cnes_control_plane.orchestration.source_definitions.sia import (
     SIA_DEFINITION,
     SIA_DEPENDENCIES,
     SIA_LAYOUT,
@@ -28,7 +28,7 @@ if TYPE_CHECKING:
         ReconcileRequest,
     )
     from cnes_contracts.manifests.raw import RawManifest
-    from cnes_domain.ports.object_store import ObjectStat, ObjectStorePort
+    from cnes_data.object_store.ports import ObjectStat, ObjectStorePort
 
 __all__ = [
     "PROVENANCE_METADATA_KEY",

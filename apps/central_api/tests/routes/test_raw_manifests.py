@@ -20,19 +20,19 @@ from central_api.schemas.raw_api import EdgeIdentity, RawManifestSubmission
 from central_api.services.delta_policy import DeltaPolicy, ResyncReason
 from central_api.services.raw_ingestion import RawIngestionService
 from cnes_contracts import RawManifest, SnapshotMode, SourceType, manifest_sha256
-from cnes_domain.control_plane.entities import (
+from cnes_control_plane.model.entities import (
     Agent,
     Job,
     ManifestRef,
     RawManifestRecord,
     RawResyncState,
 )
-from cnes_domain.control_plane.enums import AgentState, JobState
-from cnes_domain.ports.object_store import ObjectStat
+from cnes_control_plane.model.enums import AgentState, JobState
+from cnes_data.object_store.ports import ObjectStat
 
 if TYPE_CHECKING:
     from central_api.services.raw_ingestion import _ControlPlane
-    from cnes_domain.ports.object_store import ObjectStorePort
+    from cnes_data.object_store.ports import ObjectStorePort
 
 NOW = datetime(2026, 7, 15, 12, tzinfo=UTC)
 FINGERPRINT = sha256(b"certificate").hexdigest()

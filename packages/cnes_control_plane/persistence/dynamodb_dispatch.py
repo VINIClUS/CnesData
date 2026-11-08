@@ -6,6 +6,10 @@ from datetime import timedelta
 from hashlib import sha256
 from typing import TYPE_CHECKING, Any
 
+from cnes_contracts.errors import Conflict, FenceRejected, LeaseLost, NotFound
+from cnes_contracts.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_control_plane.model.entities import Run, RunDispatch, RunUnit
+from cnes_control_plane.model.enums import DispatchState, RunState, RunUnitState
 from cnes_control_plane.persistence.dynamodb_host import DynamoDBHost
 from cnes_control_plane.persistence.dynamodb_keys import (
     dispatch_key,
@@ -14,13 +18,9 @@ from cnes_control_plane.persistence.dynamodb_keys import (
     unit_key,
 )
 from cnes_data.dynamodb import Item, check_action, decode_model, encode_model, payload, put_action
-from cnes_domain.control_plane.entities import Run, RunDispatch, RunUnit
-from cnes_domain.control_plane.enums import DispatchState, RunState, RunUnitState
-from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost, NotFound
-from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
 
 if TYPE_CHECKING:
-    from cnes_domain.control_plane.commands import (
+    from cnes_control_plane.model.commands import (
         BindRunDispatch,
         FinishRunDispatch,
         ReserveRunDispatch,

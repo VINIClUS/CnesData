@@ -7,8 +7,8 @@ from typing import Any
 
 import pytest
 
+from cnes_control_plane.model.entities import Tenant
 from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
-from cnes_domain.control_plane.entities import Tenant
 from packages.cnes_control_plane.tests.contracts.clock import _NOW, _job
 from packages.cnes_control_plane.tests.control_plane.outbox_cursor_sqlite_race import (
     SQLiteCasInterleaving,

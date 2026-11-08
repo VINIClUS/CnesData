@@ -9,10 +9,10 @@ from botocore.config import Config
 
 from cnes_control_plane.billing.settings import LOCAL_BILLING_SETTINGS, BillingSettings
 from cnes_control_plane.execution.step_functions import StepFunctionsExecutionProbe
+from cnes_control_plane.orchestration.dispatch_admission import EnvironmentAdmission
 from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
+from cnes_control_plane.ports.environment_gate import UNGATED_ADMISSION, EnvironmentGatePort
 from cnes_data.object_store.s3 import S3ObjectStore
-from cnes_domain.orchestration.dispatch_admission import EnvironmentAdmission
-from cnes_domain.ports.environment_gate import UNGATED_ADMISSION, EnvironmentGatePort
 from cnes_governance.s3_object_lock_sink import S3ObjectLockAuditSink
 from cnes_runtime.aws.settings import AwsRuntimeConfigurationError
 
@@ -23,10 +23,10 @@ if TYPE_CHECKING:
     from boto3.session import Session
     from botocore.client import BaseClient
 
-    from cnes_domain.ports.audit import AuditSinkPort
-    from cnes_domain.ports.control_plane import ControlPlanePort
-    from cnes_domain.ports.environment_gate import DispatchAdmissionPort
-    from cnes_domain.ports.object_store import ObjectStorePort
+    from cnes_control_plane.ports.audit import AuditSinkPort
+    from cnes_control_plane.ports.control_plane import ControlPlanePort
+    from cnes_control_plane.ports.environment_gate import DispatchAdmissionPort
+    from cnes_data.object_store.ports import ObjectStorePort
     from cnes_runtime.aws.processor_settings import AwsUnitSettings
     from cnes_runtime.aws.settings import AwsRuntimeSettings
 

@@ -10,7 +10,7 @@ from apps.central_api.tests.routes.billing_fakes import HEADERS
 from apps.central_api.tests.routes.test_billing_admin import BODY, URL, AdminEnv
 from central_api.routes.billing_admin import get_revocation_service
 from central_api.routes.stripe_webhook import get_billing_metrics
-from cnes_domain.billing.revocation_models import RevocationResult
+from cnes_control_plane.billing.revocation_models import RevocationResult
 
 if TYPE_CHECKING:
     from fastapi import FastAPI

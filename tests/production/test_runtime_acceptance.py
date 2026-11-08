@@ -363,8 +363,8 @@ def _contains_hours(node: ast.AST) -> bool:
 
 def task_hours_start_violations(root: Path) -> tuple[SourceViolation, ...]:
     relatives = (
-        "packages/cnes_domain/orchestration/dispatch_admission.py",
-        "packages/cnes_domain/control_plane/execution_quota.py",
+        "packages/cnes_control_plane/orchestration/dispatch_admission.py",
+        "packages/cnes_control_plane/model/execution_quota.py",
         "packages/cnes_control_plane/persistence/dynamodb_execution_quota.py",
         _API + "services/run_planning.py",
         "apps/data_processor/src/data_processor/orchestration/coordinator.py",

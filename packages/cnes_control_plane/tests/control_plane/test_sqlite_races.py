@@ -6,14 +6,8 @@ from typing import Any
 
 import pytest
 
-from cnes_control_plane.persistence import sqlite_adapter, sqlite_publication, sqlite_schema
-from cnes_control_plane.persistence.sqlite_adapter import (
-    SQLiteControlPlane,
-    _is_network_filesystem,
-    _SQLiteBusyError,
-    _SQLiteFilesystemError,
-)
-from cnes_domain.control_plane.commands import (
+from cnes_contracts.errors import Conflict, LeaseLost
+from cnes_control_plane.model.commands import (
     BindRunDispatch,
     CancelJob,
     ClaimJob,
@@ -23,9 +17,15 @@ from cnes_domain.control_plane.commands import (
     RenewJobLease,
     TransitionRun,
 )
-from cnes_domain.control_plane.entities import DatasetPointer, RunDependency, Tenant
-from cnes_domain.control_plane.enums import DispatchOutcome, RunState
-from cnes_domain.control_plane.errors import Conflict, LeaseLost
+from cnes_control_plane.model.entities import DatasetPointer, RunDependency, Tenant
+from cnes_control_plane.model.enums import DispatchOutcome, RunState
+from cnes_control_plane.persistence import sqlite_adapter, sqlite_publication, sqlite_schema
+from cnes_control_plane.persistence.sqlite_adapter import (
+    SQLiteControlPlane,
+    _is_network_filesystem,
+    _SQLiteBusyError,
+    _SQLiteFilesystemError,
+)
 from packages.cnes_control_plane.tests.contracts.clock import (
     MutableClock,
     _agent,

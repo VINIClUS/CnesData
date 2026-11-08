@@ -11,9 +11,17 @@ from datetime import timedelta
 from typing import Any
 
 from cnes_control_plane.billing.audit_outbox import DynamoBillingAudit
+from cnes_control_plane.billing.commands import StripeBillingState, StripeStateRequest
 from cnes_control_plane.billing.dynamodb_catalog import DynamoBillingCatalog
 from cnes_control_plane.billing.dynamodb_items import encode_snapshot
 from cnes_control_plane.billing.dynamodb_projection import DynamoEntitlementProjection
+from cnes_control_plane.billing.errors import RetryableBillingError
+from cnes_control_plane.billing.inbox import ReconciliationRequest, ReconciliationResult
+from cnes_control_plane.billing.models import (
+    EntitlementSnapshot,
+    ReadConsistency,
+    SubscriptionStatus,
+)
 from cnes_control_plane.billing.reconciliation import (
     BillingReconciler,
     ReconciliationDependencies,
@@ -22,16 +30,8 @@ from cnes_control_plane.billing.reconciliation_cursor import (
     DynamoReconciliationCursor,
     ReconciliationCursor,
 )
-from cnes_domain.billing.commands import StripeBillingState, StripeStateRequest
-from cnes_domain.billing.errors import RetryableBillingError
-from cnes_domain.billing.inbox import ReconciliationRequest, ReconciliationResult
-from cnes_domain.billing.models import (
-    EntitlementSnapshot,
-    ReadConsistency,
-    SubscriptionStatus,
-)
-from cnes_domain.billing.revocation import RevocationPhase, RevocationSettings
-from cnes_domain.control_plane.enums import RunState
+from cnes_control_plane.billing.revocation import RevocationPhase, RevocationSettings
+from cnes_control_plane.model.enums import RunState
 from packages.cnes_control_plane.tests.billing.billing_factories import (
     NOW,
     make_create_command,

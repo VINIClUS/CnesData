@@ -8,11 +8,11 @@ import pytest
 
 from cnes_control_plane.billing.dynamodb_catalog import DynamoBillingCatalog
 from cnes_control_plane.billing.dynamodb_items import encode_account, encode_customer_map
+from cnes_control_plane.billing.errors import BillingTenantConflict, PermanentBillingError
 from cnes_control_plane.billing.keys import account_tenant_key
+from cnes_control_plane.billing.models import BillingAccountStatus
 from cnes_control_plane.persistence.dynamodb_keys import idempotency_key
 from cnes_data.dynamodb import item_key
-from cnes_domain.billing.errors import BillingTenantConflict, PermanentBillingError
-from cnes_domain.billing.models import BillingAccountStatus
 from packages.cnes_control_plane.tests.billing.billing_factories import (
     NOW,
     TABLE_NAME,

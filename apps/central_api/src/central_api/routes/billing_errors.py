@@ -6,7 +6,7 @@ from contextlib import contextmanager
 
 from fastapi import HTTPException
 
-from cnes_domain.billing.errors import (
+from cnes_control_plane.billing.errors import (
     BillingDependencyError,
     BillingError,
     BillingTenantConflict,

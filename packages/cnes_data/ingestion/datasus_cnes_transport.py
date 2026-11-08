@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Never, Protocol, cast
 from datasus_dbc import decompress
 from dbfread import DBF, FieldParser
 
-from cnes_domain.pipeline.circuit_breaker import CircuitBreaker, CircuitBreakerAberto
+from cnes_data.circuit_breaker import CircuitBreaker, CircuitBreakerAberto
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Mapping

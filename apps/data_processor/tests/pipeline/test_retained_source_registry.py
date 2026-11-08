@@ -28,13 +28,13 @@ from cnes_contracts.manifests.processing import (
     ReconcileResult,
 )
 from cnes_contracts.manifests.raw import RawManifest, SnapshotMode, SourceType
-from cnes_domain.control_plane.entities import ManifestRef, Run, RunUnit
-from cnes_domain.control_plane.enums import RunStage, RunState, RunUnitState
-from cnes_domain.orchestration.source_catalog import build_source_catalog
-from cnes_domain.orchestration.source_definitions.bpa import BPA_DEPENDENCIES, BPA_LAYOUT
-from cnes_domain.orchestration.source_definitions.sia import SIA_DEPENDENCIES, SIA_LAYOUT
-from cnes_domain.orchestration.source_definitions.sihd import SIHD_DEPENDENCIES, SIHD_LAYOUT
-from cnes_domain.ports.object_store import ObjectStat
+from cnes_control_plane.model.entities import ManifestRef, Run, RunUnit
+from cnes_control_plane.model.enums import RunStage, RunState, RunUnitState
+from cnes_control_plane.orchestration.source_catalog import build_source_catalog
+from cnes_control_plane.orchestration.source_definitions.bpa import BPA_DEPENDENCIES, BPA_LAYOUT
+from cnes_control_plane.orchestration.source_definitions.sia import SIA_DEPENDENCIES, SIA_LAYOUT
+from cnes_control_plane.orchestration.source_definitions.sihd import SIHD_DEPENDENCIES, SIHD_LAYOUT
+from cnes_data.object_store.ports import ObjectStat
 from data_processor.composition import build_source_registry
 from data_processor.orchestration.attempt_store import AttemptObjectStore
 from data_processor.pipeline.source_registry import SourcePipeline, SourceRegistry
@@ -53,8 +53,8 @@ if TYPE_CHECKING:
     from contextlib import AbstractContextManager as ContextManager
     from typing import BinaryIO
 
-    from cnes_domain.orchestration.source_catalog import PipelineDefinition
-    from cnes_domain.ports.control_plane import ControlPlanePort
+    from cnes_control_plane.orchestration.source_catalog import PipelineDefinition
+    from cnes_control_plane.ports.control_plane import ControlPlanePort
 
 _TENANT = "354130"
 _Layer = Literal["normalized", "reconciliation", "serving"]

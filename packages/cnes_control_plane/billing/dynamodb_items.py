@@ -9,6 +9,11 @@ from typing import Any, cast
 
 from botocore.exceptions import BotoCoreError, ClientError
 
+from cnes_contracts.audit import OutboxEvent
+from cnes_contracts.errors import Conflict
+from cnes_contracts.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_control_plane.billing.commands import CreateBillingAccountCommand
+from cnes_control_plane.billing.errors import BillingDependencyError, PermanentBillingError
 from cnes_control_plane.billing.keys import (
     BILLING_ACCOUNT_LIST_PREFIX,
     BILLING_AUDIT_TENANT_ID,
@@ -22,19 +27,7 @@ from cnes_control_plane.billing.keys import (
     stripe_price_key,
     tenant_account_key,
 )
-from cnes_control_plane.persistence.dynamodb_keys import (
-    idempotency_key,
-    key_component,
-    outbox_key,
-    timestamp,
-)
-from cnes_data.dynamodb import Action, Item, encode_model, execute_transaction, item_key, put_action
-from cnes_domain.billing.commands import CreateBillingAccountCommand
-from cnes_domain.billing.errors import (
-    BillingDependencyError,
-    PermanentBillingError,
-)
-from cnes_domain.billing.models import (
+from cnes_control_plane.billing.models import (
     BillingAccount,
     BillingAccountStatus,
     BillingAccountTenantLink,
@@ -44,10 +37,15 @@ from cnes_domain.billing.models import (
     QuotaLimits,
     SubscriptionStatus,
 )
-from cnes_domain.billing.validation import require_utc
-from cnes_domain.control_plane.entities import IdempotencyRecord, OutboxEvent
-from cnes_domain.control_plane.errors import Conflict
-from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_control_plane.billing.validation import require_utc
+from cnes_control_plane.model.entities import IdempotencyRecord
+from cnes_control_plane.persistence.dynamodb_keys import (
+    idempotency_key,
+    key_component,
+    outbox_key,
+    timestamp,
+)
+from cnes_data.dynamodb import Action, Item, encode_model, execute_transaction, item_key, put_action
 
 SNAPSHOT_ENTITY = "ENTITLEMENTSNAPSHOT"
 ACCOUNT_ENTITY = "BILLINGACCOUNT"

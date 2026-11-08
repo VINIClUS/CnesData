@@ -5,14 +5,14 @@ import logging
 import pytest
 from fastapi.testclient import TestClient
 
-from cnes_domain.billing.commands import CreateStripeCustomerCommand
-from cnes_domain.billing.errors import (
+from cnes_control_plane.billing.commands import CreateStripeCustomerCommand
+from cnes_control_plane.billing.errors import (
     BillingDependencyError,
     BillingTenantConflict,
     IdempotencyConflict,
     PermanentBillingError,
 )
-from cnes_domain.billing.models import ReadConsistency
+from cnes_control_plane.billing.models import ReadConsistency
 
 from .billing_fakes import (
     HEADERS,

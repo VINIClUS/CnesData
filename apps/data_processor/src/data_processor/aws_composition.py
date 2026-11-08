@@ -16,7 +16,7 @@ from cnes_control_plane.execution.step_functions import (
     validate_state_machine,
 )
 from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
-from cnes_domain.ports.processing import ExecutionPolicyConfig
+from cnes_control_plane.ports.processing import ExecutionPolicyConfig
 from cnes_governance.s3_object_lock_sink import S3ObjectLockAuditSink
 from cnes_runtime.aws.runtime import (
     build_aws_processor_core,
@@ -40,12 +40,12 @@ if TYPE_CHECKING:
     from boto3.session import Session
     from botocore.client import BaseClient
 
+    from cnes_control_plane.billing.ports import ClockPort
     from cnes_control_plane.billing.settings import BillingSettings
-    from cnes_domain.billing.ports import ClockPort
-    from cnes_domain.ports.audit import AuditSinkPort
-    from cnes_domain.ports.control_plane import ControlPlanePort
-    from cnes_domain.ports.object_store import ObjectStorePort
-    from cnes_domain.ports.processing import ExecutionStarted
+    from cnes_control_plane.ports.audit import AuditSinkPort
+    from cnes_control_plane.ports.control_plane import ControlPlanePort
+    from cnes_control_plane.ports.processing import ExecutionStarted
+    from cnes_data.object_store.ports import ObjectStorePort
     from cnes_runtime.aws.processor_settings import (
         AwsAuditDispatchSettings,
         AwsRecoverySettings,

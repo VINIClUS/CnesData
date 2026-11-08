@@ -44,12 +44,12 @@ from central_api.composition import AwsApiServices, build_runtime
 from central_api.services.raw_ingestion import RawIngestionService
 from central_api.services.run_planning import RunPlanningService
 from central_api.serving import S3SignedServingAccess
+from cnes_contracts.membership import Membership
+from cnes_control_plane import outbox_dispatcher
 from cnes_control_plane.execution.step_functions import StepFunctionsExecutor
+from cnes_control_plane.orchestration.source_catalog import SourceCatalog
 from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
 from cnes_data.object_store import S3ObjectStore
-from cnes_domain import outbox_dispatcher
-from cnes_domain.control_plane.entities import Membership
-from cnes_domain.orchestration.source_catalog import SourceCatalog
 from cnes_governance.local_sink import LocalAuditSink
 from packages.cnes_control_plane.tests.control_plane.test_dynamodb_adapter import (
     _TABLE_NAME,

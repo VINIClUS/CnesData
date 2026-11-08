@@ -13,17 +13,17 @@ from botocore.exceptions import ClientError, EndpointConnectionError
 from moto import mock_aws
 
 from cnes_control_plane.billing import dynamodb_items as items
+from cnes_control_plane.billing.errors import BillingDependencyError, PermanentBillingError
 from cnes_control_plane.billing.keys import (
     BILLING_AUDIT_TENANT_ID,
     billing_account_key,
     entitlement_snapshot_key,
     plan_version_key,
 )
+from cnes_control_plane.billing.validation import FrozenMapping
+from cnes_control_plane.model.entities import IdempotencyRecord
 from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
 from cnes_control_plane.persistence.dynamodb_keys import timestamp
-from cnes_domain.billing.errors import BillingDependencyError, PermanentBillingError
-from cnes_domain.billing.validation import FrozenMapping
-from cnes_domain.control_plane.entities import IdempotencyRecord
 from packages.cnes_control_plane.tests.billing.billing_factories import (
     NOW,
     TABLE_NAME,

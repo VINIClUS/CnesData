@@ -6,25 +6,23 @@ import logging
 from dataclasses import dataclass, field
 from typing import Protocol, cast, runtime_checkable
 
+from cnes_contracts.modes import BillingMode
+from cnes_control_plane.billing.commands import (
+    SnapshotWrite,
+    StripeBillingState,
+    StripeStateRequest,
+)
 from cnes_control_plane.billing.dynamodb_items import deterministic_id
 from cnes_control_plane.billing.enforcement import AccessLossEnforcerPort
-from cnes_control_plane.billing.metrics import BillingMetricName, billing_metric
-from cnes_control_plane.billing.reconciliation_cursor import ReconciliationCursor
-from cnes_control_plane.billing.snapshot_mapping import (
-    COMPARED_FIELDS,
-    SnapshotMappingInput,
-    canonical_fields,
-    map_snapshot,
-)
-from cnes_domain.billing.commands import SnapshotWrite, StripeBillingState, StripeStateRequest
-from cnes_domain.billing.errors import (
+from cnes_control_plane.billing.errors import (
     BillingDependencyError,
     BillingError,
     PermanentBillingError,
     RetryableBillingError,
 )
-from cnes_domain.billing.inbox import ReconciliationRequest, ReconciliationResult
-from cnes_domain.billing.models import (
+from cnes_control_plane.billing.inbox import ReconciliationRequest, ReconciliationResult
+from cnes_control_plane.billing.metrics import BillingMetricName, billing_metric
+from cnes_control_plane.billing.models import (
     AccessLevel,
     BillingAccount,
     BillingAuditEvent,
@@ -33,8 +31,8 @@ from cnes_domain.billing.models import (
     ReadConsistency,
     SubscriptionStatus,
 )
-from cnes_domain.billing.policy import EntitlementPolicy
-from cnes_domain.billing.ports import (
+from cnes_control_plane.billing.policy import EntitlementPolicy
+from cnes_control_plane.billing.ports import (
     BillingAuditPort,
     BillingCatalogPort,
     BillingMetricsPort,
@@ -42,7 +40,13 @@ from cnes_domain.billing.ports import (
     EntitlementProjectionPort,
     StripeGatewayPort,
 )
-from cnes_domain.profiles import BillingMode
+from cnes_control_plane.billing.reconciliation_cursor import ReconciliationCursor
+from cnes_control_plane.billing.snapshot_mapping import (
+    COMPARED_FIELDS,
+    SnapshotMappingInput,
+    canonical_fields,
+    map_snapshot,
+)
 
 __all__ = [
     "COMPARED_FIELDS",

@@ -11,10 +11,10 @@ import boto3
 import pytest
 from botocore.exceptions import ClientError
 
+from cnes_control_plane.orchestration.dispatch_admission import EnvironmentAdmission
 from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
+from cnes_control_plane.ports.environment_gate import UNGATED_ADMISSION, ExecutionPresence
 from cnes_data.object_store.s3 import S3ObjectStore
-from cnes_domain.orchestration.dispatch_admission import EnvironmentAdmission
-from cnes_domain.ports.environment_gate import UNGATED_ADMISSION, ExecutionPresence
 from cnes_governance.s3_object_lock_sink import S3ObjectLockAuditSink
 from cnes_runtime.aws.runtime import (
     AwsClients,
@@ -31,7 +31,7 @@ from packages.cnes_runtime.tests.aws.production_values import (
 if TYPE_CHECKING:
     from types_boto3_s3.client import S3Client
 
-    from cnes_domain.ports.control_plane import ControlPlanePort
+    from cnes_control_plane.ports.control_plane import ControlPlanePort
 
 _NOW = datetime(2026, 9, 27, 12, tzinfo=UTC)
 _LOCKED = {"ObjectLockConfiguration": {"ObjectLockEnabled": "Enabled"}}

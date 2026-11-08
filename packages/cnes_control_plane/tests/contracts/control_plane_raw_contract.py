@@ -4,12 +4,12 @@ from warnings import catch_warnings, simplefilter
 
 import pytest
 
-from cnes_domain.control_plane.commands import CompleteJob
-from cnes_domain.control_plane.entities import RunDependency
-from cnes_domain.control_plane.enums import RunState
-from cnes_domain.control_plane.errors import Conflict
-from cnes_domain.control_plane.ids import run_dependency_key
-from cnes_domain.control_plane.queries import (
+from cnes_contracts.errors import Conflict
+from cnes_control_plane.model.commands import CompleteJob
+from cnes_control_plane.model.entities import RunDependency
+from cnes_control_plane.model.enums import RunState
+from cnes_control_plane.model.ids import run_dependency_key
+from cnes_control_plane.model.queries import (
     AgentRawManifestChainQuery,
     LatestSucceededJobQuery,
     RawIdentity,

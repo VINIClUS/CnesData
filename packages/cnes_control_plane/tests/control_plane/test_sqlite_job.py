@@ -2,9 +2,9 @@ from datetime import UTC, datetime
 
 import pytest
 
+from cnes_contracts.errors import Conflict
+from cnes_control_plane.model.enums import JobState
 from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
-from cnes_domain.control_plane.enums import JobState
-from cnes_domain.control_plane.errors import Conflict
 from packages.cnes_control_plane.tests.contracts.clock import MutableClock, _event, _job
 
 

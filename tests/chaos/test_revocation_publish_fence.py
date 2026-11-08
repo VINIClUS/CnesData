@@ -8,11 +8,11 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
-from cnes_domain.billing.errors import PublishDenied
-from cnes_domain.billing.models import ReservationStatus
-from cnes_domain.control_plane.entities import Run
-from cnes_domain.control_plane.enums import RunState
-from cnes_domain.control_plane.errors import Conflict
+from cnes_contracts.errors import Conflict
+from cnes_control_plane.billing.errors import PublishDenied
+from cnes_control_plane.billing.models import ReservationStatus
+from cnes_control_plane.model.entities import Run
+from cnes_control_plane.model.enums import RunState
 from tests.integration.billing._enforcement_stack import (
     DYNAMO_STRIPE,
     RevokingPolicy,

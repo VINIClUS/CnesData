@@ -12,8 +12,10 @@ ALLOWED = {
     "cnes_observability": set(),
     "cnes_data": {"cnes_contracts", "cnes_domain", "cnes_observability"},
     "cnes_identity": {"cnes_contracts", "cnes_domain", "cnes_data"},
-    "cnes_governance": {"cnes_domain", "cnes_data"},
-    "cnes_control_plane": {"cnes_contracts", "cnes_domain", "cnes_data", "cnes_observability"},
+    "cnes_governance": {"cnes_contracts", "cnes_data"},
+    "cnes_control_plane": {
+        "cnes_contracts", "cnes_domain", "cnes_data", "cnes_observability",
+    },
     "cnes_runtime": {
         "cnes_contracts", "cnes_domain", "cnes_observability", "cnes_data",
         "cnes_identity", "cnes_governance", "cnes_control_plane",
@@ -31,6 +33,19 @@ def test_codigo_fica_diretamente_na_pasta_do_pacote():
         directory = ROOT / "packages" / package
         assert (directory / "__init__.py").is_file(), package
         assert not (directory / "src").exists(), package
+
+
+def test_domain_contem_apenas_regras_e_transformacoes_cnes_sus():
+    directory = ROOT / "packages" / "cnes_domain"
+    allowed = {
+        "__init__.py", "competencia.py", "validators.py", "processing/__init__.py",
+        "processing/transformer.py", "validation/__init__.py", "validation/dataframes.py",
+    }
+    actual = {
+        path.relative_to(directory).as_posix() for path in directory.rglob("*.py")
+        if "tests" not in path.relative_to(directory).parts
+    }
+    assert actual == allowed, actual.symmetric_difference(allowed)
 
 
 def test_testes_de_apps_nao_sombreiam_namespace_compartilhado():
@@ -77,9 +92,19 @@ def test_grafo_de_dependencias_nao_contem_ciclos():
 
 def test_core_e_contracts_nao_importam_io_ou_telemetria():
     forbidden = {"sqlalchemy", "boto3", "botocore", "httpx", "requests", "dotenv",
-                 "opentelemetry", "psycopg", "fdb", "os"}
+                 "opentelemetry", "psycopg", "fdb", "os", "logging", "contextvars"}
     assert not _package_dependencies("cnes_domain").intersection(forbidden)
     assert not _package_dependencies("cnes_contracts").intersection(forbidden)
+
+
+def test_domain_recebe_datas_sem_ler_relogio_ambiente():
+    directory = ROOT / "packages" / "cnes_domain"
+    sources = [p for p in directory.rglob("*.py") if "tests" not in p.relative_to(directory).parts]
+    assert sources
+    for source in sources:
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+        calls = {ast.unparse(node.func) for node in ast.walk(tree) if isinstance(node, ast.Call)}
+        assert not {name for name in calls if name.endswith((".now", ".today"))}, source
 
 
 def test_guard_detecta_imports_dinamicos_e_sob_type_checking(tmp_path):

@@ -164,7 +164,7 @@ async def test_provision_cert_vincula_tenant_do_token_antes_de_gravar(
 ):
     from unittest.mock import MagicMock
 
-    from cnes_domain.tenant import tenant_id_ctx
+    from cnes_data.tenant import tenant_id_ctx
 
     app = _make_app(session_root_ca, monkeypatch)
     seen: list[str | None] = []

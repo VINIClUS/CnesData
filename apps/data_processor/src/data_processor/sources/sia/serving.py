@@ -15,7 +15,7 @@ from data_processor.sources.sia.reconcile import DIVERGENCE_TYPES, FONTES, KPIS_
 if TYPE_CHECKING:
     from cnes_contracts.manifests.outputs import JsonValue
     from cnes_contracts.manifests.processing import MaterializeRequest
-    from cnes_domain.ports.object_store import ObjectStat, ObjectStorePort
+    from cnes_data.object_store.ports import ObjectStat, ObjectStorePort
 
 _DATASET = "sia"
 

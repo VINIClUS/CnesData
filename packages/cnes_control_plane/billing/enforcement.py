@@ -4,16 +4,16 @@ import logging
 from collections.abc import Callable
 from typing import Protocol, runtime_checkable
 
+from cnes_contracts.modes import BillingMode
 from cnes_control_plane.billing.dynamodb_items import deterministic_id
-from cnes_control_plane.billing.settings import BillingSettings
-from cnes_domain.billing.models import (
+from cnes_control_plane.billing.models import (
     BillingAuditEvent,
     BillingEnforcementMode,
     EntitlementSnapshot,
 )
-from cnes_domain.billing.ports import BillingAuditPort, ClockPort
-from cnes_domain.billing.revocation import RevocationResult
-from cnes_domain.profiles import BillingMode
+from cnes_control_plane.billing.ports import BillingAuditPort, ClockPort
+from cnes_control_plane.billing.revocation import RevocationResult
+from cnes_control_plane.billing.settings import BillingSettings
 
 __all__ = [
     "SHADOW_ACCESS_LOSS_EVENT",

@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from typing import Any, cast
 
 from billing_worker.worker import BillingWorker, WorkerJobs
+from cnes_contracts.modes import BillingMode
 from cnes_control_plane.billing.composition import (
     BillingStorage,
     StripeBillingComponents,
@@ -19,9 +20,8 @@ from cnes_control_plane.billing.enforcement import (
     select_access_loss_enforcer,
 )
 from cnes_control_plane.billing.metrics import build_billing_metrics
+from cnes_control_plane.billing.ports import BillingMetricsPort
 from cnes_control_plane.billing.settings import BillingConfigurationError, BillingSettings
-from cnes_domain.billing.ports import BillingMetricsPort
-from cnes_domain.profiles import BillingMode
 
 SessionFactory = Callable[[str], Any]
 
@@ -62,11 +62,11 @@ def _state_machine_arn(values: Mapping[str, str], billing: BillingSettings) -> s
 
 def _revocation_service(runtime: _Runtime, components: StripeBillingComponents) -> Any:
     from cnes_control_plane.billing.dynamodb_revocation import DynamoRevocationStore
-    from cnes_control_plane.execution.step_functions import StepFunctionsExecutor
-    from cnes_domain.billing.revocation import (
+    from cnes_control_plane.billing.revocation import (
         ImmediateRevocationService,
         RevocationDependencies,
     )
+    from cnes_control_plane.execution.step_functions import StepFunctionsExecutor
 
     storage = runtime.storage
     client = runtime.session.client("stepfunctions", region_name=runtime.region)

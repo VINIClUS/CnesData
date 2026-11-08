@@ -33,7 +33,7 @@ EXECUTOR = "packages/cnes_control_plane/execution/step_functions.py"
 SETTINGS = "packages/cnes_runtime/aws/settings.py"
 CLIENTS = "packages/cnes_runtime/aws/runtime.py"
 DYNAMO = "packages/cnes_control_plane/persistence/dynamodb_publication.py"
-ADMIT = "packages/cnes_domain/orchestration/dispatch_admission.py"
+ADMIT = "packages/cnes_control_plane/orchestration/dispatch_admission.py"
 NETWORK, SIGNED = "infra/opentofu/modules/network/main.tf", _API + "serving/aws_signed.py"
 NEW = "packages/cnes_control_plane/persistence/dynamodb_runtime377_probe.py"
 BASE = 'const PRODUCTION_API_BASE_URL = "https://api.cnesdata.com.br/api/v1";'
@@ -61,8 +61,7 @@ _RULES = (
     ("task_hours_start_violations", "task-hours-start"),
 )
 _GLOBS = (
-    "apps/web_dashboard/src/api/**/*.ts",
-    _API + "**/*.py",
+    "apps/web_dashboard/src/api/**/*.ts", _API + "**/*.py",
     "infra/opentofu/env/prod/**/*.tf",
     "infra/opentofu/modules/**/*.tf",
     "packages/cnes_control_plane/persistence/dynamodb*.py",
@@ -74,8 +73,7 @@ _GLOBS = (
     "apps/data_processor/src/data_processor/aws_*.py",
 )
 _FILES = (
-    ENV,
-    CLIENT,
+    ENV, CLIENT,
     ACTIVATE,
     APP,
     OAUTH,
@@ -85,7 +83,7 @@ _FILES = (
     _API + "auth/aws_oidc.py",
     _API + "raw_aws_runtime.py",
     "packages/cnes_control_plane/persistence/dynamodb_execution_quota.py",
-    "packages/cnes_domain/control_plane/execution_quota.py",
+    "packages/cnes_control_plane/model/execution_quota.py",
     _API + "services/run_planning.py",
     "apps/data_processor/src/data_processor/orchestration/coordinator.py",
 )

@@ -7,25 +7,25 @@ from typing import Any
 
 import pytest
 
+from cnes_contracts.errors import Conflict
+from cnes_contracts.modes import BillingMode
 from cnes_control_plane.billing.dynamodb_items import encode_snapshot
 from cnes_control_plane.billing.dynamodb_quota import DynamoQuotaReservations
 from cnes_control_plane.billing.dynamodb_quota_items import encode_run_billing_state
+from cnes_control_plane.billing.errors import PublishDenied, RetryableBillingError
+from cnes_control_plane.billing.execution import PublicationGuard
 from cnes_control_plane.billing.keys import run_billing_key
-from cnes_control_plane.billing.settings import BillingSettings
-from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
-from cnes_data.dynamodb import item_key
-from cnes_domain.billing.errors import PublishDenied, RetryableBillingError
-from cnes_domain.billing.execution import PublicationGuard
-from cnes_domain.billing.models import (
+from cnes_control_plane.billing.models import (
     BillingEnforcementMode,
     ReservationStatus,
     SubscriptionStatus,
 )
-from cnes_domain.control_plane.commands import PublicationPermit, PublishDataset, TransitionRun
-from cnes_domain.control_plane.entities import DatasetPointer, DatasetVersion
-from cnes_domain.control_plane.enums import RunState
-from cnes_domain.control_plane.errors import Conflict
-from cnes_domain.profiles import BillingMode
+from cnes_control_plane.billing.settings import BillingSettings
+from cnes_control_plane.model.commands import PublicationPermit, PublishDataset, TransitionRun
+from cnes_control_plane.model.entities import DatasetPointer, DatasetVersion
+from cnes_control_plane.model.enums import RunState
+from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
+from cnes_data.dynamodb import item_key
 from packages.cnes_control_plane.tests.billing.billing_factories import NOW, TABLE_NAME
 from packages.cnes_control_plane.tests.billing.quota_support import (
     ACCOUNT,

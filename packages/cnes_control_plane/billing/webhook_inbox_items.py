@@ -6,13 +6,13 @@ from typing import TYPE_CHECKING, cast
 
 from cnes_control_plane.billing.dynamodb_items import corrupt_item, utc_attribute
 from cnes_control_plane.billing.dynamodb_projection import INBOX_TRANSIENT_ATTRIBUTES
+from cnes_control_plane.billing.inbox import InboxProcessingState, InboxRecoveryRecord, StripeEvent
 from cnes_control_plane.billing.keys import (
     STRIPE_RECOVERY_DUE_PARTITION,
     stripe_event_key,
     stripe_recovery_due_sort_key,
 )
 from cnes_data.dynamodb import Item
-from cnes_domain.billing.inbox import InboxProcessingState, InboxRecoveryRecord, StripeEvent
 
 if TYPE_CHECKING:
     from collections.abc import Set as AbstractSet

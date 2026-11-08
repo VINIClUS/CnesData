@@ -10,19 +10,19 @@ import pytest
 
 from central_api.composition import build_runtime, noop_execution_started
 from central_api.services.run_authorization import RunAuthorizationService
+from cnes_contracts.modes import BillingMode
 from cnes_control_plane.billing import BillingConfigurationError
-from cnes_control_plane.billing.wiring import ChainedExecutionStarted
-from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
-from cnes_domain.billing import (
+from cnes_control_plane.billing.execution import RunExecutionPermit
+from cnes_control_plane.billing.execution_policy import (
     BillingConcurrencyPolicy,
     BillingExecutionStarted,
-    RunExecutionPermit,
 )
-from cnes_domain.profiles import BillingMode
+from cnes_control_plane.billing.wiring import ChainedExecutionStarted
+from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
 from cnes_runtime.aws import AwsRuntimeSettings
 
 if TYPE_CHECKING:
-    from cnes_domain.control_plane.entities import Run, RunDispatch
+    from cnes_control_plane.model.entities import Run, RunDispatch
 
 STATE_MACHINE_ARN = "arn:aws:states:us-east-1:000000000000:stateMachine:cnesdata-test"
 STATE_MACHINE_FIXTURE = (

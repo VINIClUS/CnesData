@@ -16,7 +16,7 @@ from uuid import UUID
 import pytest
 from botocore.exceptions import ClientError
 
-from cnes_domain.refresh_tokens import RefreshTokenMutation, RefreshTokenUnavailable
+from cnes_identity.refresh_contracts import RefreshTokenMutation, RefreshTokenUnavailable
 from packages.cnes_identity.tests.auth.dynamodb_refresh_support import (
     CANARY,
     FINGERPRINT,

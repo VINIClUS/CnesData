@@ -5,9 +5,9 @@ from datetime import datetime, timedelta
 from threading import Lock
 from typing import cast
 
-from cnes_domain.billing.models import EntitlementSnapshot
-from cnes_domain.billing.ports import ClockPort
-from cnes_domain.billing.validation import require_id, require_positive
+from cnes_control_plane.billing.models import EntitlementSnapshot
+from cnes_control_plane.billing.ports import ClockPort
+from cnes_control_plane.billing.validation import require_id, require_positive
 
 MAX_CACHE_TTL_SECONDS = 60
 

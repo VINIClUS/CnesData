@@ -9,6 +9,7 @@ from botocore.exceptions import ClientError, EndpointConnectionError
 from moto import mock_aws
 
 from cnes_control_plane.billing.dynamodb_items import utc_attribute
+from cnes_control_plane.billing.errors import BillingDependencyError, PermanentBillingError
 from cnes_control_plane.billing.keys import stripe_reconciliation_cursor_key
 from cnes_control_plane.billing.reconciliation_cursor import (
     EMPTY_RECONCILIATION_CURSOR,
@@ -17,7 +18,6 @@ from cnes_control_plane.billing.reconciliation_cursor import (
     ReconciliationCursor,
 )
 from cnes_data.dynamodb import item_key
-from cnes_domain.billing.errors import BillingDependencyError, PermanentBillingError
 from packages.cnes_control_plane.tests.billing.billing_factories import (
     NOW,
     TABLE_NAME,

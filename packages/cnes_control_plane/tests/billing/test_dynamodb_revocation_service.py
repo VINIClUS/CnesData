@@ -11,27 +11,27 @@ import pytest
 from cnes_control_plane.billing.audit_outbox import DynamoBillingAudit
 from cnes_control_plane.billing.disabled import DisabledEntitlementProjection
 from cnes_control_plane.billing.dynamodb_projection import DynamoEntitlementProjection
-from cnes_control_plane.persistence.dynamodb_keys import dispatch_key
-from cnes_domain.billing.errors import BillingDisabledError
-from cnes_domain.billing.execution import RunExecutionBindingCommand
-from cnes_domain.billing.models import ReadConsistency, ReservationStatus, SubscriptionStatus
-from cnes_domain.billing.revocation import (
+from cnes_control_plane.billing.errors import BillingDisabledError
+from cnes_control_plane.billing.execution import RunExecutionBindingCommand
+from cnes_control_plane.billing.models import ReadConsistency, ReservationStatus, SubscriptionStatus
+from cnes_control_plane.billing.revocation import (
     ImmediateRevocationCommand,
     ImmediateRevocationService,
     RevocationDependencies,
     RevocationPhase,
     RevocationSettings,
 )
-from cnes_domain.control_plane.commands import BindRunDispatch, ReserveRunDispatch
-from cnes_domain.control_plane.entities import RunDispatch
-from cnes_domain.control_plane.enums import (
+from cnes_control_plane.model.commands import BindRunDispatch, ReserveRunDispatch
+from cnes_control_plane.model.entities import RunDispatch
+from cnes_control_plane.model.enums import (
     DispatchOutcome,
     DispatchState,
     RunStage,
     RunState,
     RunUnitState,
 )
-from cnes_domain.ports.processing import CancelRunExecution
+from cnes_control_plane.persistence.dynamodb_keys import dispatch_key
+from cnes_control_plane.ports.processing import CancelRunExecution
 from packages.cnes_control_plane.tests.billing.billing_factories import NOW
 from packages.cnes_control_plane.tests.billing.quota_support import ACCOUNT, TENANT
 from packages.cnes_control_plane.tests.billing.revocation_support import (

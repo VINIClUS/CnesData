@@ -11,7 +11,9 @@ from starlette.requests import Request  # noqa: TC002 - resolved at runtime by F
 
 from central_api.routes import raw_jobs
 from central_api.services.agent_admission import AgentAdmission
-from cnes_domain.ports.control_plane import ControlPlanePort  # noqa: TC001
+from cnes_control_plane.ports.control_plane import (  # noqa: TC001 - FastAPI resolves annotations at runtime.
+    ControlPlanePort,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -24,8 +26,8 @@ if TYPE_CHECKING:
     from central_api.services.billing_gates import ApiBillingGates
     from cnes_control_plane.billing import BillingStorage, StripeBillingComponents
     from cnes_control_plane.billing.composition import SessionProtocol
-    from cnes_domain.billing.ports import BillingMetricsPort, SecretProviderPort
-    from cnes_domain.billing.revocation import ImmediateRevocationService
+    from cnes_control_plane.billing.ports import BillingMetricsPort, SecretProviderPort
+    from cnes_control_plane.billing.revocation import ImmediateRevocationService
 
 logger = logging.getLogger(__name__)
 
@@ -133,7 +135,7 @@ def _revocation_service(
     runtime: RuntimeComponents, components: StripeBillingComponents,
 ) -> ImmediateRevocationService:
     from cnes_control_plane.billing.dynamodb_revocation import DynamoRevocationStore
-    from cnes_domain.billing.revocation import (
+    from cnes_control_plane.billing.revocation import (
         ImmediateRevocationService,
         RevocationDependencies,
     )

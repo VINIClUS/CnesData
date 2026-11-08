@@ -12,30 +12,30 @@ import pytest
 from botocore.exceptions import ClientError
 from moto import mock_aws
 
-from cnes_control_plane.billing.dynamodb_quota_items import (
-    decode_run_billing_state,
-    encode_run_billing_state,
-)
-from cnes_control_plane.billing.keys import run_billing_key
-from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
-from cnes_control_plane.persistence.dynamodb_keys import idempotency_key, run_entity_key
-from cnes_data.dynamodb import item_key
-from cnes_domain.billing.commands import (
+from cnes_contracts.modes import BillingMode
+from cnes_control_plane.billing.commands import (
     AuthorizedRunCommand,
     ConsumeReservationCommand,
     ReleaseReservationCommand,
 )
-from cnes_domain.billing.errors import (
+from cnes_control_plane.billing.dynamodb_quota_items import (
+    decode_run_billing_state,
+    encode_run_billing_state,
+)
+from cnes_control_plane.billing.errors import (
     IdempotencyConflict,
     PermanentBillingError,
     RetryableBillingError,
 )
-from cnes_domain.billing.execution import RunBillingState, RunExecutionBindingCommand
-from cnes_domain.billing.models import RunAuthorization
-from cnes_domain.control_plane.entities import Run
-from cnes_domain.control_plane.enums import RunState
-from cnes_domain.ports.control_plane import ControlPlanePort
-from cnes_domain.profiles import BillingMode
+from cnes_control_plane.billing.execution import RunBillingState, RunExecutionBindingCommand
+from cnes_control_plane.billing.keys import run_billing_key
+from cnes_control_plane.billing.models import RunAuthorization
+from cnes_control_plane.model.entities import Run
+from cnes_control_plane.model.enums import RunState
+from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
+from cnes_control_plane.persistence.dynamodb_keys import idempotency_key, run_entity_key
+from cnes_control_plane.ports.control_plane import ControlPlanePort
+from cnes_data.dynamodb import item_key
 from packages.cnes_control_plane.tests.billing.billing_factories import (
     NOW,
     TABLE_NAME,

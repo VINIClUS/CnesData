@@ -10,15 +10,9 @@ import pytest
 from botocore.exceptions import ClientError
 from moto import mock_aws
 
-from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
-from cnes_control_plane.persistence.dynamodb_environment_gate import (
-    OUTBOX_CURSOR_KEY,
-    attempts_key,
-    fence_key,
-    semaphore_key,
-)
-from cnes_data.dynamodb import item_key
-from cnes_domain.control_plane.environment_gate import (
+from cnes_contracts.errors import Conflict
+from cnes_contracts.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_control_plane.model.environment_gate import (
     AcquireUnitPermit,
     AcquisitionStatus,
     BindUnitPermit,
@@ -35,9 +29,15 @@ from cnes_domain.control_plane.environment_gate import (
     UnitPermit,
     open_fence,
 )
-from cnes_domain.control_plane.errors import Conflict
-from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
-from cnes_domain.ports.environment_gate import EnvironmentGatePort
+from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
+from cnes_control_plane.persistence.dynamodb_environment_gate import (
+    OUTBOX_CURSOR_KEY,
+    attempts_key,
+    fence_key,
+    semaphore_key,
+)
+from cnes_control_plane.ports.environment_gate import EnvironmentGatePort
+from cnes_data.dynamodb import item_key
 from packages.cnes_control_plane.tests.control_plane.test_dynamodb_adapter import (
     _TABLE_NAME,
     _create_table,

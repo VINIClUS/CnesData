@@ -4,8 +4,8 @@ from typing import Any
 
 from botocore.exceptions import ClientError
 
+from cnes_control_plane.model.outbox import OutboxCursor, validate_outbox_advance
 from cnes_data.dynamodb import item_key
-from cnes_domain.control_plane.outbox import OutboxCursor, validate_outbox_advance
 
 _ENTITY = {"S": "OUTBOXCURSOR"}
 _KEY = item_key("OUTBOX#CURSOR", "CURRENT")

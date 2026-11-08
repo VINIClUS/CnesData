@@ -1,5 +1,5 @@
 """Utilitários de competência — janela de coleta CNES Local."""
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 from functools import lru_cache
 
 import holidays
@@ -64,9 +64,8 @@ def janela_valida(competencia: str) -> tuple[date, date]:
     return inicio, fim
 
 
-def periodo_atual() -> str:
-    """Retorna competência corrente considerando a janela de coleta, no formato YYYY-MM."""
-    hoje = datetime.now(tz=UTC).date()
+def periodo_em(hoje: date) -> str:
+    """Calcula a competência para a data informada, no formato YYYY-MM."""
     inicio_mes_atual = sexto_dia_util(hoje.year, hoje.month)
     if hoje >= inicio_mes_atual:
         return f"{hoje.year}-{hoje.month:02d}"

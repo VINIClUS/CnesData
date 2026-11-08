@@ -5,12 +5,12 @@ from typing import Any
 
 import pytest
 
+from cnes_control_plane.billing.commands import CreateBillingAccountCommand
 from cnes_control_plane.billing.dynamodb_catalog import DynamoBillingCatalog
 from cnes_control_plane.billing.dynamodb_items import decode_idempotency_record, encode_account
+from cnes_control_plane.billing.errors import IdempotencyConflict, PermanentBillingError
 from cnes_control_plane.billing.keys import BILLING_AUDIT_TENANT_ID, capacity_usage_key
 from cnes_control_plane.persistence.dynamodb_keys import idempotency_key
-from cnes_domain.billing.commands import CreateBillingAccountCommand
-from cnes_domain.billing.errors import IdempotencyConflict, PermanentBillingError
 from packages.cnes_control_plane.tests.billing.billing_factories import (
     TABLE_NAME,
     make_account,

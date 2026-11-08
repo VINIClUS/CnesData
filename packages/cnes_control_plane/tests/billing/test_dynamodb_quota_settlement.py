@@ -7,18 +7,15 @@ from typing import Any
 import pytest
 from botocore.exceptions import ClientError
 
+from cnes_control_plane.billing.commands import ConsumeReservationCommand, ReleaseReservationCommand
 from cnes_control_plane.billing.dynamodb_items import transact
 from cnes_control_plane.billing.dynamodb_quota import DynamoQuotaReservations
 from cnes_control_plane.billing.dynamodb_quota_items import decode_reservation, encode_reservation
 from cnes_control_plane.billing.dynamodb_quota_settlement import ReservationTransition
+from cnes_control_plane.billing.errors import BillingDependencyError, RetryableBillingError
 from cnes_control_plane.billing.keys import reservation_key, usage_key
+from cnes_control_plane.billing.models import QuotaReservation, ReservationKind, ReservationStatus
 from cnes_control_plane.persistence.dynamodb_codec import absent_check_action
-from cnes_domain.billing.commands import ConsumeReservationCommand, ReleaseReservationCommand
-from cnes_domain.billing.errors import (
-    BillingDependencyError,
-    RetryableBillingError,
-)
-from cnes_domain.billing.models import QuotaReservation, ReservationKind, ReservationStatus
 from packages.cnes_control_plane.tests.billing.billing_factories import TABLE_NAME
 from packages.cnes_control_plane.tests.billing.quota_support import (
     ACCOUNT,

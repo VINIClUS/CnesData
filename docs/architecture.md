@@ -30,18 +30,21 @@ O código de cada biblioteca fica diretamente em `packages/<nome>/`, junto de
 | Pacote | Responsabilidade | Dependências locais permitidas |
 |---|---|---|
 | Contracts | DTOs, manifests, colunas | nenhuma |
-| Domain/Core | entidades, regras, ports e processamento puro | Contracts |
+| Domain/Core | competência, validações e transformações CNES/SUS | Contracts |
 | Observability | logs, tracer, OTel e contador de queries | nenhuma |
 | Data | persistência, RLS, ingestão, object stores e migrações | Contracts, Domain, Observability |
 | Identity | JWT/OIDC, credenciais, device flow e mTLS | Contracts, Domain, Data |
-| Governance | eventos/sinks de auditoria operacional | Domain, Data |
-| Control Plane | adapters de controle, billing, quotas e execução | Contracts, Domain, Data, Observability |
+| Governance | auditoria operacional e sinks | Contracts, Data |
+| Control Plane | modelos/políticas operacionais, billing, quotas, execução e persistência | Contracts, Domain, Data, Observability |
 | Runtime | configuração e composição cross-app | demais capacidades |
 
 Nenhuma biblioteca importa apps. Os testes em `tests/architecture` verificam o
-layout e o grafo, incluindo imports sob `TYPE_CHECKING`. Ports portáveis ficam no
-Core; o protocolo SQL legado dependente de Engine pertence a Data. Pandera fica
-no Core, sem tornar Contracts dependente do stack de DataFrames.
+layout e o grafo, incluindo imports sob `TYPE_CHECKING`. Domain possui definição
+restrita: um módulo deve expressar uma regra dos dados CNES/SUS; ser puro não é
+critério suficiente. Seu inventário explícito contém competência, validadores,
+transformer e schemas Pandera. Ports pertencem à capacidade consumidora;
+interfaces de I/O pertencem a Data. Contracts mantém os DTOs/erros compartilhados,
+sem receber políticas de autorização, billing, execução ou retenção.
 
 Billing e persistência do control plane permanecem na mesma capability para
 preservar transações de quota, criação de tenants, publicação e revogação.
@@ -49,8 +52,9 @@ Primitivas genéricas DynamoDB usadas por Identity pertencem a Data.
 
 Sec tem donos explícitos: Identity aplica autenticação/certificados; Data aplica
 RLS; billing protege seus segredos; os workflows existentes executam scanners.
-Reliability fica nas primitivas puras do Core e nos mecanismos de recovery,
-leases e outbox dos componentes responsáveis. Governance não implementa as
+Reliability fica no circuit breaker de Data e nos mecanismos de recovery,
+leases e outbox de Control Plane. Pureza não transfere esse código a Domain.
+Governance não implementa as
 regras de auditoria de saúde do serviço externo.
 
 Configuração compartilhada pertence a Runtime. Migrações usam `cnes_data:alembic`
@@ -193,7 +197,7 @@ callbacks/upserts quando usadas por ingestões específicas.
 ```
 
 Todas as tabelas têm Row-Level Security ativa. Queries sem `tenant_id` no
-contexto (via `set_tenant_id()` do `cnes_domain.tenant`) retornam vazio.
+contexto (via `set_tenant_id()` do `cnes_data.tenant`) retornam vazio.
 
 ## Fluxo de jobs (landing.extractions)
 
@@ -242,7 +246,7 @@ Fluxo do `tenant_id` em cada request:
     │  call: set_tenant_id(...)  ← ContextVar
     ▼
 [route handler]
-    │  usa cnes_domain.tenant.get_tenant_id() se precisa
+    │  usa cnes_data.tenant.get_tenant_id() se precisa
     ▼
 [repository / UoW]
     │  SQLAlchemy executa com RLS ativo (via event listener)

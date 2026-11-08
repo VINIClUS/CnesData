@@ -119,7 +119,7 @@ def test_responde_401_sem_user() -> None:
 
 
 def test_post_vincula_tenant_do_corpo_antes_de_gravar() -> None:
-    from cnes_domain.tenant import tenant_id_ctx
+    from cnes_data.tenant import tenant_id_ctx
 
     repo = MagicMock()
     seen: list[str | None] = []

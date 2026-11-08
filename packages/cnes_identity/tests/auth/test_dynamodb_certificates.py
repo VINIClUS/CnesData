@@ -9,7 +9,7 @@ import pytest
 from botocore.exceptions import ClientError, ReadTimeoutError
 from moto import mock_aws
 
-from cnes_domain.auth.certificates import CertificateStoreUnavailable
+from cnes_identity.certificates import CertificateStoreUnavailable
 from cnes_identity.dynamodb_certificates import DynamoDBCertificateRegister
 from packages.cnes_identity.tests.auth.test_certificate_register_contract import (
     _FINGERPRINT,

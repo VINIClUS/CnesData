@@ -7,14 +7,14 @@ from typing import Annotated, Protocol
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
+from cnes_control_plane.billing.errors import PermanentBillingError, RetryableBillingError
+from cnes_control_plane.billing.inbox import InboxDisposition, StripeEvent
 from cnes_control_plane.billing.metrics import (
     BillingMetricName,
     DiscardBillingMetrics,
     billing_metric,
 )
-from cnes_domain.billing.errors import PermanentBillingError, RetryableBillingError
-from cnes_domain.billing.inbox import InboxDisposition, StripeEvent
-from cnes_domain.billing.ports import BillingMetricsPort, WebhookInboxPort
+from cnes_control_plane.billing.ports import BillingMetricsPort, WebhookInboxPort
 
 logger = logging.getLogger(__name__)
 

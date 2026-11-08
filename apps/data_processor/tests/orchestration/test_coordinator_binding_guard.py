@@ -23,15 +23,15 @@ from apps.data_processor.tests.orchestration.test_coordinator_late_binding impor
     race,
     store,
 )
-from cnes_domain.control_plane.enums import DispatchOutcome, DispatchState, RunState, RunUnitState
-from cnes_domain.control_plane.errors import Conflict, ControlPlaneErrorCode
-from cnes_domain.ports.processing import CancelRunExecution
+from cnes_contracts.errors import Conflict, ControlPlaneErrorCode
+from cnes_control_plane.model.enums import DispatchOutcome, DispatchState, RunState, RunUnitState
+from cnes_control_plane.ports.processing import CancelRunExecution
 from data_processor.orchestration.coordinator import PipelineCoordinator
 
 if TYPE_CHECKING:
-    from cnes_domain.control_plane.commands import BindRunDispatch, FinishRunDispatch
-    from cnes_domain.control_plane.entities import Run, RunDispatch
-    from cnes_domain.ports.processing import StartRunExecution
+    from cnes_control_plane.model.commands import BindRunDispatch, FinishRunDispatch
+    from cnes_control_plane.model.entities import Run, RunDispatch
+    from cnes_control_plane.ports.processing import StartRunExecution
 
 __all__ = ["adapter", "clock", "executor", "race", "store"]
 

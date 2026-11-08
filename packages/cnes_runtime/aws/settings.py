@@ -8,7 +8,8 @@ from urllib.parse import urlsplit
 
 from pydantic import ValidationError
 
-from cnes_domain.profiles import AuthMode, ProfileSettings, RuntimeProfile, parse_profile
+from cnes_contracts.modes import AuthMode, RuntimeProfile
+from cnes_runtime.profiles import ProfileSettings, parse_profile
 
 _PROFILE_KEYS = ("PROFILE", "AUTH_MODE", "OIDC_ISSUER")
 _POLICY_FLAGS = {"true": True, "false": False}

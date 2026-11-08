@@ -4,20 +4,21 @@ from typing import TYPE_CHECKING, Any, cast
 import pytest
 
 from central_api.services.job_lifecycle import DEFAULT_MAX_ATTEMPTS, JobLifecycle
-from cnes_domain.control_plane.commands import (
+from cnes_contracts.audit import OutboxEvent
+from cnes_contracts.errors import Conflict, FenceRejected, LeaseLost, NotFound
+from cnes_contracts.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_control_plane.model.commands import (
     CancelJob,
     ClaimJob,
     CompleteJob,
     FailJob,
     RenewJobLease,
 )
-from cnes_domain.control_plane.entities import Agent, Job, OutboxEvent, RawManifestRecord
-from cnes_domain.control_plane.enums import AgentState, JobState
-from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost, NotFound
-from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_control_plane.model.entities import Agent, Job, RawManifestRecord
+from cnes_control_plane.model.enums import AgentState, JobState
 
 if TYPE_CHECKING:
-    from cnes_domain.ports.control_plane import ControlPlanePort
+    from cnes_control_plane.ports.control_plane import ControlPlanePort
 
 NOW = datetime(2026, 1, 20, 9, tzinfo=UTC)
 TENANT = "354130"

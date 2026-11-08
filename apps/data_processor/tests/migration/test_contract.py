@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from cnes_domain.orchestration.source_catalog import build_source_catalog
+from cnes_control_plane.orchestration.source_catalog import build_source_catalog
 from data_processor.migration.equivalence import ContractInvalid, parse_contract
 
 _ROOT = Path(__file__).resolve().parents[4]

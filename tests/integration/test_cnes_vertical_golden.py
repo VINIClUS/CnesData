@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     from contextlib import AbstractContextManager as ContextManager
     from typing import BinaryIO
 
-    from cnes_domain.ports.object_store import ObjectStat
+    from cnes_data.object_store.ports import ObjectStat
 
 _FIXTURES_ROOT = _REPO_ROOT / "docs" / "fixtures" / "data-plane"
 _RUN_ID = "run-golden-cnd054"
@@ -46,7 +46,7 @@ class _FakeObjectStore:
         self.objects: dict[str, bytes] = {}
 
     def put(self, key: str, body: BinaryIO, expected_sha256: str) -> ObjectStat:
-        from cnes_domain.ports.object_store import ObjectStat as _ObjectStat
+        from cnes_data.object_store.ports import ObjectStat as _ObjectStat
 
         payload = body.read()
         assert sha256(payload).hexdigest() == expected_sha256
@@ -57,7 +57,7 @@ class _FakeObjectStore:
         return nullcontext(BytesIO(self.objects[key]))
 
     def stat(self, key: str) -> ObjectStat | None:
-        from cnes_domain.ports.object_store import ObjectStat as _ObjectStat
+        from cnes_data.object_store.ports import ObjectStat as _ObjectStat
 
         payload = self.objects.get(key)
         if payload is None:

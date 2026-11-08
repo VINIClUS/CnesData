@@ -7,7 +7,7 @@ from cryptography import x509
 from fastapi import APIRouter, Depends, Request
 
 from central_api.agent_auth import AgentCertIdentity, require_agent_cert
-from cnes_domain.tenant import set_tenant_id
+from cnes_data.tenant import set_tenant_id
 from cnes_identity import CertRotateRequest, CertRotateResponse
 from cnes_identity.errors import OAuthError
 

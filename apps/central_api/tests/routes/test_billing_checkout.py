@@ -15,19 +15,19 @@ from central_api.routes.billing_checkout import (
     pending_checkout,
     reservation_expiry,
 )
-from cnes_domain.billing.commands import (
+from cnes_contracts.modes import BillingMode
+from cnes_control_plane.billing.commands import (
     PendingCheckout,
     ReleasePendingCheckoutCommand,
     ReservePendingCheckoutCommand,
 )
-from cnes_domain.billing.errors import (
+from cnes_control_plane.billing.errors import (
     BillingDependencyError,
     PermanentBillingError,
     RetryableBillingError,
 )
-from cnes_domain.billing.models import BillingAccountStatus, SubscriptionStatus
-from cnes_domain.billing.ports import BillingCatalogPort
-from cnes_domain.profiles import BillingMode
+from cnes_control_plane.billing.models import BillingAccountStatus, SubscriptionStatus
+from cnes_control_plane.billing.ports import BillingCatalogPort
 
 from .billing_fakes import (
     HEADERS,

@@ -6,9 +6,9 @@ from uuid import uuid4
 
 import pytest
 
-from cnes_domain.billing.errors import EntitlementDenied
-from cnes_domain.billing.inbox import InboxProcessingState
-from cnes_domain.billing.models import ReadConsistency, SubscriptionStatus
+from cnes_control_plane.billing.errors import EntitlementDenied
+from cnes_control_plane.billing.inbox import InboxProcessingState
+from cnes_control_plane.billing.models import ReadConsistency, SubscriptionStatus
 from tests.integration.billing._billing_stack import (
     ACCOUNT_ID,
     PRICE_V2,
