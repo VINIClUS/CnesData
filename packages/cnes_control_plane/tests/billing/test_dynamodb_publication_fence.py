@@ -13,7 +13,7 @@ from cnes_control_plane.billing.dynamodb_quota_items import encode_run_billing_s
 from cnes_control_plane.billing.keys import run_billing_key
 from cnes_control_plane.billing.settings import BillingSettings
 from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
-from cnes_control_plane.persistence.dynamodb_keys import item_key
+from cnes_data.dynamodb import item_key
 from cnes_domain.billing.errors import PublishDenied, RetryableBillingError
 from cnes_domain.billing.execution import PublicationGuard
 from cnes_domain.billing.models import (

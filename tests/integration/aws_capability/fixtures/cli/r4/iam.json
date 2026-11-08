@@ -1,0 +1,236 @@
+{
+  "first": {
+    "Roles": [
+      {
+        "RoleName": "CapRole",
+        "Path": "/cnesdata-cap/"
+      },
+      {
+        "RoleName": "cnesdata-cap-a1b2c3d4-worker",
+        "Path": "/cnesdata-cap/team/"
+      }
+    ],
+    "IsTruncated": true,
+    "Marker": "role-next"
+  },
+  "second": {
+    "Roles": [
+      {
+        "RoleName": "IndependentRole",
+        "Path": "/cnesdata-cap/"
+      }
+    ],
+    "IsTruncated": false
+  },
+  "empty": {
+    "Roles": [],
+    "IsTruncated": false
+  },
+  "empty_with_next": {
+    "Roles": [],
+    "IsTruncated": true,
+    "Marker": "role-next"
+  },
+  "repeat": {
+    "Roles": [],
+    "IsTruncated": true,
+    "Marker": "role-next"
+  },
+  "cycle_second": {
+    "Roles": [],
+    "IsTruncated": true,
+    "Marker": "role-other"
+  },
+  "missing_roles": {
+    "IsTruncated": false
+  },
+  "roles_map": {
+    "Roles": {},
+    "IsTruncated": false
+  },
+  "roles_null": {
+    "Roles": null,
+    "IsTruncated": false
+  },
+  "missing_name": {
+    "Roles": [
+      {
+        "Path": "/cnesdata-cap/"
+      }
+    ],
+    "IsTruncated": false
+  },
+  "empty_name": {
+    "Roles": [
+      {
+        "RoleName": "",
+        "Path": "/cnesdata-cap/"
+      }
+    ],
+    "IsTruncated": false
+  },
+  "number_name": {
+    "Roles": [
+      {
+        "RoleName": 42,
+        "Path": "/cnesdata-cap/"
+      }
+    ],
+    "IsTruncated": false
+  },
+  "wrong_path": {
+    "Roles": [
+      {
+        "RoleName": "CapRole",
+        "Path": "/outside/"
+      }
+    ],
+    "IsTruncated": false
+  },
+  "truncated_missing_marker": {
+    "Roles": [],
+    "IsTruncated": true
+  },
+  "truncated_empty_marker": {
+    "Roles": [],
+    "IsTruncated": true,
+    "Marker": ""
+  },
+  "truncated_number_marker": {
+    "Roles": [],
+    "IsTruncated": true,
+    "Marker": 5
+  },
+  "terminal_marker": {
+    "Roles": [],
+    "IsTruncated": false,
+    "Marker": "role-next"
+  },
+  "role": {
+    "Role": {
+      "RoleName": "CapRole",
+      "Path": "/cnesdata-cap/",
+      "Arn": "arn:aws:iam::111111111111:role/cnesdata-cap/CapRole"
+    }
+  },
+  "role_wrong_name": {
+    "Role": {
+      "RoleName": "OtherRole",
+      "Path": "/cnesdata-cap/",
+      "Arn": "arn:aws:iam::111111111111:role/cnesdata-cap/CapRole"
+    }
+  },
+  "role_wrong_path": {
+    "Role": {
+      "RoleName": "CapRole",
+      "Path": "/outside/",
+      "Arn": "arn:aws:iam::111111111111:role/cnesdata-cap/CapRole"
+    }
+  },
+  "role_wrong_account": {
+    "Role": {
+      "RoleName": "CapRole",
+      "Path": "/cnesdata-cap/",
+      "Arn": "arn:aws:iam::222222222222:role/cnesdata-cap/CapRole"
+    }
+  },
+  "role_wrong_arn_path": {
+    "Role": {
+      "RoleName": "CapRole",
+      "Path": "/cnesdata-cap/",
+      "Arn": "arn:aws:iam::111111111111:role/outside/CapRole"
+    }
+  },
+  "role_missing": {},
+  "role_null": {
+    "Role": null
+  },
+  "tags_first": {
+    "Tags": [
+      {
+        "Key": "Project",
+        "Value": "CnesData"
+      },
+      {
+        "Key": "Purpose",
+        "Value": "aws-capability"
+      }
+    ],
+    "IsTruncated": true,
+    "Marker": "tags-next"
+  },
+  "tags_second": {
+    "Tags": [
+      {
+        "Key": "Run",
+        "Value": "a1b2c3d4"
+      },
+      {
+        "Key": "ExpiresAt",
+        "Value": "1060"
+      }
+    ],
+    "IsTruncated": false
+  },
+  "tags_removed": {
+    "Tags": [
+      {
+        "Key": "Project",
+        "Value": "CnesData"
+      }
+    ],
+    "IsTruncated": false
+  },
+  "tags_duplicate": {
+    "Tags": [
+      {
+        "Key": "Project",
+        "Value": "other"
+      }
+    ],
+    "IsTruncated": false
+  },
+  "tags_empty": {
+    "Tags": [],
+    "IsTruncated": false
+  },
+  "tags_missing": {
+    "IsTruncated": false
+  },
+  "tags_map": {
+    "Tags": {},
+    "IsTruncated": false
+  },
+  "tags_bad_entry": {
+    "Tags": [
+      null
+    ],
+    "IsTruncated": false
+  },
+  "tags_missing_value": {
+    "Tags": [
+      {
+        "Key": "Project"
+      }
+    ],
+    "IsTruncated": false
+  },
+  "tags_number_key": {
+    "Tags": [
+      {
+        "Key": 1,
+        "Value": "CnesData"
+      }
+    ],
+    "IsTruncated": false
+  },
+  "tags_truncated_missing_marker": {
+    "Tags": [],
+    "IsTruncated": true
+  },
+  "tags_terminal_marker": {
+    "Tags": [],
+    "IsTruncated": false,
+    "Marker": "tags-next"
+  }
+}

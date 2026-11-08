@@ -7,13 +7,14 @@ from typing import Any
 
 import pytest
 
-from cnes_control_plane.persistence.dynamodb_keys import entity_key, idempotency_key, item_key
+from cnes_control_plane.persistence.dynamodb_keys import entity_key, idempotency_key
 from cnes_control_plane.persistence.edge_registration import (
     EDGE_AGENT_SCOPE,
     EntitlementFence,
     NewEdgeAgent,
 )
 from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
+from cnes_data.dynamodb import item_key
 from cnes_domain.billing.commands import ReleaseCapacityCommand
 from cnes_domain.billing.errors import EntitlementDenied, RetryableBillingError
 from cnes_domain.billing.models import CapacityKind, ReservationStatus, SubscriptionStatus

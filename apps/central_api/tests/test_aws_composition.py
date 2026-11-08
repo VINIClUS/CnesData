@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import ast
-import asyncio
 import os
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
@@ -28,18 +28,25 @@ from central_api.serving import S3SignedServingAccess
 from cnes_control_plane.billing import BillingSettings
 from cnes_control_plane.execution.step_functions import (
     IncompatibleStateMachine,
+    StepFunctionsExecutionProbe,
     StepFunctionsExecutor,
 )
 from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
 from cnes_data.object_store import S3ObjectStore
+from cnes_domain.orchestration.dispatch_admission import EnvironmentAdmission
 from cnes_domain.orchestration.source_catalog import SourceCatalog
-from cnes_domain.outbox_dispatcher import DispatchResult
+from cnes_domain.ports.environment_gate import UNGATED_ADMISSION
 from cnes_domain.profiles import parse_profile
-from cnes_governance.s3_object_lock_sink import S3ObjectLockAuditSink
 from cnes_identity import OidcVerifier
-from cnes_runtime.aws import AwsRuntimeConfigurationError
+from cnes_runtime.aws import AwsClients, AwsRuntimeConfigurationError, AwsRuntimeSettings
+from packages.cnes_runtime.tests.aws.production_values import (
+    PRODUCTION_STATE_MACHINE_ARN,
+    PRODUCTION_VALUES,
+)
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from starlette.requests import Request
 
 STATE_MACHINE_ARN = "arn:aws:states:us-east-1:000000000000:stateMachine:cnesdata-test"
@@ -47,6 +54,7 @@ STATE_MACHINE_FIXTURE = (
     Path(__file__).parents[3]
     / "packages/cnes_control_plane/tests/fixtures/step_functions/standard_inline_ecs.json"
 )
+PRODUCTION_FIXTURE = STATE_MACHINE_FIXTURE.with_name("production_public_ip.json")
 API_COMPOSITION = Path(composition.__file__)
 LOCAL_FIELDS = (
     "control_plane", "object_store", "executor", "audit_sink", "raw_ingestion",
@@ -78,11 +86,13 @@ def _local_values() -> dict[str, str]:
     return {"PROFILE": "local", "TENANT_ID": "354130", "DATA_DIR": "/srv/cnesdata"}
 
 
-def _step_functions_client(workflow_type: str = "STANDARD") -> Mock:
+def _step_functions_client(
+    workflow_type: str = "STANDARD", fixture: Path = STATE_MACHINE_FIXTURE,
+) -> Mock:
     client = Mock(name="stepfunctions")
     client.describe_state_machine.return_value = {
         "type": workflow_type,
-        "definition": STATE_MACHINE_FIXTURE.read_text(encoding="utf-8"),
+        "definition": fixture.read_text(encoding="utf-8"),
     }
     return client
 
@@ -161,7 +171,7 @@ def test_api_aws_instala_runtime_completo_oidc_e_serving(session: Mock) -> None:
     assert isinstance(runtime.control_plane, DynamoDBControlPlane)
     assert isinstance(runtime.object_store, S3ObjectStore)
     assert isinstance(runtime.executor, StepFunctionsExecutor)
-    assert isinstance(runtime.audit_sink, S3ObjectLockAuditSink)
+    assert runtime.audit_sink is None
     assert isinstance(runtime.raw_ingestion, RawIngestionService)
     assert isinstance(runtime.source_catalog, SourceCatalog)
     assert isinstance(runtime.run_planning, RunPlanningService)
@@ -221,6 +231,71 @@ def test_api_aws_falha_no_startup_com_state_machine_incompativel() -> None:
 
     with pytest.raises(IncompatibleStateMachine, match="workflow_must_be_standard"):
         build_runtime("aws", _aws_values(), session)
+
+
+def test_api_aws_producao_valida_rede_publica_exata() -> None:
+    session = _session(_step_functions_client(fixture=PRODUCTION_FIXTURE))
+
+    runtime = build_runtime("aws", PRODUCTION_VALUES, session)
+
+    assert isinstance(runtime.executor, StepFunctionsExecutor)
+    execution = runtime.run_planning._execution
+    assert (execution.deployment_limit, execution.dispatch_lease_seconds) == (1, 3600)
+    session.clients["stepfunctions"].describe_state_machine.assert_called_once_with(
+        stateMachineArn=PRODUCTION_STATE_MACHINE_ARN,
+    )
+
+
+def test_api_aws_generico_planeja_sem_gate_de_ambiente(session: Mock) -> None:
+    runtime = build_runtime("aws", _aws_values(), session)
+
+    assert runtime.run_planning._execution.admission is UNGATED_ADMISSION
+
+
+def test_api_aws_producao_admite_pelo_gate_e_probe_do_executor() -> None:
+    session = _session(_step_functions_client(fixture=PRODUCTION_FIXTURE))
+
+    runtime = build_runtime("aws", PRODUCTION_VALUES, session)
+
+    admission = runtime.run_planning._execution.admission
+    assert isinstance(admission, EnvironmentAdmission)
+    assert admission._gate is runtime.control_plane
+    assert (admission._environment, admission._lease_seconds) == ("prod", 3600)
+    probe, executor = admission._probe, runtime.executor
+    assert isinstance(probe, StepFunctionsExecutionProbe)
+    assert isinstance(executor, StepFunctionsExecutor)
+    assert probe._client is executor._client
+    assert probe._state_machine_arn == executor._state_machine_arn
+    assert probe._state_machine_arn == PRODUCTION_STATE_MACHINE_ARN
+
+
+@pytest.mark.parametrize(
+    ("values", "fixture"),
+    [(PRODUCTION_VALUES, STATE_MACHINE_FIXTURE), (_aws_values(), PRODUCTION_FIXTURE)],
+    ids=["producao-com-ip-privado", "generico-com-ip-publico"],
+)
+def test_api_aws_nao_aceita_o_modo_de_rede_do_outro_perfil(
+    values: Mapping[str, str], fixture: Path,
+) -> None:
+    session = _session(_step_functions_client(fixture=fixture))
+
+    with pytest.raises(IncompatibleStateMachine, match=r"^assign_public_ip_mismatch$"):
+        build_runtime("aws", values, session)
+
+
+def test_api_aws_producao_sem_security_group_falha_antes_da_aws() -> None:
+    settings = replace(
+        AwsRuntimeSettings.from_mapping(PRODUCTION_VALUES), security_group_id=None,
+    )
+    step_functions = _step_functions_client(fixture=PRODUCTION_FIXTURE)
+    clients = AwsClients(dynamodb=Mock(), s3=Mock(), step_functions=step_functions)
+
+    with pytest.raises(
+        AwsRuntimeConfigurationError, match=r"^production_security_group_required$",
+    ):
+        composition._validate_runtime(settings, clients)
+
+    step_functions.describe_state_machine.assert_not_called()
 
 
 @pytest.mark.parametrize("profile", ["", "gcp", "AWS"])
@@ -363,34 +438,3 @@ def test_raw_backend_aws_preservado_fora_do_perfil_aws(
         assert not hasattr(app.state, "oidc_verifier")
 
     build.assert_not_called()
-
-
-async def test_loop_da_outbox_entrega_eventos_e_sobrevive_a_falha(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    from central_api.deps import _outbox_dispatch_loop
-
-    runtime = _aws_components()
-    outcomes = iter([DispatchResult(delivered=2, failed=1), RuntimeError("dynamodb=unavailable")])
-
-    def _dispatch(*_: object) -> DispatchResult:
-        outcome = next(outcomes, DispatchResult(delivered=0, failed=0))
-        if isinstance(outcome, Exception):
-            raise outcome
-        return outcome
-
-    caplog.set_level("INFO", logger="central_api.deps")
-    with (
-        patch("central_api.deps._OUTBOX_INTERVAL", 0),
-        patch("central_api.deps.dispatch_once", side_effect=_dispatch) as dispatch,
-    ):
-        task = asyncio.create_task(_outbox_dispatch_loop(runtime))
-        while dispatch.call_count < 3:
-            await asyncio.sleep(0.01)
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
-
-    dispatch.assert_called_with(runtime.control_plane, runtime.audit_sink, ANY)
-    messages = [record.getMessage() for record in caplog.records]
-    assert messages == ["outbox_dispatched delivered=2 failed=1", "outbox_dispatch_error"]

@@ -3,8 +3,7 @@
 from typing import Any, cast
 
 from cnes_control_plane.billing.keys import capacity_usage_key
-from cnes_control_plane.persistence.dynamodb_codec import decode_model
-from cnes_control_plane.persistence.dynamodb_keys import item_key
+from cnes_data.dynamodb import decode_model, item_key
 from cnes_domain.billing.shadow import SHADOW_DENIED_EVENT
 from cnes_domain.control_plane.entities import OutboxEvent
 from packages.cnes_control_plane.tests.billing.billing_factories import TABLE_NAME

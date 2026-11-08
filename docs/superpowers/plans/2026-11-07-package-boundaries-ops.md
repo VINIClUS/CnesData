@@ -58,9 +58,13 @@ composição externa em Runtime. Billing e control plane preservam transações.
 - [ ] Push somente após auditoria aprovada.
 - [ ] Dispatch CI e Trivy no SHA auditado, sem workflows de deploy.
 - [ ] Corrigir/reauditar se necessário e aguardar todos os gates.
-- [ ] Abrir um PR para main e entregar evidências e link da auditoria.
+- [ ] Abrir um PR para develop e entregar evidências e link da auditoria.
 
 ## Ajuste solicitado durante implementação
 
 Código diretamente em packages/cnes_*, junto de tests/ e pyproject.toml, sem
 níveis src/cnes_*; wheel prefix mapping mantém imports e recursos públicos.
+
+Integrar develop db4ebd78 e preservar suas mudanças recentes antes de renovar
+checks e auditoria. Ops e Infra ficam separados na raiz; infra/opentofu mantém
+seu caminho e os destinos dos legados constam na spec atualizada.

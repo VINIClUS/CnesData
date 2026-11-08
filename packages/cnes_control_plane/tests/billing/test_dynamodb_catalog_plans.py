@@ -12,7 +12,7 @@ from moto import mock_aws
 from cnes_control_plane.billing.dynamodb_catalog import DynamoBillingCatalog
 from cnes_control_plane.billing.dynamodb_items import encode_price_map
 from cnes_control_plane.billing.keys import plan_version_key, stripe_price_key
-from cnes_control_plane.persistence.dynamodb_keys import item_key
+from cnes_data.dynamodb import item_key
 from cnes_domain.billing.errors import (
     BillingDependencyError,
     ImmutablePlanConflict,

@@ -132,7 +132,7 @@ def test_grava_companion_nao_vinculado_com_autorizacao(adapter) -> None:
 def test_grava_evento_de_run_autorizado(adapter) -> None:
     adapter.create_unmetered_run(authorized())
 
-    (event,) = adapter.pending_outbox(10)
+    (event,) = adapter.read_outbox_page(None, 10).events
 
     assert event.event_type == "run.authorized"
     assert event.aggregate_id == "run-01"

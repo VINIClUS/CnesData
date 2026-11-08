@@ -20,7 +20,10 @@ for name in names:
     assert Path(module.__file__).is_relative_to(installed), name
 for name in (
     'cnes_data.storage.schema_v2', 'cnes_data.dynamodb',
-    'cnes_identity.oidc', 'cnes_governance',
+    'cnes_identity.oidc', 'cnes_identity.dynamodb_certificates',
+    'cnes_identity.dynamodb_refresh_tokens', 'cnes_identity.sqlite_certificates',
+    'cnes_data.public_leads.dynamodb', 'cnes_domain.auth.certificates',
+    'cnes_domain.refresh_tokens', 'cnes_governance',
     'cnes_control_plane.persistence', 'cnes_control_plane.billing',
     'cnes_runtime.aws', 'cnes_observability.query_count',
 ):
@@ -49,6 +52,13 @@ def main() -> None:
             assert Path(name, "__init__.py") in paths, wheel.name
             assert all("tests" not in path.parts for path in paths), wheel.name
             assert all(path.name not in {"CLAUDE.md", "pyproject.toml"} for path in paths)
+            source = Path(__file__).resolve().parents[1] / "packages" / name
+            expected = {
+                Path(name) / path.relative_to(source)
+                for path in source.rglob("*.py")
+                if "tests" not in path.relative_to(source).parts
+            }
+            assert expected <= set(paths), (wheel.name, expected - set(paths))
     assert len(names) == 8, names
     result = subprocess.run(
         [sys.executable, "-I", "-S", "-c", _PROBE, str(artifact_dir / "installed"),

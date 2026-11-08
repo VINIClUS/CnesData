@@ -3,7 +3,7 @@ import { describe, expect, test, vi } from "vitest";
 
 import { server } from "../../mocks/server";
 
-import { ApiError, apiFetch } from "@/api/client";
+import { ApiError, apiFetch, createApiFetch } from "@/api/client";
 import { getAccessToken } from "@/auth/oidc";
 
 vi.mock("@/auth/oidc", () => ({
@@ -79,7 +79,40 @@ describe("apiFetch", () => {
     expect(captured).toBeNull();
   });
 
-  test("envia_credenciais_para_preservar_sessao_cookie", async () => {
+  test("modo_local_envia_credenciais_para_preservar_sessao_cookie", async () => {
+    let credentials: RequestCredentials | null = null;
+    let authorization: string | null = "header-was-not-captured";
+    server.use(
+      http.get("/api/v1/auth/me", ({ request }) => {
+        credentials = request.credentials;
+        authorization = request.headers.get("authorization");
+        return HttpResponse.json({});
+      }),
+    );
+    const localFetch = createApiFetch({ VITE_API_BASE_URL: "/api/v1", VITE_AUTH_MODE: "local" });
+
+    await localFetch("/auth/me");
+
+    expect(credentials).toBe("include");
+    expect(authorization).toBeNull();
+  });
+
+  test("modo_local_respeita_credentials_explicito", async () => {
+    let credentials: RequestCredentials | null = null;
+    server.use(
+      http.get("/api/v1/auth/me", ({ request }) => {
+        credentials = request.credentials;
+        return HttpResponse.json({});
+      }),
+    );
+    const localFetch = createApiFetch({ VITE_API_BASE_URL: "/api/v1", VITE_AUTH_MODE: "local" });
+
+    await localFetch("/auth/me", { credentials: "same-origin" });
+
+    expect(credentials).toBe("same-origin");
+  });
+
+  test("modo_oidc_omite_credenciais", async () => {
     let credentials: RequestCredentials | null = null;
     server.use(
       http.get("/api/v1/dashboard/auth/me", ({ request }) => {
@@ -90,6 +123,20 @@ describe("apiFetch", () => {
 
     await apiFetch("/dashboard/auth/me");
 
-    expect(credentials).toBe("include");
+    expect(credentials).toBe("omit");
+  });
+
+  test("base_relativa_usa_a_origem_da_pagina", async () => {
+    let url: string | null = null;
+    server.use(
+      http.get("/api/v1/dashboard/auth/me", ({ request }) => {
+        url = request.url;
+        return HttpResponse.json({});
+      }),
+    );
+
+    await apiFetch("/dashboard/auth/me");
+
+    expect(url).toBe(`${window.location.origin}/api/v1/dashboard/auth/me`);
   });
 });

@@ -22,20 +22,13 @@ from cnes_control_plane.billing.keys import (
     stripe_price_key,
     tenant_account_key,
 )
-from cnes_control_plane.persistence.dynamodb_codec import (
-    Action,
-    Item,
-    encode_model,
-    execute_transaction,
-    put_action,
-)
 from cnes_control_plane.persistence.dynamodb_keys import (
     idempotency_key,
-    item_key,
     key_component,
     outbox_key,
     timestamp,
 )
+from cnes_data.dynamodb import Action, Item, encode_model, execute_transaction, item_key, put_action
 from cnes_domain.billing.commands import CreateBillingAccountCommand
 from cnes_domain.billing.errors import (
     BillingDependencyError,

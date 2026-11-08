@@ -1,4 +1,5 @@
 """Ponto de entrada do data_processor."""
+
 from __future__ import annotations
 
 import asyncio
@@ -13,18 +14,39 @@ from typing import TYPE_CHECKING
 
 from boto3.session import Session
 
+from cnes_control_plane.billing.settings import BillingConfigurationError, BillingSettings
+from cnes_control_plane.execution.step_functions import IncompatibleStateMachine
 from cnes_domain.outbox_dispatcher import dispatch_once
 from cnes_observability import configure_json_stdout
 from cnes_observability.telemetry import init_telemetry
-from cnes_runtime import config
-from data_processor.aws_entrypoint import run_aws_entrypoint
-from data_processor.composition import build_processor_runtime
+from cnes_runtime.aws.processor_settings import (
+    AwsAuditDispatchSettings,
+    AwsRecoverySettings,
+    AwsUnitSettings,
+)
+from cnes_runtime.aws.settings import AwsRuntimeConfigurationError
+from data_processor.aws_composition import (
+    AwsExecutionPolicy,
+    build_aws_audit_runtime,
+    build_aws_recovery_runtime,
+    build_aws_unit_runtime,
+)
+from data_processor.aws_entrypoint import (
+    AwsInvocation,
+    AwsMode,
+    EntrypointConfigurationError,
+    run_aws_entrypoint,
+    select_aws_invocation,
+)
+from data_processor.deadline import DeadlinePolicy, processor_deadline
+from data_processor.orchestration.coordinator import noop_execution_started
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from cnes_domain.ports.audit import AuditSinkPort
     from cnes_domain.ports.control_plane import ControlPlanePort
+    from data_processor.aws_composition import AwsModeRuntime
     from data_processor.orchestration.coordinator import PipelineCoordinator
 
 fmt = logging.Formatter(
@@ -34,6 +56,8 @@ fmt = logging.Formatter(
 
 
 def _setup_logging(verbose: bool = False) -> None:
+    from cnes_runtime import config
+
     config.LOGS_DIR.mkdir(parents=True, exist_ok=True)
     console = logging.StreamHandler(sys.stdout)
     console.setLevel(logging.DEBUG if verbose else logging.INFO)
@@ -118,7 +142,8 @@ async def _run_local_profile() -> None:
     runtime = build_local_processor_runtime(settings, _utc_now)
     logging.getLogger(__name__).info(
         "local_profile_composed tenant_id=%s data_dir=%s",
-        settings.tenant_id, settings.data_dir,
+        settings.tenant_id,
+        settings.data_dir,
     )
     shutdown = asyncio.Event()
     _install_shutdown_handler(shutdown)
@@ -133,15 +158,85 @@ async def _run_local_profile() -> None:
         runtime.executor.close()
 
 
+def _aws_failure_exit_code(error: BaseException) -> int:
+    terminal = (
+        EntrypointConfigurationError,
+        AwsRuntimeConfigurationError,
+        IncompatibleStateMachine,
+        BillingConfigurationError,
+    )
+    return 2 if isinstance(error, terminal) else 1
+
+
 def _run_aws_profile() -> int:
-    configure_json_stdout("data-processor")
-    init_telemetry("data-processor")
     try:
-        runtime = build_processor_runtime("aws", os.environ, Session())
-        return run_aws_entrypoint(runtime, os.environ, sys.argv[1:])
-    except Exception:
-        logging.getLogger(__name__).exception("processor_entrypoint_failed")
-        return 1
+        invocation = select_aws_invocation(os.environ, sys.argv[1:])
+        if invocation.mode is AwsMode.DISPATCH_OUTBOX_ONCE:
+            settings = AwsAuditDispatchSettings.from_mapping(os.environ)
+            return _run_validated_aws(
+                invocation,
+                settings,
+                None,
+                DeadlinePolicy(invocation.mode.value, 60),
+            )
+        settings = (
+            AwsUnitSettings.from_mapping(os.environ)
+            if invocation.mode is AwsMode.RUN_UNIT
+            else AwsRecoverySettings.from_mapping(os.environ)
+        )
+        policy = AwsExecutionPolicy(
+            BillingSettings.from_mapping(os.environ),
+            noop_execution_started,
+        )
+        seconds = settings.processor_lease_seconds
+        if invocation.mode is AwsMode.RUN_UNIT:
+            if invocation.envelope is None:
+                raise EntrypointConfigurationError("unit_envelope=required")
+            seconds = invocation.envelope.lease_seconds
+    except (EntrypointConfigurationError, AwsRuntimeConfigurationError, BillingConfigurationError):
+        return 2
+    return _run_validated_aws(
+        invocation,
+        settings,
+        policy,
+        DeadlinePolicy(invocation.mode.value, seconds),
+    )
+
+
+def _run_validated_aws(
+    invocation: AwsInvocation,
+    settings: AwsUnitSettings | AwsRecoverySettings | AwsAuditDispatchSettings,
+    policy: AwsExecutionPolicy | None,
+    deadline: DeadlinePolicy,
+) -> int:
+    with processor_deadline(deadline):
+        try:
+            configure_json_stdout("data-processor")
+            init_telemetry("data-processor")
+            session = Session()
+            runtime = _build_aws_runtime(settings, session, policy)
+            return run_aws_entrypoint(invocation, runtime)
+        except Exception as error:
+            exit_code = _aws_failure_exit_code(error)
+            logging.getLogger(__name__).exception(
+                "processor_entrypoint_failed",
+                extra={"exit_code": exit_code},
+            )
+            return exit_code
+
+
+def _build_aws_runtime(
+    settings: AwsUnitSettings | AwsRecoverySettings | AwsAuditDispatchSettings,
+    session: Session,
+    policy: AwsExecutionPolicy | None,
+) -> AwsModeRuntime:
+    if isinstance(settings, AwsAuditDispatchSettings):
+        return build_aws_audit_runtime(settings, session, _utc_now)
+    if policy is None:
+        raise EntrypointConfigurationError("aws_policy=required")
+    if isinstance(settings, AwsRecoverySettings):
+        return build_aws_recovery_runtime(settings, session, _utc_now, policy)
+    return build_aws_unit_runtime(settings, session, _utc_now, policy)
 
 
 async def main() -> int:
@@ -156,7 +251,8 @@ async def main() -> int:
         return 0
 
     logging.getLogger(__name__).error(
-        "profile_required profile=%s", os.environ.get("PROFILE", "").strip().lower(),
+        "profile_required profile=%s",
+        os.environ.get("PROFILE", "").strip().lower(),
     )
     return 1
 

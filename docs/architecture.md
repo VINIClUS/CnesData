@@ -58,7 +58,9 @@ e resolvem override explícito antes de `DB_URL`, sem importar Runtime.
 O contador de queries pertence a Observability, compartilhado pelo middleware
 HTTP e pelo listener SQLAlchemy de Data; nenhum adapter depende da API.
 
-Operação: [ops/README.md](../ops/README.md). Runbooks continuam canônicos em
+Operação: [ops/README.md](../ops/README.md). Infraestrutura fica na pasta irmã
+[infra/](../infra/README.md), incluindo o OpenTofu atual e os legados.
+Runbooks continuam canônicos em
 `docs/runbooks/`. Compose de desenvolvimento fica na raiz. VPS permanece no
 caminho de deploy existente; Helm e Terraform raw estão identificados como legados.
 A organização do código não provisiona o alvo AWS nem reativa fluxos aposentados.
@@ -115,7 +117,7 @@ Current `dump_agent_go` production path includes:
 |---|---|---|
 | `POST /oauth/device_authorization` | device flow init | `{device_code, user_code, verification_uri}` |
 | `POST /oauth/token` | device code grant | access token ou pending/denied |
-| `POST /activate/confirm` | Bearer JWT + user code | activation confirmation |
+| `POST /api/v1/activate/confirm` | Bearer JWT + user code (dashboard via `apiFetch`) | activation confirmation; sem rota na raiz nem redirect |
 | `POST /provision/cert` | CSR + registration token | client certificate |
 | `POST /provision/cert/rotate` | mTLS + CSR | renewed client certificate |
 | `POST /api/v1/jobs/upload-url` | mTLS; `tenant_id` deve bater com o cert (`machine_id` gravado = CN do cert) | presigned PUT URL |
@@ -124,7 +126,9 @@ Current `dump_agent_go` production path includes:
 mTLS: o Caddy (`client_auth verify_if_given`) prova a posse da chave e sobrescreve
 `X-SSL-Client-Cert`; o `central_api` só confia no header vindo de
 `TRUSTED_PROXY_CIDRS` e revalida cadeia, serial ativo e refresh token
-(`apps/central_api/src/central_api/agent_auth.py`).
+(`apps/central_api/src/central_api/agent_auth.py`). Tenant e agente vêm das extensões
+`1.3.6.1.4.1.67386.1.{1,2}` do PEN IANA 67386, em DER UTF8String; ver
+`docs/contracts/agent-certificate-oids.md`.
 
 ### Central → S3 (MinIO AIStor em dev, LocalStack em CI, S3 real em prod)
 
@@ -280,13 +284,14 @@ Não é Kubernetes. Dois perfis, sem sobreposição:
   runners` abaixo. Pipeline aponta para `cnesdata.com.br` /
   `api.cnesdata.com.br`; status do piloto (produção real vs. infra pronta)
   segue `CLAUDE.md` ("Not yet in production").
-- **AWS (alvo, EPIC #94):** S3+CloudFront (frontend), FastAPI seguindo no
-  mesmo VPS, Step Functions Standard + ECS Fargate (processamento
-  on-demand), DynamoDB (control plane), Cognito (OIDC). Ver
+- **AWS (runtime integrado, ainda não ativo, EPIC #94):** S3+CloudFront
+  (frontend), FastAPI seguindo no mesmo VPS, Step Functions Standard + ECS
+  Fargate (processamento on-demand), DynamoDB (control plane), Cognito (OIDC).
+  Ver
   `docs/superpowers/specs/2026-08-29-cnesdata-production-deployment-design.md`
-  e `docs/superpowers/plans/2026-08-31-cnesdata-production-*.md`. Gate de
-  entrada: `AWS-010…014` (EPIC #94), atualmente sem código, atrás de
-  `CND-064`.
+  e `docs/superpowers/plans/2026-08-31-cnesdata-production-*.md`. O runtime e
+  o gate de entrada `AWS-010…014` estão integrados; a evidência do SHA e dos
+  testes fica em `docs/production-readiness.md`.
 
 Edge (on-prem, ambos os perfis): `dump_agent_go` como Windows Service
 (municípios) ou systemd (servidores Linux) — não muda com o perfil de
@@ -302,7 +307,7 @@ de download, com o GitHub Release como fallback. Workflow
 check / self-update no agente ainda não existe — hoje a instalação/atualização é manual
 (`docs/runbooks/dumpagent-install-windows.md`).
 
-Dockerfiles existem em cada `apps/*/Dockerfile`. `ops/legacy/helm/web-dashboard/` é um
+Dockerfiles existem em cada `apps/*/Dockerfile`. `infra/legacy/helm/web-dashboard/` é um
 Helm chart legado do frontend, não usado pelo caminho de deploy ativo.
 
 ## Fixtures (git-lfs)

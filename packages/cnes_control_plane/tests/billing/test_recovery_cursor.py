@@ -13,7 +13,7 @@ from moto import mock_aws
 from cnes_control_plane.billing.dynamodb_items import utc_attribute
 from cnes_control_plane.billing.keys import stripe_recovery_cursor_key
 from cnes_control_plane.billing.recovery_cursor import RECOVERY_CURSOR_ENTITY, DynamoRecoveryCursor
-from cnes_control_plane.persistence.dynamodb_keys import item_key
+from cnes_data.dynamodb import item_key
 from cnes_domain.billing.errors import BillingDependencyError, PermanentBillingError
 from cnes_domain.billing.inbox import StripeRecoveryCursor
 from cnes_domain.billing.models import ReadConsistency

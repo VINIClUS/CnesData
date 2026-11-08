@@ -1,20 +1,21 @@
 """DynamoDB item codec and transaction construction."""
 
 import json
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any
 
-from botocore.exceptions import ClientError
 from pydantic import BaseModel
 
-from cnes_control_plane.persistence.dynamodb_keys import (
+from cnes_control_plane.persistence.dynamodb_keys import key_component, raw_partition, timestamp
+from cnes_data.dynamodb import (
+    check_action,
+    decode_model,
     item_key,
-    key_component,
-    raw_partition,
-    timestamp,
+    payload,
+    put_action,
+    query_pages,
 )
-from cnes_data.dynamodb import query_pages
 from cnes_domain.control_plane.entities import ManifestRef, RawManifestRecord
 from cnes_domain.control_plane.errors import Conflict
 from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
@@ -30,22 +31,6 @@ class CandidateQuery[T: BaseModel]:
     limit: int
 
 
-def encode_model(
-    model: BaseModel,
-    entity: str,
-    key: tuple[str, str],
-    attributes: Mapping[str, str] | None = None,
-) -> Item:
-    """Codifica um modelo sem introduzir Decimal."""
-    item: Item = {
-        "pk": {"S": key[0]},
-        "sk": {"S": key[1]},
-        "entity": {"S": entity},
-        "payload": {"S": model.model_dump_json()},
-    }
-    for name, value in (attributes or {}).items():
-        item[name] = {"S": value}
-    return item
 
 
 def encode_marker(
@@ -67,14 +52,8 @@ def encode_marker(
     return item
 
 
-def decode_model[T: BaseModel](item: Item, model_type: type[T]) -> T:
-    """Decodifica e valida o payload de um modelo."""
-    return model_type.model_validate_json(item["payload"]["S"])
 
 
-def payload(item: Item) -> str:
-    """Retorna o payload usado pelo compare-and-set."""
-    return str(item["payload"]["S"])
 
 
 def query_all(client: Any, request: dict[str, Any]) -> tuple[Item, ...]:
@@ -407,27 +386,8 @@ def unique_partition_item(client: Any, table_name: str, partition: str, prefix: 
     return items[0] if len(items) == 1 else None
 
 
-def put_action(table_name: str, item: Item, expected_payload: str | None) -> Action:
-    """Cria uma ação Put condicional."""
-    request: dict[str, Any] = {"TableName": table_name, "Item": item}
-    if expected_payload is None:
-        request["ConditionExpression"] = "attribute_not_exists(pk)"
-    else:
-        request["ConditionExpression"] = "payload = :expected"
-        request["ExpressionAttributeValues"] = {":expected": {"S": expected_payload}}
-    return {"Put": request}
 
 
-def check_action(table_name: str, item: Item) -> Action:
-    """Cria uma ação ConditionCheck pelo payload."""
-    return {
-        "ConditionCheck": {
-            "TableName": table_name,
-            "Key": {"pk": item["pk"], "sk": item["sk"]},
-            "ConditionExpression": "payload = :expected",
-            "ExpressionAttributeValues": {":expected": item["payload"]},
-        }
-    }
 
 
 def absent_check_action(table_name: str, key: tuple[str, str]) -> Action:
@@ -437,40 +397,3 @@ def absent_check_action(table_name: str, key: tuple[str, str]) -> Action:
         "Key": {"pk": {"S": key[0]}, "sk": {"S": key[1]}},
         "ConditionExpression": "attribute_not_exists(pk)",
     }}
-
-
-def _action_key(action: Action) -> tuple[str, str]:
-    request = next(iter(action.values()))
-    values = cast("Item", request.get("Item", request.get("Key")))
-    return str(values["pk"]["S"]), str(values["sk"]["S"])
-
-
-def _validate_actions(actions: tuple[Action, ...]) -> None:
-    if len(actions) > 100:
-        raise Conflict(ErrorCode.TRANSACTION_LIMIT)
-    keys = tuple(_action_key(action) for action in actions)
-    if len(set(keys)) != len(keys):
-        raise Conflict(ErrorCode.DUPLICATE_TRANSACTION_KEY)
-
-
-def execute_transaction(
-    client: Any, actions: Iterable[Action], client_request_token: str | None = None
-) -> None:
-    """Valida e envia uma transação de chaves únicas."""
-    normalized = tuple(actions)
-    _validate_actions(normalized)
-    request: dict[str, Any] = {"TransactItems": list(normalized)}
-    if client_request_token is not None:
-        request["ClientRequestToken"] = client_request_token
-    try:
-        client.transact_write_items(**request)
-    except ClientError as error:
-        code = error.response.get("Error", {}).get("Code")
-        reasons = error.response.get("CancellationReasons") or ()
-        reason_codes = {reason.get("Code") for reason in reasons} - {None, "None"}
-        conditional = code == "TransactionCanceledException" and reason_codes == {
-            "ConditionalCheckFailed"
-        }
-        if conditional:
-            raise Conflict(ErrorCode.TRANSACTION_CONFLICT) from error
-        raise

@@ -16,7 +16,7 @@ from cnes_control_plane.persistence.dynamodb_billing import (
     CLAIM_BIND_BACKOFF_SECONDS,
     ClaimDeferred,
 )
-from cnes_control_plane.persistence.dynamodb_keys import item_key
+from cnes_data.dynamodb import item_key
 from cnes_domain.billing.models import BillingEnforcementMode
 from cnes_domain.control_plane.commands import (
     BindRunDispatch,

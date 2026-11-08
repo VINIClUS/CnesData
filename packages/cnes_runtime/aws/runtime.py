@@ -8,9 +8,13 @@ from typing import TYPE_CHECKING, cast
 from botocore.config import Config
 
 from cnes_control_plane.billing.settings import LOCAL_BILLING_SETTINGS, BillingSettings
+from cnes_control_plane.execution.step_functions import StepFunctionsExecutionProbe
 from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
 from cnes_data.object_store.s3 import S3ObjectStore
+from cnes_domain.orchestration.dispatch_admission import EnvironmentAdmission
+from cnes_domain.ports.environment_gate import UNGATED_ADMISSION, EnvironmentGatePort
 from cnes_governance.s3_object_lock_sink import S3ObjectLockAuditSink
+from cnes_runtime.aws.settings import AwsRuntimeConfigurationError
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -21,7 +25,9 @@ if TYPE_CHECKING:
 
     from cnes_domain.ports.audit import AuditSinkPort
     from cnes_domain.ports.control_plane import ControlPlanePort
+    from cnes_domain.ports.environment_gate import DispatchAdmissionPort
     from cnes_domain.ports.object_store import ObjectStorePort
+    from cnes_runtime.aws.processor_settings import AwsUnitSettings
     from cnes_runtime.aws.settings import AwsRuntimeSettings
 
 
@@ -39,7 +45,9 @@ class AwsRuntimeComponents:
     audit_sink: AuditSinkPort
 
 
-def create_aws_clients(settings: AwsRuntimeSettings, session: Session) -> AwsClients:
+def create_aws_clients(
+    settings: AwsRuntimeSettings | AwsUnitSettings, session: Session,
+) -> AwsClients:
     """Args: settings: Configuração do profile aws. session: Sessão boto3 da provider chain.
     Returns: Clientes DynamoDB, S3 (SigV4) e Step Functions.
     """
@@ -48,11 +56,18 @@ def create_aws_clients(settings: AwsRuntimeSettings, session: Session) -> AwsCli
             "dynamodb", region_name=settings.region,
             endpoint_url=settings.dynamodb_endpoint_url,
         )),
-        # With endpoint_url set, boto3 may fall back to SigV2 presigning.
+        # With endpoint_url set, boto3 may fall back to SigV2 presigning. Without it, "auto"
+        # addressing presigns on the global host, which answers 307 outside us-east-1.
         s3=cast("BaseClient", session.client(  # pyright: ignore[reportUnknownMemberType]
             "s3", region_name=settings.region,
             endpoint_url=settings.service_endpoint_url,
-            config=Config(signature_version="s3v4"),
+            config=Config(
+                signature_version="s3v4",
+                s3=(
+                    {"addressing_style": "virtual"}
+                    if settings.service_endpoint_url is None else None
+                ),
+            ),
         )),
         step_functions=cast(
             "BaseClient",
@@ -61,6 +76,28 @@ def create_aws_clients(settings: AwsRuntimeSettings, session: Session) -> AwsCli
                 endpoint_url=settings.service_endpoint_url,
             ),
         ),
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class AwsProcessorCore:
+    control_plane: ControlPlanePort
+    object_store: ObjectStorePort
+
+
+def build_aws_processor_core(
+    settings: AwsRuntimeSettings | AwsUnitSettings, clients: AwsClients,
+    clock: Callable[[], datetime], billing: BillingSettings,
+) -> AwsProcessorCore:
+    """Args: settings: Configuração. clients: Clientes. clock: Relógio. billing: Política.
+    Returns: Control plane e object store sem sink de auditoria.
+    """
+    return AwsProcessorCore(
+        control_plane=DynamoDBControlPlane(
+            client=clients.dynamodb, table_name=settings.control_plane_table, clock=clock,
+            billing=billing,
+        ),
+        object_store=S3ObjectStore(client=clients.s3, bucket=settings.data_bucket, prefix=""),
     )
 
 
@@ -73,12 +110,10 @@ def build_aws_runtime(
     Returns: Adapters sobre os recursos configurados, sem provisionamento.
     Raises: ValueError: Quando o bucket de auditoria não tem Object Lock.
     """
+    core = build_aws_processor_core(settings, clients, clock, billing)
     return AwsRuntimeComponents(
-        control_plane=DynamoDBControlPlane(
-            client=clients.dynamodb, table_name=settings.control_plane_table, clock=clock,
-            billing=billing,
-        ),
-        object_store=S3ObjectStore(client=clients.s3, bucket=settings.data_bucket, prefix=""),
+        control_plane=core.control_plane,
+        object_store=core.object_store,
         audit_sink=S3ObjectLockAuditSink(
             client=clients.s3,
             bucket=settings.audit_bucket,
@@ -87,4 +122,31 @@ def build_aws_runtime(
     )
 
 
-__all__ = ["AwsClients", "AwsRuntimeComponents", "build_aws_runtime", "create_aws_clients"]
+def build_dispatch_admission(
+    settings: AwsRuntimeSettings | AwsUnitSettings, clients: AwsClients,
+    control_plane: ControlPlanePort,
+) -> DispatchAdmissionPort:
+    """Args: settings: Configuração. clients: Clientes boto3. control_plane: Do runtime.
+    Returns: Gate do ambiente com o probe do executor sob a política de produção; sem gate
+        fora dela.
+    Raises: AwsRuntimeConfigurationError: Produção com control plane sem gate de ambiente.
+    """
+    if not settings.production_policy:
+        return UNGATED_ADMISSION
+    if not isinstance(control_plane, EnvironmentGatePort):
+        raise AwsRuntimeConfigurationError("environment_gate_unsupported")
+    probe = StepFunctionsExecutionProbe(clients.step_functions, settings.state_machine_arn)
+    return EnvironmentAdmission(
+        control_plane, probe, settings.environment, settings.processor_lease_seconds,
+    )
+
+
+__all__ = [
+    "AwsClients",
+    "AwsProcessorCore",
+    "AwsRuntimeComponents",
+    "build_aws_processor_core",
+    "build_aws_runtime",
+    "build_dispatch_admission",
+    "create_aws_clients",
+]

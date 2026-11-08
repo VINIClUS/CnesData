@@ -11,7 +11,7 @@ O upload raw passa sempre por `central_api`; o agente não recebe chaves AWS.
 
 ## Infraestrutura AWS
 
-`ops/infra/aws/raw-legacy/main.tf` cria tabelas e buckets separados para `dev` e `prod`,
+`infra/aws/raw-legacy/main.tf` cria tabelas e buckets separados para `dev` e `prod`,
 seis GSIs, TTL `expires_at`, versionamento, criptografia e IAM por ambiente.
 Aplicar com backend remoto de estado protegido; o estado contém as chaves IAM.
 Antes do apply, confirmar `aws sts get-caller-identity` = `836651842853` e

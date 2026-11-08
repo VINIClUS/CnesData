@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from cnes_control_plane.billing.dynamodb_quota import DynamoQuotaReservations
     from cnes_control_plane.billing.settings import BillingSettings
     from cnes_control_plane.persistence.dynamodb_billing import ClaimDeferred
-    from cnes_control_plane.persistence.dynamodb_codec import Action, Item
+    from cnes_data.dynamodb import Action, Item
     from cnes_domain.billing.execution import RunBillingState
     from cnes_domain.control_plane.commands import (
         ClaimRunUnit,

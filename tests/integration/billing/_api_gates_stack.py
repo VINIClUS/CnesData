@@ -32,9 +32,9 @@ from cnes_control_plane.billing.dynamodb_revocation import DynamoRevocationStore
 from cnes_control_plane.billing.keys import capacity_usage_key
 from cnes_control_plane.billing.wiring import BillingGateResources
 from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
-from cnes_control_plane.persistence.dynamodb_codec import encode_model
 from cnes_control_plane.persistence.dynamodb_keys import pointer_key, version_key
 from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
+from cnes_data.dynamodb import encode_model
 from cnes_data.object_store.filesystem import FilesystemObjectStore
 from cnes_domain.billing.models import (
     BillingEnforcementMode,

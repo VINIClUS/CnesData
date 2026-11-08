@@ -1,0 +1,47 @@
+{
+  "remote_no_entity": [
+    254,
+    "",
+    "{\"Code\":\"NoSuchEntity\",\"Message\":\"R1_PRIVATE_CANARY\"}"
+  ],
+  "remote_no_entity_exception": [
+    254,
+    "",
+    "{\"Code\":\"NoSuchEntityException\",\"Message\":\"R1_PRIVATE_CANARY\"}"
+  ],
+  "local_no_entity": [
+    252,
+    "",
+    "{\"Code\":\"NoSuchEntity\",\"Message\":\"R1_PRIVATE_CANARY\"}"
+  ],
+  "remote_denied": [
+    254,
+    "",
+    "{\"Code\":\"AccessDenied\",\"Message\":\"R1_PRIVATE_CANARY\"}"
+  ],
+  "remote_403": [
+    254,
+    "",
+    "{\"Code\":\"403\",\"Message\":\"R1_PRIVATE_CANARY\"}"
+  ],
+  "remote_404": [
+    254,
+    "",
+    "{\"Code\":\"404\",\"Message\":\"R1_PRIVATE_CANARY\"}"
+  ],
+  "bad_json": [
+    0,
+    "{R1_PRIVATE_CANARY",
+    ""
+  ],
+  "empty_stdout": [
+    0,
+    "",
+    ""
+  ],
+  "bad_stderr": [
+    254,
+    "",
+    "R1_PRIVATE_CANARY"
+  ]
+}

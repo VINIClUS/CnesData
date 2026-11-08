@@ -1,0 +1,40 @@
+{
+  "source": {"file":"task-3-services-b1-source-cognito.txt","sha256":"ee91799490a4530490b18a6ea56b64956090077c704dc4b343c653631f36ec0f","fingerprint":"SHA256(kind + compact sorted markers JSON); literal author ledger"},
+  "cursors": {
+    "private_next":"{\"kind\":\"cognito.clients\",\"markers\":{\"NextToken\":\"R1_PRIVATE_CANARY\"},\"parent\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"seen\":[\"68bf187011f6f7d8cbfb1714755cbed56be61243c056cec5d57edb114471afbc\",\"cb76e0ed2fe92ee569483fce98e7efe2117e463bc5c1acb7c1729e7374e862aa\"],\"service\":\"cognito\",\"v\":1}",
+    "private_servers":"{\"kind\":\"cognito.servers\",\"markers\":{},\"parent\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"seen\":[\"68bf187011f6f7d8cbfb1714755cbed56be61243c056cec5d57edb114471afbc\",\"cb76e0ed2fe92ee569483fce98e7efe2117e463bc5c1acb7c1729e7374e862aa\",\"1e4ce47e928327eec46115dc6ed32cdf0c2bb83328694150e009015a3a2c5e31\"],\"service\":\"cognito\",\"v\":1}",
+    "clients_start":"{\"kind\":\"cognito.clients\",\"markers\":{},\"parent\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"seen\":[\"68bf187011f6f7d8cbfb1714755cbed56be61243c056cec5d57edb114471afbc\"],\"service\":\"cognito\",\"v\":1}",
+    "clients_next":"{\"kind\":\"cognito.clients\",\"markers\":{\"NextToken\":\"client-A\"},\"parent\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"seen\":[\"68bf187011f6f7d8cbfb1714755cbed56be61243c056cec5d57edb114471afbc\",\"71deb72c7774478bc7d3867d047ba0414bed5aec5a302c04fe9f26d05c6e3dec\"],\"service\":\"cognito\",\"v\":1}",
+    "clients_b":"{\"kind\":\"cognito.clients\",\"markers\":{\"NextToken\":\"client-B\"},\"parent\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"seen\":[\"68bf187011f6f7d8cbfb1714755cbed56be61243c056cec5d57edb114471afbc\",\"71deb72c7774478bc7d3867d047ba0414bed5aec5a302c04fe9f26d05c6e3dec\",\"415ba8f97822ff5e147addd7d49fd7713799431a3f860a67b8557bb22948ec5d\"],\"service\":\"cognito\",\"v\":1}",
+    "servers_start":"{\"kind\":\"cognito.servers\",\"markers\":{},\"parent\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"seen\":[\"68bf187011f6f7d8cbfb1714755cbed56be61243c056cec5d57edb114471afbc\",\"71deb72c7774478bc7d3867d047ba0414bed5aec5a302c04fe9f26d05c6e3dec\",\"1e4ce47e928327eec46115dc6ed32cdf0c2bb83328694150e009015a3a2c5e31\"],\"service\":\"cognito\",\"v\":1}",
+    "servers_next":"{\"kind\":\"cognito.servers\",\"markers\":{\"NextToken\":\"server-A\"},\"parent\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"seen\":[\"68bf187011f6f7d8cbfb1714755cbed56be61243c056cec5d57edb114471afbc\",\"71deb72c7774478bc7d3867d047ba0414bed5aec5a302c04fe9f26d05c6e3dec\",\"1e4ce47e928327eec46115dc6ed32cdf0c2bb83328694150e009015a3a2c5e31\",\"49d61a85f71f2238180c794695ae7e7e6f1a8bb107fd123b1e0a76749821fd09\"],\"service\":\"cognito\",\"v\":1}",
+    "users_start":"{\"kind\":\"cognito.users\",\"markers\":{},\"parent\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"seen\":[\"68bf187011f6f7d8cbfb1714755cbed56be61243c056cec5d57edb114471afbc\",\"71deb72c7774478bc7d3867d047ba0414bed5aec5a302c04fe9f26d05c6e3dec\",\"1e4ce47e928327eec46115dc6ed32cdf0c2bb83328694150e009015a3a2c5e31\",\"49d61a85f71f2238180c794695ae7e7e6f1a8bb107fd123b1e0a76749821fd09\",\"9e0ec11632872e25bb5517db06d8c9408fa21b1de7593f1f560a334cf256c362\"],\"service\":\"cognito\",\"v\":1}",
+    "users_next":"{\"kind\":\"cognito.users\",\"markers\":{\"PaginationToken\":\"user-A\"},\"parent\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"seen\":[\"68bf187011f6f7d8cbfb1714755cbed56be61243c056cec5d57edb114471afbc\",\"71deb72c7774478bc7d3867d047ba0414bed5aec5a302c04fe9f26d05c6e3dec\",\"1e4ce47e928327eec46115dc6ed32cdf0c2bb83328694150e009015a3a2c5e31\",\"49d61a85f71f2238180c794695ae7e7e6f1a8bb107fd123b1e0a76749821fd09\",\"9e0ec11632872e25bb5517db06d8c9408fa21b1de7593f1f560a334cf256c362\",\"5792cdf8146b58760cf3fc60f2e64d49b5cc25010b7d7b18437f33a948d8e604\"],\"service\":\"cognito\",\"v\":1}",
+    "empty_users":"{\"kind\":\"cognito.users\",\"markers\":{},\"parent\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"seen\":[\"68bf187011f6f7d8cbfb1714755cbed56be61243c056cec5d57edb114471afbc\",\"1e4ce47e928327eec46115dc6ed32cdf0c2bb83328694150e009015a3a2c5e31\",\"9e0ec11632872e25bb5517db06d8c9408fa21b1de7593f1f560a334cf256c362\"],\"service\":\"cognito\",\"v\":1}",
+    "empty_servers":"{\"kind\":\"cognito.servers\",\"markers\":{},\"parent\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"seen\":[\"68bf187011f6f7d8cbfb1714755cbed56be61243c056cec5d57edb114471afbc\",\"1e4ce47e928327eec46115dc6ed32cdf0c2bb83328694150e009015a3a2c5e31\"],\"service\":\"cognito\",\"v\":1}"
+  },
+  "pages": [
+    {"input":null,"reply":"domains","call":"domains","resources":["domain","custom"],"output":"clients_start"},
+    {"input":"clients_start","reply":"clients_first","call":"clients","resources":["client"],"output":"clients_next"},
+    {"input":"clients_next","reply":"clients_last","call":"clients_next","resources":["client2"],"output":"servers_start"},
+    {"input":"servers_start","reply":"servers_first","call":"servers","resources":["server"],"output":"servers_next"},
+    {"input":"servers_next","reply":"servers_last","call":"servers_next","resources":["server2"],"output":"users_start"},
+    {"input":"users_start","reply":"users_first","call":"users","resources":["user"],"output":"users_next"},
+    {"input":"users_next","reply":"users_last","call":"users_next","resources":["user2"],"output":null}
+  ],
+  "replies": {
+    "clients_first":{"UserPoolClients":[{"ClientId":"4m7k8syntheticclient","UserPoolId":"us-east-2_X9opaqueQ"}],"NextToken":"client-A"},
+    "clients_last":{"UserPoolClients":[{"ClientId":"8secondclient","UserPoolId":"us-east-2_X9opaqueQ"}]},
+    "servers_first":{"ResourceServers":[{"Identifier":"https://api.example.invalid/v1","UserPoolId":"us-east-2_X9opaqueQ"}],"NextToken":"server-A"},
+    "servers_last":{"ResourceServers":[{"Identifier":"urn:second:server","UserPoolId":"us-east-2_X9opaqueQ"}]},
+    "users_first":{"Users":[{"Username":"user@example.invalid"}],"PaginationToken":"user-A"},
+    "users_last":{"Users":[{"Username":"second-user"}]}
+  },
+  "calls": {
+    "private_next":["cognito-idp","list-user-pool-clients","us-east-2",{"UserPoolId":"us-east-2_X9opaqueQ","MaxResults":60,"NextToken":"R1_PRIVATE_CANARY"}],
+    "clients_next":["cognito-idp","list-user-pool-clients","us-east-2",{"UserPoolId":"us-east-2_X9opaqueQ","MaxResults":60,"NextToken":"client-A"}],
+    "clients_b":["cognito-idp","list-user-pool-clients","us-east-2",{"UserPoolId":"us-east-2_X9opaqueQ","MaxResults":60,"NextToken":"client-B"}],
+    "servers_next":["cognito-idp","list-resource-servers","us-east-2",{"UserPoolId":"us-east-2_X9opaqueQ","MaxResults":50,"NextToken":"server-A"}],
+    "users_next":["cognito-idp","list-users","us-east-2",{"UserPoolId":"us-east-2_X9opaqueQ","Limit":60,"PaginationToken":"user-A"}]
+  }
+}

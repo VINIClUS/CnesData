@@ -1,0 +1,76 @@
+{
+  "source_sha": "0e21014b98c33841d3cf4484236583671c5e5b4e",
+  "execution_base_sha": "4f094b3bcb590c8b7972049489fe6186f81460e5",
+  "legacy_columns": [
+    "id",
+    "agent_id",
+    "tenant_id",
+    "subject_cn",
+    "ca_serial",
+    "issued_at",
+    "expires_at",
+    "revoked_at"
+  ],
+  "tenant_id": "cert-oracle-tenant-a",
+  "records": [
+    {
+      "agent_id": "cert-oracle-agent-a",
+      "tenant_id": "cert-oracle-tenant-a",
+      "subject_cn": "cert-oracle-old",
+      "ca_serial": "cert-oracle-old",
+      "expires_after_days": 30
+    },
+    {
+      "agent_id": "cert-oracle-agent-a",
+      "tenant_id": "cert-oracle-tenant-a",
+      "subject_cn": "cert-oracle-new",
+      "ca_serial": "cert-oracle-new",
+      "expires_after_days": 90
+    },
+    {
+      "agent_id": "cert-oracle-agent-a",
+      "tenant_id": "cert-oracle-tenant-a",
+      "subject_cn": "cert-oracle-revoked",
+      "ca_serial": "cert-oracle-revoked",
+      "expires_after_days": 90
+    },
+    {
+      "agent_id": "cert-oracle-agent-a",
+      "tenant_id": "cert-oracle-tenant-a",
+      "subject_cn": "cert-oracle-expired",
+      "ca_serial": "cert-oracle-expired",
+      "expires_after_days": 90
+    },
+    {
+      "agent_id": "cert-oracle-agent-b",
+      "tenant_id": "cert-oracle-tenant-a",
+      "subject_cn": "cert-oracle-agent-b",
+      "ca_serial": "cert-oracle-agent-b",
+      "expires_after_days": 30
+    }
+  ],
+  "observations": [
+    {"agent_id": "cert-oracle-agent-a", "ca_serial": "cert-oracle-old", "active": true},
+    {"agent_id": "cert-oracle-agent-a", "ca_serial": "cert-oracle-new", "active": true},
+    {"agent_id": "cert-oracle-agent-a", "ca_serial": "cert-oracle-unknown", "active": false},
+    {"agent_id": "cert-oracle-agent-b", "ca_serial": "cert-oracle-old", "active": false},
+    {"agent_id": "cert-oracle-agent-a", "ca_serial": "cert-oracle-revoked", "active": false},
+    {"agent_id": "cert-oracle-agent-a", "ca_serial": "cert-oracle-expired", "active": false},
+    {"agent_id": "cert-oracle-agent-b", "ca_serial": "cert-oracle-agent-b", "active": true}
+  ],
+  "duplicate_record": {
+    "agent_id": "cert-oracle-agent-a",
+    "tenant_id": "cert-oracle-tenant-a",
+    "subject_cn": "cert-oracle-duplicate",
+    "ca_serial": "cert-oracle-duplicate",
+    "expires_after_days": 30,
+    "expected_count": 2
+  },
+  "unsupported_claims": {
+    "certificate_fingerprint_sha256": null,
+    "cross_tenant_lookup": "depends_on_postgres_rls_and_context",
+    "public_revoke_method": false,
+    "duplicate_serial_rejection": false,
+    "fingerprint_matching": false
+  }
+}

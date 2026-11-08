@@ -16,7 +16,7 @@ from cnes_control_plane.billing.reconciliation_cursor import (
     DynamoReconciliationCursor,
     ReconciliationCursor,
 )
-from cnes_control_plane.persistence.dynamodb_keys import item_key
+from cnes_data.dynamodb import item_key
 from cnes_domain.billing.errors import BillingDependencyError, PermanentBillingError
 from packages.cnes_control_plane.tests.billing.billing_factories import (
     NOW,

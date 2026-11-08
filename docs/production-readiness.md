@@ -1,0 +1,214 @@
+# Production readiness dependency gate
+
+## Current execution baseline — 2026-10-25
+
+Backlog execution starts from integrated `develop` at
+`f87d42bdb56ff10e755c67d7ad26b46528889379`. The plan is
+`docs/superpowers/plans/2026-10-25-backlog-execution-plan.md`.
+The historical runs below prove their named SHAs only; each new change requires fresh checks.
+
+Production infrastructure currently includes control-plane, data-bucket and network modules.
+The remaining runtime/infra gates and target promotion are still pending under epic #365.
+Cognito is approved for Essentials/managed login v2, preserving the API audience; this decision
+must be implemented and capability-tested before the production pool is created.
+
+## Tested dependency head
+
+The dependency gate was materialized against the exact integrated `develop` SHA
+`468b855ab1de5cae2b94420dc8a62c2b3e706c41` on 2026-10-11. The gate confirms that the
+CND Phase 2 and AWS runtime contracts consumed by the production amendments are integrated. It
+does not claim that the AWS infrastructure described by the later production plans is deployed.
+
+## Integrated dependency lineage
+
+The CND Phase 2 chain is closed and merged:
+
+| Logical ID | Issue | Implementation PR |
+|---|---|---|
+| CND-020 | [#122][issue-122] | [#131][pr-131] |
+| CND-021 | [#123][issue-123] | [#132][pr-132] |
+| CND-022 | [#124][issue-124] | [#130][pr-130] |
+| CND-023 | [#125][issue-125] | [#135][pr-135] |
+| CND-024 | [#126][issue-126] | [#136][pr-136] |
+| CND-025 | [#127][issue-127] | [#138][pr-138] |
+
+The AWS runtime chain and serial acceptance gate are also closed and merged:
+
+| Logical ID | Issue | Implementation PR |
+|---|---|---|
+| AWS-010 | [#302][issue-302] | [#311][pr-311] |
+| AWS-011 | [#303][issue-303] | [#312][pr-312] |
+| AWS-012 | [#304][issue-304] | [#309][pr-309] |
+| AWS-013 | [#305][issue-305] | [#310][pr-310] |
+| AWS composition | [#306][issue-306] | [#313][pr-313] |
+| AWS-014 | [#307][issue-307] | [#315][pr-315] |
+| AWS Gate | [#308][issue-308] | [#316][pr-316] |
+
+[issue-122]: https://github.com/VINIClUS/CnesData/issues/122
+[issue-123]: https://github.com/VINIClUS/CnesData/issues/123
+[issue-124]: https://github.com/VINIClUS/CnesData/issues/124
+[issue-125]: https://github.com/VINIClUS/CnesData/issues/125
+[issue-126]: https://github.com/VINIClUS/CnesData/issues/126
+[issue-127]: https://github.com/VINIClUS/CnesData/issues/127
+[issue-302]: https://github.com/VINIClUS/CnesData/issues/302
+[issue-303]: https://github.com/VINIClUS/CnesData/issues/303
+[issue-304]: https://github.com/VINIClUS/CnesData/issues/304
+[issue-305]: https://github.com/VINIClUS/CnesData/issues/305
+[issue-306]: https://github.com/VINIClUS/CnesData/issues/306
+[issue-307]: https://github.com/VINIClUS/CnesData/issues/307
+[issue-308]: https://github.com/VINIClUS/CnesData/issues/308
+[pr-130]: https://github.com/VINIClUS/CnesData/pull/130
+[pr-131]: https://github.com/VINIClUS/CnesData/pull/131
+[pr-132]: https://github.com/VINIClUS/CnesData/pull/132
+[pr-135]: https://github.com/VINIClUS/CnesData/pull/135
+[pr-136]: https://github.com/VINIClUS/CnesData/pull/136
+[pr-138]: https://github.com/VINIClUS/CnesData/pull/138
+[pr-309]: https://github.com/VINIClUS/CnesData/pull/309
+[pr-310]: https://github.com/VINIClUS/CnesData/pull/310
+[pr-311]: https://github.com/VINIClUS/CnesData/pull/311
+[pr-312]: https://github.com/VINIClUS/CnesData/pull/312
+[pr-313]: https://github.com/VINIClUS/CnesData/pull/313
+[pr-315]: https://github.com/VINIClUS/CnesData/pull/315
+[pr-316]: https://github.com/VINIClUS/CnesData/pull/316
+
+Historical checks prove the dependency changes at their own reviewed or integrated heads, not at
+the current SHA:
+
+- CND-025 PR #138 run
+  [34031786531](https://github.com/VINIClUS/CnesData/actions/runs/34031786531) covered PR head SHA
+  `7e04e27776053b568819e64c5f2e2b909a8c00bf`.
+- The integrated `develop` conformance run
+  [34031957092](https://github.com/VINIClUS/CnesData/actions/runs/34031957092) covered merge SHA
+  `80e59f218031891c9aedd5d338bd69c3b57c9f09`.
+- AWS-014 PR CI run
+  [36350827087](https://github.com/VINIClUS/CnesData/actions/runs/36350827087) covered PR #315.
+- AWS Gate PR run
+  [36445090387](https://github.com/VINIClUS/CnesData/actions/runs/36445090387) included the
+  `aws-runtime-integration` job for PR #316.
+
+## Current hosted evidence
+
+Both hosted runs completed successfully on
+`468b855ab1de5cae2b94420dc8a62c2b3e706c41`:
+
+- `python-quality` run
+  [38136816128](https://github.com/VINIClUS/CnesData/actions/runs/38136816128):
+  `COMPLETED/SUCCESS`; both `phase2-adapter-conformance` and
+  `aws-runtime-integration` succeeded.
+- `Deploy develop` run
+  [38137112387](https://github.com/VINIClUS/CnesData/actions/runs/38137112387):
+  `COMPLETED/SUCCESS`; `gate / lint-test-coverage` succeeded in 7m04s, all four image builds
+  succeeded, and the `deploy` and `smoke` jobs succeeded.
+
+The deploy run validates the active VPS profile. It is evidence that the exact dependency head is
+green through the current deployment gate, not evidence that the AWS target profile is deployed.
+
+## Current local evidence
+
+The worktree had no `.env`. Commands that import `cnes_runtime.config` therefore received the public
+`DB_URL` placeholder used by `python-quality.yml`; the AWS SDK still used only test provider-chain
+credentials and emulator endpoints.
+
+```bash
+uv run pytest -q tests/production/test_dependency_gate.py
+
+docker compose --profile aws-test up -d --wait dynamodb-local localstack
+DB_URL=postgresql+psycopg://cnesdata:cnesdata_test@localhost:5433/cnesdata_test \
+AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test \
+AWS_ENDPOINT_URL=http://127.0.0.1:4566 \
+DYNAMODB_ENDPOINT_URL=http://127.0.0.1:18000 \
+  uv run --no-build pytest -m "dynamodb_local and s3_integration" tests/integration/aws
+docker compose --profile aws-test down -v
+
+DB_URL=postgresql+psycopg://cnesdata:cnesdata_test@localhost:5433/cnesdata_test \
+  bash scripts/ci_phase2_adapters.sh
+
+uv run ruff check tests/production
+uv run ruff check .
+uv run pyright
+git diff --check
+
+DB_URL=postgresql+psycopg://cnesdata:cnesdata_test@localhost:5433/cnesdata_test \
+COD_MUN_IBGE=354130 ID_MUNICIPIO_IBGE7=3541307 CNPJ_MANTENEDORA=55293427000117 \
+  uv run pytest \
+  -m "not integration and not postgres and not bigquery and not e2e and not stress and not soak \
+  and not spike and not windows_only and not s3_integration and not dynamodb_local" -q
+```
+
+O comando usa o código real de Presidente Epitácio (`3541307`), também presente em
+`.env.example`. O workflow de runtime usa a fixture sintética `3541308`.
+
+Green results:
+
+- dependency gate: `10 passed`;
+- AWS-014 exact entrypoint `tests/integration/aws`: `21 passed`;
+- CND-025 script: local adapter matrix `2 passed`, AWS adapter matrix `1 passed`, S3 presign
+  matrix `6 passed`;
+- complete fast suite: `6892 passed, 20 skipped, 203 deselected`;
+- Ruff and Pyright: no findings; `git diff --check`: clean.
+
+## CI collection boundary
+
+O workflow `.github/workflows/production-runtime.yml` coleta os contratos finitos de
+runtime em CI e publica `production-runtime-acceptance`, obrigatório em `develop`.
+Ele não coleta todo o diretório `tests/production`: a infraestrutura em
+`tests/production/infra` continua fora desse gate. As contagens locais acima são
+evidências históricas das dependências, não o inventário atual de coleta.
+
+## Runtime acceptance gate (#377)
+
+O workflow dedicado `.github/workflows/production-runtime.yml` foi implementado no
+topology Option A com três produtores hospedados e o check final
+`production-runtime-acceptance`. O gate inclui os nove validadores de fonte, os
+contratos Python e dashboard finitos e os contratos AWS/Floci com relatórios JUnit
+fail-closed. `tests/production/infra` permanece fora da coleta.
+
+O candidato foi executado na branch `codex/prod-012-runtime-acceptance`, no SHA
+`7c382d44f07afdff7680eaae5ce09f9342d66ce4`, com base
+`709394c09969001fa41df5d885f10c9e821b06c9`. O run oficial
+[40604640818](https://github.com/VINIClUS/CnesData/actions/runs/40604640818)
+terminou com sucesso. Ele registrou 978 contratos Python e 51 contratos CI,
+133 contratos dashboard, 28 casos AWS e 122 casos Floci, todos sem skips
+selecionados. Os checks auxiliares
+[CI 40604640649](https://github.com/VINIClUS/CnesData/actions/runs/40604640649),
+[quality 40604640646](https://github.com/VINIClUS/CnesData/actions/runs/40604640646),
+[Sonar 40604640618](https://github.com/VINIClUS/CnesData/actions/runs/40604640618) e
+[Trivy 40604640635](https://github.com/VINIClUS/CnesData/actions/runs/40604640635)
+também terminaram com sucesso.
+
+A prova hospedada docs-only da [PR #427](https://github.com/VINIClUS/CnesData/pull/427),
+no head `c69292d955234c37337965a36e612ce5fb7bf715`, terminou com sucesso no run
+[40605328299](https://github.com/VINIClUS/CnesData/actions/runs/40605328299) e
+reproduziu as mesmas contagens. A PR permanece não integrada (`merged=false`);
+essa execução e o head candidato acima são evidências históricas deste gate.
+O ensaio de proteção por alteração proibida, no head
+`b06e26989486bfffd32b12b0ec59a9483ae58fe3`, falhou no run
+[40703634080](https://github.com/VINIClUS/CnesData/actions/runs/40703634080),
+como esperado.
+
+O ruleset `production-runtime-acceptance-develop` (`26047506`) está ativo em
+`develop` e exige `production-runtime-acceptance` pela GitHub Actions
+(`integration_id=15368`). Os rulesets anteriores permaneceram inalterados e
+`main` permaneceu sem essa exigência. O run de cancelamento
+[40705270173](https://github.com/VINIClUS/CnesData/actions/runs/40705270173) teve
+a tentativa 1 encerrada com falha do agregador, com `python=cancelled`,
+`dashboard=success` e `emulators=cancelled`; os passos `Stop AWS` e `Stop Floci`
+terminaram com `success`, embora Floci nunca tenha iniciado. A tentativa 2 foi
+concluída com sucesso no SHA restaurado
+`13cd90836967f043d05141087e882e42198b4268`. Os produtores
+`122879699949`, `122879700394` e `122879700625` e o agregador final
+`122881118504` passaram todas as validações; os containers e as redes AWS e
+Floci foram explicitamente removidos nessa segunda tentativa. Esses estados são
+o resultado observado, sem atribuir causalidade exclusiva a uma condição de
+admissão.
+
+O runner é `ubuntu-latest` público. A leitura de billing retornou
+`403 UNAVAILABLE`; este documento não afirma custo medido ou uso pago zero.
+O gate foi integrado em `develop` por `f58c6b64` (PR #426) e corrigido por
+`d9883e2d` (PR #429). A execução integrada no SHA
+`d24d4f6b312405a8a3a2073e141a6c4a5a0e6335` terminou com sucesso no run
+[41148506951](https://github.com/VINIClUS/CnesData/actions/runs/41148506951).
+A issue #377 permanece aberta pela dependência formal da #398: faltam os ensaios
+reais de OAuth/PKCE, audiência no access token, refresh e cleanup AWS. Essa integração
+não comprova deploy, emissão de certificado ou readiness AWS; #381 e #280
+também continuam limitações do estado operacional.

@@ -141,5 +141,6 @@ apps ou no ambiente de deploy. Nao hardcode caminhos ou segredos no codigo.
 
 As oito bibliotecas expõem código diretamente em `packages/cnes_*/`, ao lado de
 `tests/`, sem o nível redundante `src/cnes_*`. Fronteiras e responsabilidades:
-[arquitetura](docs/architecture.md#fronteiras-do-monorepo). Deploys, configuração
-operacional e infraestrutura legada: [Ops](ops/README.md).
+[arquitetura](docs/architecture.md#fronteiras-do-monorepo). Deploys e configuração
+operacional: [Ops](ops/README.md). IaC e Helm: [Infra](infra/README.md), em diretório
+separado na raiz.

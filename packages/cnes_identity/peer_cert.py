@@ -14,15 +14,17 @@ from cryptography import x509
 from cryptography.exceptions import InvalidSignature
 from cryptography.x509.oid import NameOID
 
+from cnes_identity.cert_extensions import (
+    AGENT_ID_OID,
+    TENANT_ID_OID,
+    decode_extension_value,
+)
 from cnes_identity.errors import OAuthError
 
 if TYPE_CHECKING:
     import datetime as dt
 
     from starlette.requests import Request
-
-_AGENT_ID_OID = x509.ObjectIdentifier("1.3.6.1.4.1.99999.1.2")
-_TENANT_OID = x509.ObjectIdentifier("1.3.6.1.4.1.99999.1.1")
 
 
 def _invalid_token() -> OAuthError:
@@ -60,18 +62,18 @@ def _read_oid_value(
     for ext in cert.extensions:
         if ext.oid == oid and isinstance(ext.value, x509.UnrecognizedExtension):
             try:
-                return ext.value.value.decode()
-            except UnicodeDecodeError as exc:
+                return decode_extension_value(ext.value.value)
+            except ValueError as exc:
                 raise _invalid_token() from exc
     raise _invalid_token()
 
 
 def read_agent_id(cert: x509.Certificate) -> str:
-    return _read_oid_value(cert, _AGENT_ID_OID)
+    return _read_oid_value(cert, AGENT_ID_OID)
 
 
 def read_tenant_id(cert: x509.Certificate) -> str:
-    return _read_oid_value(cert, _TENANT_OID)
+    return _read_oid_value(cert, TENANT_ID_OID)
 
 
 def read_machine_id(cert: x509.Certificate) -> str:

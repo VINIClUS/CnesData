@@ -24,7 +24,7 @@ from cnes_control_plane.billing.dynamodb_quota_items import (
 )
 from cnes_control_plane.billing.keys import QUOTA_RESERVATION_LOCATOR_INDEX as LOCATOR_INDEX
 from cnes_control_plane.billing.keys import quota_reservation_locator, usage_key
-from cnes_control_plane.persistence.dynamodb_codec import Action, Item, payload, put_action
+from cnes_data.dynamodb import Action, Item, payload, put_action
 from cnes_domain.billing.commands import ConsumeReservationCommand, ReleaseReservationCommand
 from cnes_domain.billing.errors import (
     BillingDependencyError,

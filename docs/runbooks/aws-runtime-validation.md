@@ -6,8 +6,8 @@ deploy. O texto descreve o código de `develop`; onde plano e código divergem, 
 
 **Bloqueado pela especificação de deployment**
 (`docs/superpowers/plans/2026-08-31-cnesdata-production-*.md`): criação de recursos, documentos
-de policy IAM, KMS, rede, alarmes e agendamento. Não há IaC do profile `aws` no repo;
-`ops/infra/aws/raw-legacy/` pertence ao caminho raw legado (#294).
+de policy IAM, KMS, rede, alarmes e agendamento seguem seus gates próprios. Os módulos
+em `infra/opentofu/` não comprovam apply; `infra/aws/raw-legacy/` pertence ao caminho raw legado (#294).
 
 ## Gate em emuladores
 
@@ -35,7 +35,8 @@ AWS_ENDPOINT_URL=http://127.0.0.1:4566 DYNAMODB_ENDPOINT_URL=http://127.0.0.1:18
 docker compose -p cnesdata-aws-gate --profile aws-test down -v
 ```
 
-`DB_URL` precisa existir no ambiente (placeholder; o `.env` local cobre). O LocalStack 4.11.1
+Na suíte integrada, a API exige `DB_URL` (placeholder); o worker AWS isolado não exige.
+O LocalStack 4.11.1
 pinado não tem ECS: a suíte cria as state machines nele e as valida pela composição, mas atende
 `StartExecution`, `DescribeExecution` e `StopExecution` em processo, com semântica Standard.
 Trocar o digest é decisão de licença (comentário em `docker-compose.yml`), não bump de rotina.
@@ -43,8 +44,8 @@ O bucket de audit, com retenção `COMPLIANCE`, só some no `down -v`.
 
 ## Variáveis de ambiente
 
-Fonte: `packages/cnes_runtime/aws/settings.py`. Valor inválido derruba o boot com
-`AwsRuntimeConfigurationError(<código>)`.
+A tabela abaixo descreve a API (`packages/cnes_runtime/aws/settings.py`).
+Valor inválido derruba o boot com `AwsRuntimeConfigurationError(<código>)`.
 
 | Variável | Regra | Código |
 |---|---|---|
@@ -58,7 +59,7 @@ Fonte: `packages/cnes_runtime/aws/settings.py`. Valor inválido derruba o boot c
 | `AWS_AUDIT_BUCKET` | obrigatória | `missing=AWS_AUDIT_BUCKET` |
 | `AWS_STATE_MACHINE_ARN` | obrigatória | `missing=AWS_STATE_MACHINE_ARN` |
 | `AWS_PROCESSOR_CONTAINER_NAME` | obrigatória | `missing=AWS_PROCESSOR_CONTAINER_NAME` |
-| `AWS_AUDIT_RETENTION_DAYS` | obrigatória, ≥ 1, sem teto | `audit_retention_days_invalid` |
+| `AWS_AUDIT_RETENTION_DAYS` | obrigatória, ≥ 1, sem teto; com `AWS_PRODUCTION_POLICY=true`, exatamente 365 | `audit_retention_days_invalid`, `production_audit_retention_must_be_365_days` |
 | `AWS_SERVING_URL_TTL_SECONDS` | default 300, 30–900 | `serving_ttl_out_of_range` |
 | `AWS_PROCESSOR_MAX_CONCURRENCY` | default 8, 1–40 | `processor_concurrency_invalid` |
 | `AWS_PROCESSOR_LEASE_SECONDS` | default 300, 30–3600 | `processor_lease_invalid` |
@@ -66,14 +67,36 @@ Fonte: `packages/cnes_runtime/aws/settings.py`. Valor inválido derruba o boot c
 | `DYNAMODB_ENDPOINT_URL`, `AWS_ENDPOINT_URL` | só em emulador; produção deixa vazias | — |
 
 - Variável numérica presente e vazia não usa o default: falha com `integer_invalid=<VAR>`.
-- `DB_URL` segue obrigatório no import de `cnes_runtime.config` (placeholder, não usado).
+- Com `AWS_PRODUCTION_POLICY=true`, `settings.py` exige `AWS_ENVIRONMENT` explícito
+  (`environment_required`), valida o formato de subnets, security group e `OIDC_DOMAIN`
+  (`public_subnet_invalid`, `public_subnets_not_normalized`, `security_group_invalid`,
+  `oidc_domain_invalid`) e impõe as invariantes de região, rede, OIDC, concorrência, lease,
+  TTL do serving e retenção do audit, com códigos `production_*` (por exemplo
+  `production_serving_ttl_must_be_300`).
+- Na API, `DB_URL` segue obrigatório no import de `cnes_runtime.config` (placeholder, não usado).
 - Credenciais vêm só da provider chain (role da task). A task definition não define
   `AWS_ACCESS_KEY_ID` nem `AWS_SECRET_ACCESS_KEY`: o boto3 prefere as variáveis à role.
 - A API recusa `RAW_BACKEND` e `RAW_AWS_*` no mesmo processo (`raw_backend=forbidden`).
+- A API mantém a validação de `AWS_AUDIT_BUCKET` e `AWS_AUDIT_RETENTION_DAYS`, mas não
+  constrói sink de audit nem acessa esse bucket no boot ou durante o lifespan.
 - `AWS_PROCESSOR_MAX_CONCURRENCY` é o teto de deployment de cada onda.
   `AWS_PROCESSOR_LEASE_SECONDS` é o lease do dispatch e o `LEASE_SECONDS` das unidades.
-- A task `recover-once` recebe o conjunto inteiro, audit incluído, porque usa a mesma
-  composição.
+- Worker usa `AwsUnitSettings`, `AwsRecoverySettings` ou `AwsAuditDispatchSettings` de
+  `aws/processor_settings.py`.
+  Unidade e recovery exigem região, tabela, data bucket, ARN States sem alias/versão e nome do container;
+  validam concorrência (1–40, default 8), ambiente/rede e flags de política/billing. Não exigem
+  `AUTH_MODE`, `OIDC_*`, audit bucket/retention, serving TTL ou `DB_URL`, nem carregam `.env`.
+  Em produção exigem região `us-east-2`, concorrência 1, lease 3600 e subnets/SG explícitos.
+- `run-unit` mantém lease de dispatch genérico 300 (30–3600); `recover-once` fixa lease 3600
+  e batch 100, inclusive fora da política de produção. Omitir os dois knobs usa esses valores;
+  valor explícito diferente é terminal (`fixed=<VAR> expected=<valor>`).
+- Após validação pura, um único deadline cobre logging, telemetria, Session, composição,
+  execução e diagnóstico. Unidade usa `LEASE_SECONDS` do envelope; recovery usa 3600;
+  `dispatch-outbox-once` usa 60 segundos.
+  O watchdog inicia o timer principal
+  em `D-0.1`, agenda fallback em `0.1` antes de qualquer log e encerra com exit 3. O evento
+  `processor_deadline_exceeded` é best-effort: `os._exit(3)` não garante `finally`, `atexit` ou
+  flush de telemetria.
 
 Reproduzir a validação com o ambiente exato de uma task, sem chamar a AWS (para no primeiro
 erro):
@@ -88,24 +111,35 @@ AwsRuntimeSettings.from_mapping(os.environ)
 PY
 ```
 
+Para o worker, validar `select_aws_invocation(os.environ, argv)` de
+`data_processor.aws_entrypoint` e a classe de settings do modo antes de criar Session.
+Nos modos `run-unit` e `recover-once`, validar também `BillingSettings.from_mapping`.
+`dispatch-outbox-once` não carrega billing. Essa validação é pura; entrada inválida sai com 2
+sem emitir diagnóstico.
+
 ## Health e readiness
 
 - `GET /api/v1/system/health` é só liveness. No profile `aws` responde sempre 200 com
   `status=ok`, sem identidade e sem sondar DynamoDB, S3 ou Step Functions. É a rota do
   `HEALTHCHECK` da imagem da API; um 200 não prova acesso atual à AWS.
-- A readiness real é o boot. A API (lifespan) e cada task do processor fazem, nesta ordem:
-  `GetObjectLockConfiguration` no `AWS_AUDIT_BUCKET` (falha com `object_lock=disabled` ou com o
-  `ClientError` da AWS) e `DescribeStateMachine` com `validate_state_machine` (próxima seção).
+- A readiness real é o boot. A API, `run-unit` e `recover-once` consultam somente
+  `DescribeStateMachine`, sem consultar Object Lock no audit bucket:
+  recovery compõe coordenador e publisher, sem pipeline de unidade nem audit sink; unidade
+  acrescenta registry, stage processor e worker canônicos. `dispatch-outbox-once` exige apenas
+  o control plane DynamoDB, o bucket S3 configurado e Object Lock habilitado nesse bucket.
 - DynamoDB não é sondado no boot. Discovery OIDC e JWKS são lazy: o primeiro request
   autenticado busca `<OIDC_ISSUER>/.well-known/openid-configuration` (timeout 5 s, cache de
   chaves de 600 s).
 - Boot falho na API: a exceção do lifespan derruba o uvicorn antes de abrir a porta, e o
   traceback sai em texto no stderr.
-- Boot falho no processor: uma linha JSON `processor_entrypoint_failed` só com
-  `exception_type`, e exit 1. O código do erro não vai para o log; diagnosticar com a
-  reprodução de settings acima e com os checks abaixo.
+- Preflight inválido no processor: exit 2 antes de logging, telemetria e Session.
+- Boot ou execução falhos após preflight: uma linha JSON `processor_entrypoint_failed` com
+  `exception_type` e `exit_code`; configuração terminal sai com 2 e falha operacional com
+  1. O código do erro não vai para o log; diagnosticar com a reprodução de settings acima e
+  com os checks abaixo.
 
-Checks de leitura antes de subir uma revisão:
+Checks de leitura antes de subir uma revisão. O check de Object Lock usa a role dedicada
+de audit; a API não precisa dessa permissão:
 
 ```bash
 aws s3api get-object-lock-configuration --bucket "$AWS_AUDIT_BUCKET"
@@ -156,6 +190,13 @@ Não são validados `Cluster`, `SecurityGroups`, conteúdo e revisão da task de
 Definição de referência:
 `packages/cnes_data/tests/fixtures/step_functions/standard_inline_ecs.json`.
 
+Com `AWS_PRODUCTION_POLICY=true`, API e processor usam `validate_production_state_machine`: as
+checagens acima, mas `AssignPublicIp` `ENABLED`, `Subnets`/`SecurityGroups` idênticos a
+`AWS_PUBLIC_SUBNET_IDS`/`[AWS_SECURITY_GROUP_ID]`, só `Cluster`, `TaskDefinition`, `LaunchType`,
+`NetworkConfiguration` e `Overrides` (nenhuma chave `.$`) e um único estado por nível
+(referência: `production_public_ip.json`). Zero ingress, NAT e ALB não aparecem na ASL: ficam com
+os testes de plano OpenTofu e a política OPA.
+
 O input da execução carrega só `tenant_id`, `run_id`, `wave_id`, `dispatch_id`, `unit_ids` e
 `max_concurrency`. O nome da execução é o `dispatch_id`: um replay com o mesmo input recebe
 `ExecutionAlreadyExists` e reaproveita o ARN, e input diferente falha com
@@ -178,24 +219,47 @@ A state machine entrega sete variáveis ao container, sem argumentos de comando,
 | `EXECUTION_OWNER` | `$$.Execution.Id` | prefixo `arn:aws:states:` (`invalid=EXECUTION_OWNER`) |
 | `LEASE_SECONDS` | literal (`AWS_PROCESSOR_LEASE_SECONDS`) | 30–3600 (`invalid=LEASE_SECONDS`) |
 
-Com `UNIT_ID`, a task processa exatamente uma unidade, e qualquer argumento falha com
+Sem argumentos, o envelope completo seleciona `run-unit`. Com `UNIT_ID`, a task processa
+exatamente uma unidade, e qualquer argumento falha com
 `unit_mode=argv_forbidden`. Variável do envelope sem `UNIT_ID` falha com
-`unit_envelope=partial`, inclusive um `TENANT_ID` herdado de um `.env` de agente. Todos esses
-erros viram `processor_entrypoint_failed` e exit 1.
+`unit_envelope=partial`, inclusive um `TENANT_ID` herdado do ambiente de agente. Todos esses
+erros saem com 2 antes de I/O, sem evento de falha. `recover-once` rejeita qualquer uma das
+sete chaves presente, inclusive vazia: com `UNIT_ID`, `unit_mode=argv_forbidden`;
+com outra chave, `unit_envelope=partial`.
+
+## `dispatch-outbox-once` dedicado
+
+- A task usa `command: ["dispatch-outbox-once"]` e rejeita qualquer uma das sete chaves do
+  envelope, inclusive vazia. Args extras, modo desconhecido ou configuração ausente saem com 2
+  antes de logging, telemetria, Session ou qualquer I/O.
+- O modo exige somente `AWS_REGION`, `AWS_CONTROL_PLANE_TABLE`, `AWS_AUDIT_BUCKET` e
+  `AWS_AUDIT_RETENTION_DAYS` positivo. Com `AWS_PRODUCTION_POLICY=true`, a região é
+  `us-east-2` e a retenção é 365; variáveis de unidade, API e billing permanecem irrelevantes.
+- A composição cria pela provider chain apenas clientes DynamoDB e S3 SigV4, o control plane e
+  o sink Object Lock do bucket de audit. Uma única chamada usa limite 100: vazio ou sucesso sai
+  com 0, evento falho ou erro operacional com 1, e configuração local conhecida com 2.
+- O deadline fixo de 60 segundos cobre bootstrap, composição, despacho e diagnóstico; expiração
+  encerra com 3. Não há loop, retry, sleep ou scheduler nesse comando.
 
 ## `recover-once` agendado
 
-- Mesma imagem, com `command: ["recover-once"]`, nenhuma das sete variáveis e o conjunto
-  inteiro de settings. Outro comando falha com `command=recover_once_required`.
-- Uma passada limitada: lê até `AWS_PROCESSOR_RECOVERY_BATCH_SIZE` candidatos (índice `gsi4`,
+- Mesma imagem, com `command: ["recover-once"]`, nenhuma das sete variáveis e somente os
+  settings de worker. Outro comando falha com `command=recover_once_required`.
+- Uma passada limitada: lê até 100 candidatos (índice `gsi4`,
   revalidados na chave base) e retoma os runs `PROCESSING`, `PUBLISHING` e
   `CANCEL_REQUESTED` pelo `PipelineCoordinator`. Em `PROCESSING`, o dispatch `STARTED` é
   liquidado por `DescribeExecution`: se `RUNNING`, fica; se terminal, fecha, e a próxima onda
   (ou a mesma, em generation+1) é reservada, iniciada e ligada. `PUBLISHING` é publicado.
-- Cadência de no máximo `AWS_PROCESSOR_LEASE_SECONDS / 2`. O código não impõe isso, o
-  agendador impõe. Passadas sobrepostas são seguras (CAS do dispatch).
-- Exit 0 com a passada toda ok. Exit 1 se algum run falhou (`RecoveryFailed`, #314), depois de
-  logar o resumo, inclusive quando uma passada sobreposta perde uma corrida CAS benigna.
+- Cadência de no máximo 1800 s. O código não impõe isso, o agendador impõe. Passadas
+  sobrepostas compartilham o semáforo persistido do ambiente e o CAS do dispatch, sem lock global.
+  Entre runs distintos, a perdedora adia sem `StartExecution`. No mesmo run, retry idempotente
+  pode repetir a chamada com o mesmo nome/input, preservando uma só execução/dispatch.
+- Exit 0 com a passada toda ok, inclusive deferred por permit ocupado. Exit 1 se algum run
+  falhou ou o reconcile falhou (`RecoveryFailed`, #314), após tentar os demais candidatos
+  e registrar `failed`, `recovered` e `reconcile_failed` no resumo.
+- Exit 2 é reservado a configuração terminal (`EntrypointConfigurationError`,
+  `AwsRuntimeConfigurationError`, `IncompatibleStateMachine` ou `BillingConfigurationError`);
+  falhas operacionais permanecem exit 1.
   Alarmar em falha repetida, não em uma.
 - É o `recover-once` que dispara a onda seguinte depois que a execução da anterior termina, e
   que retoma runs cuja última task morreu. Sem ele, os runs param em `PROCESSING` ou
@@ -209,12 +273,13 @@ O documento de policy exato é da spec de deployment. As ações abaixo saem das
 de hoje; ninguém na aplicação chama ECS.
 
 - API (`central_api`): no DynamoDB, o conjunto de escrita na tabela e em `index/*`; no bucket
-  de dados, `s3:GetObject`, `s3:PutObject` e `s3:ListBucket`; no bucket de audit, o conjunto de
-  audit; em Step Functions, `DescribeStateMachine`, `StartExecution`, `DescribeExecution` e
+  de dados, `s3:GetObject`, `s3:PutObject` e `s3:ListBucket`; nenhuma ação no bucket de audit;
+  em Step Functions, `DescribeStateMachine`, `StartExecution`, `DescribeExecution` e
   `StopExecution`.
-- Task de unidade: o mesmo da API, exceto no bucket de audit, onde só lê
-  `s3:GetBucketObjectLockConfiguration`.
+- Task de unidade: DynamoDB, bucket de dados e Step Functions; nenhuma ação no bucket de audit.
 - `recover-once`: o mesmo da task de unidade.
+- `dispatch-outbox-once`: DynamoDB e o conjunto de audit no bucket de auditoria; sem bucket
+  de dados ou Step Functions.
 - Role da state machine, que inicia as tasks: `ecs:RunTask`, `ecs:StopTask`,
   `ecs:DescribeTasks`, `events:PutTargets`, `events:PutRule`, `events:DescribeRule` e
   `iam:PassRole` das roles da task.
@@ -231,25 +296,29 @@ de hoje; ninguém na aplicação chama ECS.
 - `s3:ListBucket` no bucket de dados é obrigatório: sem ela, `GetObject` de chave ausente
   devolve 403 em vez de 404, e `stat()` (que só reconhece 404, `NoSuchKey` e `NotFound`)
   propaga erro. Isso quebra o upload raw, a checagem de serving e o replay de put.
-- Conjunto de audit: `s3:GetBucketObjectLockConfiguration` no bucket; `s3:PutObject`,
+- Conjunto de audit, exclusivo do `dispatch-outbox-once`: `s3:GetBucketObjectLockConfiguration`
+  no bucket; `s3:PutObject`,
   `s3:PutObjectRetention`, `s3:GetObject` e `s3:GetObjectRetention` em `audit/*`. Nada de
-  delete, list ou bypass. Todos os processos leem a configuração de Object Lock no boot, mas só
-  a API grava audit.
+  delete, list ou bypass. A API e os modos de unidade/recovery não constroem sink nem
+  precisam dessas ações. A API continua usando S3 para dados e serving.
 - A URL de serving vale com a permissão de quem assina: a role da API precisa de
   `s3:GetObject` em `serving/*` no momento do uso. `s3:DeleteObject` não é usado em runtime.
 
 ## Audit: Object Lock e versioning
 
 - O bucket de audit nasce com Object Lock habilitado, o que liga o versioning de forma
-  definitiva. Sem isso, API e processor não sobem.
+  definitiva. Sem isso o `dispatch-outbox-once` falha; API, unidade e recovery não consultam
+  esse bucket. A API não precisa de Object Lock, `PutObject` ou `PutObjectRetention` de audit.
 - Cada evento do outbox vira dois objetos em retenção `COMPLIANCE` até
   `created_at + AWS_AUDIT_RETENTION_DAYS`: `audit/<tenant>/<AAAA>/<MM>/<DD>/<event_id>.json` e o
   marcador `audit/.event-id/<event_id>.json`
   (`packages/cnes_governance/s3_object_lock_sink.py`).
 - O put usa `IfNoneMatch: *` e checksum SHA-256. Replay só é aceito com conteúdo idêntico e
   retenção suficiente (`GetObjectRetention`); senão, `Conflict`.
-- Quem grava hoje é o dispatcher de outbox dentro da API, a cada 30 s. A entrega é
-  at-least-once por `event_id`.
+- Quem publica audit AWS é o comando dedicado `dispatch-outbox-once`. A API não agenda
+  dispatcher, timer, thread ou retry de outbox. A entrega é at-least-once por `event_id`.
+  O processor local mantém a drenagem com `LocalAuditSink`. Agendamento e ativação de IAM
+  do comando dedicado seguem os gates de infraestrutura.
 - Retenção `COMPLIANCE` não pode ser encurtada nem apagada por ninguém, root incluído; o valor
   de `AWS_AUDIT_RETENTION_DAYS` é decisão da spec de deployment.
 
@@ -259,11 +328,20 @@ de hoje; ninguém na aplicação chama ECS.
   token inválido, 401 `token_invalid`; sem header, 400 `tenant_header_required`; sem
   membership, 403 `tenant_not_allowed`. Do token só saem `iss` e `sub`. O tenant é autorizado
   por leitura consistente da membership na chave base; o índice `gsi1` só lista candidatos.
-- `GET /api/v1/dashboard/serving/{dataset}/{documento}` responde 307 para uma URL assinada de
-  `serving/<tenant>/<run_id>/<documento>.json`, com `X-Dataset-Version` e
-  `Cache-Control: private, no-store`, válida por `AWS_SERVING_URL_TTL_SECONDS`. Só chaves do
-  grant ativo são assinadas. Fora do grant, 404 `serving_document_not_found`; objeto ausente ou
-  falha de assinatura, 503 `active_serving_unavailable`.
+- `GET /api/v1/dashboard/serving/{dataset}/{documento}` responde 200 com o envelope exato
+  `{url, version_id, expires_in}`, `X-Dataset-Version` e `Cache-Control: private, no-store`, sem
+  redirect nem `Location`. `url` é o GET assinado de `serving/<tenant>/<run_id>/<documento>.json`
+  no host regional `<bucket>.s3.<região>.amazonaws.com`, com o override
+  `response-cache-control` em `private, no-store`; `expires_in` é o
+  `AWS_SERVING_URL_TTL_SECONDS` efetivo (300 em produção). Só chaves do grant ativo são
+  assinadas. Fora do grant, 404 `serving_document_not_found`; objeto ausente ou falha de
+  assinatura, 503 `active_serving_unavailable`. Falha de transporte do S3 ou do DynamoDB nas
+  leituras da policy de serving (pointer, versão, manifest e stat), depois da membership do
+  middleware, também vira 503 `active_serving_unavailable`, com só o WARNING
+  `serving_authorization_lookup_failed error=<tipo>`, sem mensagem nem causa. Falha nas leituras
+  de billing segue como 503 `billing_dependency_unavailable`. URL assinada e object key não vão
+  para log nem `repr`; o dashboard faz a segunda chamada direto ao S3, sem credenciais nem
+  headers.
 
 ## Logs e métricas
 
@@ -273,10 +351,10 @@ de hoje; ninguém na aplicação chama ECS.
   `authorization`, `token`, `signed_url`, `aws_access_key_id`, `aws_secret_access_key` e
   `email`, e qualquer campo terminado em `_<nome>` (por exemplo `refresh_token`), viram
   `[REDACTED]` (`packages/cnes_observability/json_logging.py`).
-- A API não configura logging da aplicação no profile `aws`. Eventos INFO
-  (`aws_profile_composed`, `outbox_dispatched`) não saem. WARNING e acima
-  (`dispatch_start_compensated`, `oidc_token_invalid`, `tenant_access_denied`,
-  `outbox_dispatch_error`) saem em texto puro no stderr, sem o formatter JSON e com traceback.
+- A API não configura logging da aplicação no profile `aws`. O evento INFO
+  `aws_profile_composed` não sai. WARNING e acima (`dispatch_start_compensated`,
+  `oidc_token_invalid`, `tenant_access_denied`) saem em texto puro no stderr, sem o
+  formatter JSON e com traceback.
   Filtrar a API só por texto.
 
 Métricas a derivar por metric filter (criação, limiares e alarmes são do deployment):
@@ -286,6 +364,7 @@ Métricas a derivar por metric filter (criação, limiares e alarmes são do dep
 | `ProcessorRecoveryScanned` | `$.event = "processor_recovery_scanned"`, valor `$.scanned` |
 | `ProcessorRecoveryRecovered` | `$.event = "processor_recovery_completed"`, valor `$.recovered` |
 | `ProcessorRecoveryFailed` | `$.event = "processor_recovery_completed"`, valor `$.failed` |
+| `ProcessorDeadlineExceeded` | `$.event = "processor_deadline_exceeded"` (best-effort; conferir exit 3) |
 | `ExecutionBindingFailures` | prefixo `dispatch_start_compensated` (em `$.event`; texto na API) |
 | `ExecutionRedispatches` | sem evento de origem hoje (abaixo) |
 
@@ -300,7 +379,7 @@ produz.
 
 Backlog de recovery:
 
-- `processor_recovery_scanned` com `scanned` igual a `AWS_PROCESSOR_RECOVERY_BATCH_SIZE` em
+- `processor_recovery_scanned` com `scanned` igual a 100 em
   passadas seguidas: há mais candidatos do que uma passada cobre.
 - `processor_recovery_completed` com `failed > 0` repetido e `recover_run_error tenant_id=…
   run_id=…` para os mesmos runs.
@@ -369,9 +448,9 @@ são o que impede replay de execução terminal, e a edição manual os contorna
 
 ## Fora do escopo deste gate
 
-- O plano de runtime-amendments troca o serving 307 por um envelope 200 (Task 5) e exige
-  `AssignPublicIp=ENABLED` com subnets públicas exatas em produção (Task 6). Hoje o validador
-  exige `DISABLED`. O mesmo plano introduz `dispatch-outbox-once`, o deadline no PID 1 e o
-  runbook `runtime-acceptance.md`, que ainda não existem.
+- O gate `runtime-acceptance.md` registra a evidência candidata da #377, mas a
+  integração do candidato e os gates de deployment ainda estão pendentes.
+  O deadline já cobre bootstrap e execução do worker; o validador de produção já exige
+  `AssignPublicIp=ENABLED` e rede exata. O validador genérico mantém `DISABLED`.
 - Tabela, buckets, state machine, roles, KMS, rede, agendador e alarmes: plano de
   infraestrutura de 2026-08-31.

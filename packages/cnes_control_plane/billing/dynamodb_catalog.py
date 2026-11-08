@@ -48,8 +48,8 @@ from cnes_control_plane.billing.keys import (
     tenant_account_key,
     tenant_entity_key,
 )
-from cnes_control_plane.persistence.dynamodb_codec import Action, Item, payload, put_action
-from cnes_control_plane.persistence.dynamodb_keys import idempotency_key, item_key
+from cnes_control_plane.persistence.dynamodb_keys import idempotency_key
+from cnes_data.dynamodb import Action, Item, item_key, payload, put_action
 from cnes_domain.billing.commands import (
     AttachStripeCustomerCommand,
     CreateBillingAccountCommand,

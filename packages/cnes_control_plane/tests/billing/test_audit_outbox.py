@@ -13,8 +13,8 @@ from moto import mock_aws
 from cnes_control_plane.billing.audit_outbox import BestEffortBillingAudit, DynamoBillingAudit
 from cnes_control_plane.billing.keys import BILLING_AUDIT_TENANT_ID
 from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
-from cnes_control_plane.persistence.dynamodb_codec import decode_model
-from cnes_control_plane.persistence.dynamodb_keys import item_key, outbox_key
+from cnes_control_plane.persistence.dynamodb_keys import outbox_key
+from cnes_data.dynamodb import decode_model, item_key
 from cnes_domain.billing.errors import BillingDependencyError
 from cnes_domain.billing.ports import BillingAuditPort
 from cnes_domain.control_plane.entities import OutboxEvent
@@ -70,7 +70,7 @@ def test_append_aparece_na_listagem_de_outbox_pendente(client: Any) -> None:
 
     control_plane = DynamoDBControlPlane(client, TABLE_NAME, lambda: NOW)
 
-    pending = control_plane.pending_outbox(10)
+    pending = control_plane.read_outbox_page(None, 10).events
 
     assert [event.event_id for event in pending] == ["checkout:cs_2"]
 

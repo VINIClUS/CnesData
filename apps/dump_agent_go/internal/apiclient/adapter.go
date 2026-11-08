@@ -145,7 +145,7 @@ func (a *Adapter) MintUploadURL(ctx context.Context, spec worker.JobSpec) (*work
 }
 
 // maxFailErrorLen mirrors ExtractionFailPayload.error's server-side
-// max_length (packages/cnes_contracts/src/cnes_contracts/landing.py). Panic
+// max_length (packages/cnes_contracts/landing.py). Panic
 // causes include debug.Stack() and can exceed it, which would otherwise
 // 422 and terminal-drop the only failure record for a real extraction error.
 const maxFailErrorLen = 2000

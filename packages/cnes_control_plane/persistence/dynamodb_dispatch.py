@@ -6,14 +6,6 @@ from datetime import timedelta
 from hashlib import sha256
 from typing import TYPE_CHECKING, Any
 
-from cnes_control_plane.persistence.dynamodb_codec import (
-    Item,
-    check_action,
-    decode_model,
-    encode_model,
-    payload,
-    put_action,
-)
 from cnes_control_plane.persistence.dynamodb_host import DynamoDBHost
 from cnes_control_plane.persistence.dynamodb_keys import (
     dispatch_key,
@@ -21,6 +13,7 @@ from cnes_control_plane.persistence.dynamodb_keys import (
     run_entity_key,
     unit_key,
 )
+from cnes_data.dynamodb import Item, check_action, decode_model, encode_model, payload, put_action
 from cnes_domain.control_plane.entities import Run, RunDispatch, RunUnit
 from cnes_domain.control_plane.enums import DispatchState, RunState, RunUnitState
 from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost, NotFound

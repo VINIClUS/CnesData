@@ -1,7 +1,7 @@
 # CVE/misconfig exceptions for Trivy gates in .github/workflows/trivy.yml.
-# Format: <CVE-ID or AVD-ID>  # reason + review date (YYYY-MM-DD)
+# Format: <CVE-ID or AVD-ID> exp:YYYY-MM-DD  # reason + review date (YYYY-MM-DD); exp: is optional
 # Do not silence findings without a documented reason — this file is reviewed in PRs.
+# Config-job misconfiguration exceptions are selected from .trivyignore.yaml.
 
 DS-0002  # apps/web_dashboard/Dockerfile nginx runs as root; non-root nginx needs port >1024 rearchitecture, tracked as follow-up, review 2026-12-17
-KSV-0014  # ops/legacy/helm/web-dashboard readOnlyRootFilesystem needs emptyDir mounts for nginx cache/pid, tracked as follow-up, review 2026-12-17
-AWS-0132  # raw dev/prod buckets use SSE-S3 AES256; KMS would require permissions beyond the raw IAM scope in #294, review 2026-09-26
+KSV-0014  # infra/legacy/helm/web-dashboard readOnlyRootFilesystem needs emptyDir mounts for nginx cache/pid, tracked as follow-up, review 2026-12-17

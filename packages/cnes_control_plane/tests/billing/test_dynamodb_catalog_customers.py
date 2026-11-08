@@ -17,7 +17,7 @@ from cnes_control_plane.billing.keys import (
     billing_account_list_key,
     stripe_customer_key,
 )
-from cnes_control_plane.persistence.dynamodb_keys import item_key
+from cnes_data.dynamodb import item_key
 from cnes_domain.billing.errors import (
     BillingDependencyError,
     PermanentBillingError,

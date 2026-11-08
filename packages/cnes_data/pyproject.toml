@@ -8,6 +8,7 @@ dependencies = [
     "cnes-domain",
     "cnes-observability",
     "boto3>=1.43",
+    "pydantic>=2.10",
     "polars>=1.20",
     "sqlalchemy>=2.0",
     "psycopg[binary]>=3.2",
@@ -51,6 +52,15 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-only-include = ["__init__.py", "alembic", "config.py", "dynamodb.py", "ingestion", "object_store", "storage"]
+only-include = [
+    "__init__.py",
+    "alembic",
+    "config.py",
+    "dynamodb.py",
+    "ingestion",
+    "object_store",
+    "public_leads",
+    "storage",
+]
 sources = { "" = "cnes_data" }
 dev-mode-dirs = [".."]

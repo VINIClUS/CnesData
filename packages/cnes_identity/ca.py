@@ -9,10 +9,13 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.x509.oid import ExtendedKeyUsageOID
 
-logger = logging.getLogger(__name__)
+from cnes_identity.cert_extensions import (
+    AGENT_ID_OID,
+    TENANT_ID_OID,
+    encode_extension_value,
+)
 
-_TENANT_OID = x509.ObjectIdentifier("1.3.6.1.4.1.99999.1.1")
-_AGENT_ID_OID = x509.ObjectIdentifier("1.3.6.1.4.1.99999.1.2")
+logger = logging.getLogger(__name__)
 
 
 class CertAuthority:
@@ -67,11 +70,15 @@ class CertAuthority:
                 critical=False,
             )
             .add_extension(
-                x509.UnrecognizedExtension(_TENANT_OID, tenant_id.encode()),
+                x509.UnrecognizedExtension(
+                    TENANT_ID_OID, encode_extension_value(tenant_id),
+                ),
                 critical=False,
             )
             .add_extension(
-                x509.UnrecognizedExtension(_AGENT_ID_OID, agent_id.encode()),
+                x509.UnrecognizedExtension(
+                    AGENT_ID_OID, encode_extension_value(agent_id),
+                ),
                 critical=False,
             )
         )

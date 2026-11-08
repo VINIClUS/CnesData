@@ -9,16 +9,9 @@ from time import sleep
 from typing import TYPE_CHECKING, cast
 
 from cnes_control_plane.persistence.dynamodb_billing_fences import DynamoBillingFencesMixin
-from cnes_control_plane.persistence.dynamodb_codec import (
-    Action,
-    Item,
-    check_action,
-    decode_model,
-    payload,
-    put_action,
-)
 from cnes_control_plane.persistence.dynamodb_keys import idempotency_key
 from cnes_control_plane.persistence.dynamodb_run_codec import run_dependency_actions, run_item
+from cnes_data.dynamodb import Action, Item, check_action, decode_model, payload, put_action
 from cnes_domain.billing.errors import PermanentBillingError, RetryableBillingError
 from cnes_domain.billing.execution import RunExecutionBindingCommand
 from cnes_domain.billing.execution_policy import apply_execution_binding

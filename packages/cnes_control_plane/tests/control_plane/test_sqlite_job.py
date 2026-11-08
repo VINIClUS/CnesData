@@ -36,4 +36,4 @@ def test_rejeita_job_criado_fora_do_estado_inicial(adapter, clock, update) -> No
     with pytest.raises(Conflict, match="job_initial_state_invalid"):
         adapter.create_job(job, _event("job-created"))
     assert adapter.get_job("354130", "job-a") is None
-    assert adapter.pending_outbox(10) == ()
+    assert adapter.read_outbox_page(None, 10).events == ()

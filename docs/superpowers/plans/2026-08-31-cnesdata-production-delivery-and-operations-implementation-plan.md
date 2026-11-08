@@ -23,6 +23,19 @@ OPA/Conftest, Syft, Trivy.
 **Spec:** docs/superpowers/specs/2026-08-29-cnesdata-production-operations-design.md with resource
 contracts from docs/superpowers/specs/2026-08-29-cnesdata-production-deployment-design.md
 
+**Transferred obligations:** docs/superpowers/specs/2026-11-05-prod-infra-closure-amendment.md adds
+production obligations to Tasks 3, 4, 8, 10 and 11, listed in its "Transferências para o plano
+delivery" table. They bind those tasks together with the text below.
+
+## Ownership amendment — 2026-11-07
+
+[Ownership amendment](../specs/2026-11-07-prod-delivery-external-ownership-amendment.md)
+governs external producers, ownership, dependency gates and execution controls. References below
+to reusable gates in personal-infra-live now mean infra-ansible producers; personal-infra-live
+remains limited to backend and Budget/freeze. EPIC #465 records the approved 2026-11-06 task
+scope adjustments; the 2026-11-07 amendment supersedes its D2/D6 external-owner decisions.
+Code integration does not satisfy production acceptance. No merge deploys or applies.
+
 ## Global Constraints
 
 - Start only after runtime amendments and infrastructure Tasks 1-12 are merged and green on develop.

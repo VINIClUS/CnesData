@@ -47,8 +47,8 @@ Remover referências executáveis ao app Python dump_agent, inexistente.
 | Origem | Destino |
 |---|---|
 | deploy/dev, deploy/prod | ops/deploy/vps/dev, ops/deploy/vps/prod |
-| deploy/aws/raw | ops/infra/aws/raw-legacy |
-| charts/web-dashboard | ops/legacy/helm/web-dashboard |
+| deploy/aws/raw | infra/aws/raw-legacy |
+| charts/web-dashboard | infra/legacy/helm/web-dashboard |
 | docker-compose.keycloak | ops/identity/keycloak |
 | scripts/edge_audit | ops/scripts/edge_audit |
 | scripts/local_backup.py e teste | ops/backup |
@@ -73,7 +73,8 @@ arquiteturais incluem TYPE_CHECKING, dependências proibidas e ciclos.
 Gates preservados: packages 100% branch; apps 90% line. Wheels, migrações,
 integrações e imagens são verificados no CI, sem deploy ou Stripe real.
 
-Branch codex/package-boundaries-ops parte de bd6b730; PR para main. Implementação
+Branch codex/package-boundaries-ops foi iniciada em bd6b730 e integra develop
+db4ebd78 por orientação posterior do usuário; PR para develop. Implementação
 nesta sessão; auditoria read-only em outro chat com contexto independente sobre
 SHA congelado antes de qualquer push. Correções exigem reauditoria antes do
 próximo push. Depois executar CI/Trivy na feature; abrir um PR somente com gates
@@ -83,3 +84,11 @@ verdes e auditoria válida para o SHA final. Sem merge ou deploy.
 
 Código diretamente em packages/cnes_*, junto de tests/ e pyproject.toml, sem
 níveis src/cnes_*; wheel prefix mapping mantém imports e recursos públicos.
+
+Ops e Infra são diretórios irmãos na raiz. O OpenTofu recente permanece em
+infra/opentofu; Terraform raw e Helm legados pertencem a infra, e os artefatos
+operacionais de produção AWS ficam em ops/deploy/aws. Contratos e comportamento
+da refatoração são comparados à develop integrada, incluindo os OIDs IANA atuais,
+os ports de certificados/refresh tokens e a composição AWS adicionada nessa base.
+Primitivas genéricas DynamoDB e protocolo de conexões SQLite pertencem a Data;
+Identity não importa adaptadores concretos de Control Plane, mesmo para tipos.

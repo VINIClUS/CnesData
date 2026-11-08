@@ -10,15 +10,9 @@ from cnes_control_plane.billing.dynamodb_quota_items import (
 )
 from cnes_control_plane.billing.keys import Key, run_billing_key
 from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
-from cnes_control_plane.persistence.dynamodb_codec import (
-    Item,
-    check_action,
-    decode_model,
-    payload,
-    put_action,
-    query_partition,
-)
+from cnes_control_plane.persistence.dynamodb_codec import query_partition
 from cnes_control_plane.persistence.dynamodb_keys import dispatch_key, run_entity_key, run_partition
+from cnes_data.dynamodb import Item, check_action, decode_model, payload, put_action
 from cnes_domain.billing.commands import ReleaseReservationCommand
 from cnes_domain.billing.errors import PermanentBillingError, RetryableBillingError
 from cnes_domain.billing.execution import RunBillingState

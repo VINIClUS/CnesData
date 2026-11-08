@@ -32,7 +32,7 @@ ao lado de tests/, sem src/<pacote> redundante.
   via SSH forced-command) ou AWS (alvo, EPIC #94: Step Functions/ECS
   Fargate/DynamoDB/Cognito) — ver `docs/architecture.md#deploy-target`.
   On-prem edge agents (Windows Service / systemd) em ambos os perfis. Local
-  dev via `docker-compose.yml` (profiles: aws-test, dev, local, perf,
+  dev via `docker-compose.yml` (profiles: aws-test, dev, floci, local, perf,
   shadow) — bring-up do profile `local`: `docs/runbooks/local-profile.md`.
 </project_architecture>
 
@@ -141,7 +141,8 @@ Integrações e imagens no CI. Go: apps/dump_agent_go/CLAUDE.md.
 | `apps/dump_agent_go/` | edge agent | Go edge extractor (CNES FB + SIHD + BPA GDB + SIA DBF) |
 | `apps/cnes_db_migrator/` | init-container | Alembic `upgrade head` |
 | `apps/web_dashboard/` | SPA (Bun/React) | Dashboard, OIDC, ativação de agentes |
-| `ops/` | operation | Deploy VPS, configuração operacional e legado Infra |
+| `ops/` | operation | Deploy VPS/AWS, backup e configuração operacional |
+| `infra/` | infrastructure | OpenTofu atual e Terraform/Helm legados |
 | `docs/` | documentation | Dictionaries, architecture, roadmap, perf |
 | `tests/perf/` | perf suite | micro / macro / stress / soak / spike tiers |
 

@@ -19,7 +19,7 @@ from cnes_control_plane.billing.revocation_sweep import (
     RevocationSweepResult,
     SweepCursorPort,
 )
-from cnes_control_plane.persistence.dynamodb_keys import item_key
+from cnes_data.dynamodb import item_key
 from cnes_domain.billing.errors import (
     BillingDependencyError,
     PermanentBillingError,

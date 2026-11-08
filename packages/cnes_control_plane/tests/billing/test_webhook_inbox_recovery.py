@@ -12,7 +12,7 @@ from cnes_control_plane.billing.webhook_inbox_items import (
     STRIPE_PROCESSING_LEASE_SECONDS,
     retry_delay_seconds,
 )
-from cnes_control_plane.persistence.dynamodb_keys import item_key
+from cnes_data.dynamodb import item_key
 from cnes_domain.billing.errors import BillingDependencyError, PermanentBillingError
 from cnes_domain.billing.inbox import InboxProcessingState, InboxRecoveryRecord
 from packages.cnes_control_plane.tests.billing.billing_factories import NOW, TABLE_NAME

@@ -18,7 +18,8 @@ from cnes_control_plane.billing.webhook_inbox_items import (
     STRIPE_WEBHOOK_EVENT_TYPES,
     retry_delay_seconds,
 )
-from cnes_control_plane.persistence.dynamodb_keys import item_key, outbox_key
+from cnes_control_plane.persistence.dynamodb_keys import outbox_key
+from cnes_data.dynamodb import item_key
 from cnes_domain.billing.errors import (
     BillingDependencyError,
     PermanentBillingError,

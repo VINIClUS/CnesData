@@ -16,8 +16,9 @@ from cnes_control_plane.billing.keys import (
     run_billing_key,
     run_lookup_key,
 )
-from cnes_control_plane.persistence.dynamodb_keys import item_key, run_entity_key
+from cnes_control_plane.persistence.dynamodb_keys import run_entity_key
 from cnes_control_plane.persistence.dynamodb_run_codec import run_item
+from cnes_data.dynamodb import item_key
 from cnes_domain.billing.errors import (
     BillingDependencyError,
     PermanentBillingError,
@@ -219,7 +220,7 @@ def test_falha_de_query_na_listagem_vira_dependencia_indisponivel(env: RevEnv) -
 
 
 def stored_event_ids(env: RevEnv) -> list[str]:
-    return [event.event_id for event in env.plane.pending_outbox(100)]
+    return [event.event_id for event in env.plane.read_outbox_page(None, 100).events]
 
 
 def test_fence_marca_run_e_companion_e_grava_evento_em_uma_transacao(env: RevEnv) -> None:

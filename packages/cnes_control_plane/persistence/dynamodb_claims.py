@@ -10,16 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from botocore.exceptions import ClientError, ConnectionClosedError, ReadTimeoutError
 
-from cnes_control_plane.persistence.dynamodb_codec import (
-    Action,
-    Item,
-    absent_check_action,
-    check_action,
-    decode_model,
-    encode_model,
-    payload,
-    put_action,
-)
+from cnes_control_plane.persistence.dynamodb_codec import absent_check_action
 from cnes_control_plane.persistence.dynamodb_host import DynamoDBHost
 from cnes_control_plane.persistence.dynamodb_keys import (
     dispatch_key,
@@ -30,6 +21,15 @@ from cnes_control_plane.persistence.dynamodb_keys import (
     raw_resync_key,
     run_entity_key,
     unit_key,
+)
+from cnes_data.dynamodb import (
+    Action,
+    Item,
+    check_action,
+    decode_model,
+    encode_model,
+    payload,
+    put_action,
 )
 from cnes_domain.control_plane.entities import Agent, Job, RawResyncState, Run, RunDispatch, RunUnit
 from cnes_domain.control_plane.enums import (

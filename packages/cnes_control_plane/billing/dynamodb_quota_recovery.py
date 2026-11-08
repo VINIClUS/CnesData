@@ -30,16 +30,10 @@ from cnes_control_plane.billing.keys import (
     Key,
 )
 from cnes_control_plane.persistence.billed_tenant import TENANT_CAPACITY_SCOPE
-from cnes_control_plane.persistence.dynamodb_codec import (
-    Item,
-    absent_check_action,
-    check_action,
-    decode_model,
-    payload,
-    put_action,
-)
+from cnes_control_plane.persistence.dynamodb_codec import absent_check_action
 from cnes_control_plane.persistence.dynamodb_keys import idempotency_key, run_entity_key
 from cnes_control_plane.persistence.edge_registration import EDGE_AGENT_SCOPE
+from cnes_data.dynamodb import Item, check_action, decode_model, payload, put_action
 from cnes_domain.billing.errors import BillingDependencyError, PermanentBillingError
 from cnes_domain.billing.inbox import ReservationRecoveryRequest, ReservationRecoveryResult
 from cnes_domain.billing.models import (

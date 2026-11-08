@@ -7,15 +7,14 @@ import pytest
 from moto import mock_aws
 
 from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
-from cnes_control_plane.persistence.dynamodb_codec import encode_model
 from cnes_control_plane.persistence.dynamodb_keys import (
-    item_key,
     key_component,
     raw_manifest_lookup_key,
     raw_partition,
     raw_resync_key,
 )
 from cnes_control_plane.persistence.sqlite_adapter import SQLiteControlPlane
+from cnes_data.dynamodb import encode_model, item_key
 from cnes_domain.control_plane.commands import CompleteJob, FailJob
 from cnes_domain.control_plane.entities import RawResyncState
 from cnes_domain.control_plane.enums import JobState

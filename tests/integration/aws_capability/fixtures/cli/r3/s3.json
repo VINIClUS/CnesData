@@ -1,0 +1,247 @@
+{
+  "first": {
+    "Buckets": [
+      {
+        "Name": "cnesdata-cap-a1b2c3d4",
+        "CreationDate": "2026-10-25T00:00:00Z",
+        "BucketRegion": "us-east-2"
+      },
+      {
+        "Name": "legacy-bucket",
+        "BucketRegion": "us-west-2"
+      }
+    ],
+    "Owner": {
+      "DisplayName": "synthetic-owner",
+      "ID": "canonical-user-id-is-not-account12"
+    },
+    "ContinuationToken": "bucket-next",
+    "Prefix": ""
+  },
+  "second": {
+    "Buckets": [
+      {
+        "Name": "production-bucket"
+      }
+    ]
+  },
+  "empty": {
+    "Buckets": []
+  },
+  "empty_with_next": {
+    "Buckets": [],
+    "ContinuationToken": "bucket-next"
+  },
+  "repeat": {
+    "Buckets": [],
+    "ContinuationToken": "bucket-next"
+  },
+  "cycle_second": {
+    "Buckets": [],
+    "ContinuationToken": "bucket-other"
+  },
+  "location_null": {
+    "LocationConstraint": null
+  },
+  "location_eu": {
+    "LocationConstraint": "EU"
+  },
+  "location_east": {
+    "LocationConstraint": "us-east-2"
+  },
+  "location_west": {
+    "LocationConstraint": "us-west-2"
+  },
+  "location_missing": {},
+  "location_list": [],
+  "location_empty": {
+    "LocationConstraint": ""
+  },
+  "location_number": {
+    "LocationConstraint": 42
+  },
+  "location_boolean": {
+    "LocationConstraint": true
+  },
+  "location_array": {
+    "LocationConstraint": [
+      "us-east-2"
+    ]
+  },
+  "location_object": {
+    "LocationConstraint": {
+      "region": "R1_PRIVATE_CANARY"
+    }
+  },
+  "location_private": {
+    "LocationConstraint": "",
+    "Private": "R1_PRIVATE_CANARY"
+  },
+  "tags": {
+    "TagSet": [
+      {
+        "Key": "Project",
+        "Value": "CnesData"
+      },
+      {
+        "Key": "Purpose",
+        "Value": "aws-capability"
+      },
+      {
+        "Key": "Run",
+        "Value": "a1b2c3d4"
+      },
+      {
+        "Key": "ExpiresAt",
+        "Value": "1060"
+      }
+    ]
+  },
+  "tags_removed": {
+    "TagSet": [
+      {
+        "Key": "Project",
+        "Value": "CnesData"
+      },
+      {
+        "Key": "Purpose",
+        "Value": "aws-capability"
+      },
+      {
+        "Key": "ExpiresAt",
+        "Value": "1060"
+      }
+    ]
+  },
+  "tags_empty": {
+    "TagSet": []
+  },
+  "tags_missing": {},
+  "tags_map": {
+    "TagSet": {}
+  },
+  "tags_null": {
+    "TagSet": null
+  },
+  "tags_entry": {
+    "TagSet": [
+      "R1_PRIVATE_CANARY"
+    ]
+  },
+  "tags_missing_key": {
+    "TagSet": [
+      {
+        "Value": "v"
+      }
+    ]
+  },
+  "tags_missing_value": {
+    "TagSet": [
+      {
+        "Key": "k"
+      }
+    ]
+  },
+  "tags_number_key": {
+    "TagSet": [
+      {
+        "Key": 1,
+        "Value": "v"
+      }
+    ]
+  },
+  "tags_number_value": {
+    "TagSet": [
+      {
+        "Key": "k",
+        "Value": 1
+      }
+    ]
+  },
+  "tags_null_value": {
+    "TagSet": [
+      {
+        "Key": "k",
+        "Value": null
+      }
+    ]
+  },
+  "tags_duplicate": {
+    "TagSet": [
+      {
+        "Key": "Run",
+        "Value": "a1b2c3d4"
+      },
+      {
+        "Key": "Run",
+        "Value": "other"
+      }
+    ]
+  },
+  "tags_extra_entry": {
+    "TagSet": [
+      {
+        "Key": "Run",
+        "Value": "a1b2c3d4",
+        "Private": "R1_PRIVATE_CANARY"
+      }
+    ]
+  },
+  "missing_buckets": {},
+  "buckets_map": {
+    "Buckets": {}
+  },
+  "buckets_null": {
+    "Buckets": null
+  },
+  "buckets_string": {
+    "Buckets": "R1_PRIVATE_CANARY"
+  },
+  "bad_entry": {
+    "Buckets": [
+      "R1_PRIVATE_CANARY"
+    ]
+  },
+  "missing_name": {
+    "Buckets": [
+      {}
+    ]
+  },
+  "empty_name": {
+    "Buckets": [
+      {
+        "Name": ""
+      }
+    ]
+  },
+  "number_name": {
+    "Buckets": [
+      {
+        "Name": 12
+      }
+    ]
+  },
+  "null_name": {
+    "Buckets": [
+      {
+        "Name": null
+      }
+    ]
+  },
+  "token_empty": {
+    "Buckets": [],
+    "ContinuationToken": ""
+  },
+  "token_number": {
+    "Buckets": [],
+    "ContinuationToken": 1
+  },
+  "token_null": {
+    "Buckets": [],
+    "ContinuationToken": null
+  },
+  "token_array": {
+    "Buckets": [],
+    "ContinuationToken": []
+  }
+}

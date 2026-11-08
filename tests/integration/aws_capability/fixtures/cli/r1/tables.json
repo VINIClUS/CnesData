@@ -1,0 +1,57 @@
+{
+  "first": {
+    "TableNames": [
+      "cnesdata-cap-a1b2c3d4",
+      "legacy-table"
+    ],
+    "LastEvaluatedTableName": "legacy-table"
+  },
+  "second": {
+    "TableNames": [
+      "production-table"
+    ]
+  },
+  "empty": {
+    "TableNames": []
+  },
+  "repeat": {
+    "TableNames": [],
+    "LastEvaluatedTableName": "legacy-table"
+  },
+  "cycle_second": {
+    "TableNames": [],
+    "LastEvaluatedTableName": "omega-table"
+  },
+  "missing_names": {},
+  "bad_names": {
+    "TableNames": "legacy-table"
+  },
+  "empty_marker": {
+    "TableNames": [],
+    "LastEvaluatedTableName": ""
+  },
+  "marker_number": {
+    "TableNames": [],
+    "LastEvaluatedTableName": 1
+  },
+  "marker_null": {
+    "TableNames": [],
+    "LastEvaluatedTableName": null
+  },
+  "marker_bool": {
+    "TableNames": [],
+    "LastEvaluatedTableName": true
+  },
+  "marker_list": {
+    "TableNames": [],
+    "LastEvaluatedTableName": [
+      "R1_PRIVATE_CANARY"
+    ]
+  },
+  "marker_object": {
+    "TableNames": [],
+    "LastEvaluatedTableName": {
+      "private": "R1_PRIVATE_CANARY"
+    }
+  }
+}

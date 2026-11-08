@@ -9,13 +9,6 @@ from typing import TYPE_CHECKING, Any, cast
 
 from botocore.exceptions import ClientError
 
-from cnes_control_plane.persistence.dynamodb_codec import (
-    Item,
-    decode_model,
-    encode_model,
-    payload,
-    put_action,
-)
 from cnes_control_plane.persistence.dynamodb_keys import entity_key, idempotency_key
 from cnes_control_plane.persistence.edge_capacity import (
     RESERVATION_EXPIRED,
@@ -23,6 +16,7 @@ from cnes_control_plane.persistence.edge_capacity import (
     usable_agent_reservation,
 )
 from cnes_control_plane.persistence.sqlite_schema import deserialize_model, serialize_model
+from cnes_data.dynamodb import Item, decode_model, encode_model, payload, put_action
 from cnes_domain.control_plane.entities import Agent, IdempotencyRecord
 from cnes_domain.control_plane.enums import AgentState
 from cnes_domain.control_plane.errors import Conflict
@@ -35,7 +29,7 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from cnes_control_plane.billing.settings import BillingSettings
-    from cnes_control_plane.persistence.dynamodb_codec import Action
+    from cnes_data.dynamodb import Action
 
 EDGE_AGENT_SCOPE = "edge_agent.register"
 _IDEMPOTENCY_TTL = timedelta(days=1)

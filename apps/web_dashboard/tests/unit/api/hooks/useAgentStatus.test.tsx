@@ -4,6 +4,7 @@ import { http, HttpResponse } from "msw";
 import { describe, expect, test, vi } from "vitest";
 
 import { server } from "../../../mocks/server";
+import { LegacySession } from "../../helpers/LegacySession";
 
 import { useAgentStatus } from "@/api/hooks/useAgentStatus";
 
@@ -15,7 +16,11 @@ function wrap({ children }: { children: React.ReactNode }) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
-  return <QueryClientProvider client={qc}>{children}</QueryClientProvider>;
+  return (
+    <QueryClientProvider client={qc}>
+      <LegacySession>{children}</LegacySession>
+    </QueryClientProvider>
+  );
 }
 
 describe("useAgentStatus", () => {

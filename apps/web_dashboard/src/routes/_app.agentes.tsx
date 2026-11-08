@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 
 import { useAgentRuns } from "@/api/hooks/useAgentRuns";
 import { useAgentStatus } from "@/api/hooks/useAgentStatus";
-import { useTenants } from "@/api/hooks/useTenants";
+import { tenantId as municipalityId, useSelectedTenant } from "@/api/hooks/useTenants";
 import { AgentRunsTable } from "@/components/agentes/AgentRunsTable";
 import { AgentStatusCard } from "@/components/agentes/AgentStatusCard";
 import { env } from "@/lib/env";
@@ -19,8 +19,8 @@ function AgentesPage() {
 }
 
 function OidcAgentesPage() {
-  const tenants = useTenants();
-  const tenantId = tenants.data?.[0]?.ibge6;
+  const { selected } = useSelectedTenant();
+  const tenantId = selected ? municipalityId(selected) : undefined;
 
   if (!tenantId) {
     return <p>Carregando...</p>;

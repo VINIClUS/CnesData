@@ -1,0 +1,213 @@
+{
+  "cursors": {
+    "policies_start": "{\"kind\":\"iam.policies\",\"markers\":{},\"parent\":\"cnesdata-cap-a1b2c3d4\",\"run\":\"a1b2c3d4\",\"seen\":[\"3e43952dfaf48741abc6e9c295036c94890fc2ed07bee43991af17550c1230a5\"],\"service\":\"iam\",\"v\":1}",
+    "policies_next": "{\"kind\":\"iam.policies\",\"markers\":{\"Marker\":\"policy-C4-private\"},\"parent\":\"cnesdata-cap-a1b2c3d4\",\"run\":\"a1b2c3d4\",\"seen\":[\"3b4ddd1f83687e7ae3d1d1130997d59917385776700659e294d74fa88e57f421\"],\"service\":\"iam\",\"v\":1}",
+    "attachments_start": "{\"kind\":\"iam.attachments\",\"markers\":{},\"parent\":\"cnesdata-cap-a1b2c3d4\",\"run\":\"a1b2c3d4\",\"seen\":[\"2d597353c5bb5cd98b7beb5e345b67ce336683c53f73aeb3bedfea3b34110a7e\"],\"service\":\"iam\",\"v\":1}",
+    "attachments_next": "{\"kind\":\"iam.attachments\",\"markers\":{\"Marker\":\"attach-C4-private\"},\"parent\":\"cnesdata-cap-a1b2c3d4\",\"run\":\"a1b2c3d4\",\"seen\":[\"2d597353c5bb5cd98b7beb5e345b67ce336683c53f73aeb3bedfea3b34110a7e\",\"753221b1ecfb8600cdb20857610859c48f5c79669ec52c2ad1e79f0d1f04d7d9\"],\"service\":\"iam\",\"v\":1}",
+    "profiles_start": "{\"kind\":\"iam.profiles\",\"markers\":{},\"parent\":\"cnesdata-cap-a1b2c3d4\",\"run\":\"a1b2c3d4\",\"seen\":[\"d6e1b2656d3fcb1933e7d5229d0ae0615d0284e1cf6d2e2d01a46cdfe1d33060\"],\"service\":\"iam\",\"v\":1}",
+    "profiles_next": "{\"kind\":\"iam.profiles\",\"markers\":{\"Marker\":\"profile-C4-private\"},\"parent\":\"cnesdata-cap-a1b2c3d4\",\"run\":\"a1b2c3d4\",\"seen\":[\"d6e1b2656d3fcb1933e7d5229d0ae0615d0284e1cf6d2e2d01a46cdfe1d33060\",\"4bc79a78e78da430f0d11000fa59532fbb12890e89009ff95dd94b991a6b2cb1\"],\"service\":\"iam\",\"v\":1}",
+    "attachments_from_policies": "{\"kind\":\"iam.attachments\",\"markers\":{},\"parent\":\"cnesdata-cap-a1b2c3d4\",\"run\":\"a1b2c3d4\",\"seen\":[\"3b4ddd1f83687e7ae3d1d1130997d59917385776700659e294d74fa88e57f421\",\"2d597353c5bb5cd98b7beb5e345b67ce336683c53f73aeb3bedfea3b34110a7e\"],\"service\":\"iam\",\"v\":1}",
+    "profiles_from_attachments": "{\"kind\":\"iam.profiles\",\"markers\":{},\"parent\":\"cnesdata-cap-a1b2c3d4\",\"run\":\"a1b2c3d4\",\"seen\":[\"2d597353c5bb5cd98b7beb5e345b67ce336683c53f73aeb3bedfea3b34110a7e\",\"753221b1ecfb8600cdb20857610859c48f5c79669ec52c2ad1e79f0d1f04d7d9\",\"d6e1b2656d3fcb1933e7d5229d0ae0615d0284e1cf6d2e2d01a46cdfe1d33060\"],\"service\":\"iam\",\"v\":1}",
+    "profiles_from_empty_attachments": "{\"kind\":\"iam.profiles\",\"markers\":{},\"parent\":\"cnesdata-cap-a1b2c3d4\",\"run\":\"a1b2c3d4\",\"seen\":[\"2d597353c5bb5cd98b7beb5e345b67ce336683c53f73aeb3bedfea3b34110a7e\",\"d6e1b2656d3fcb1933e7d5229d0ae0615d0284e1cf6d2e2d01a46cdfe1d33060\"],\"service\":\"iam\",\"v\":1}",
+    "policies_b": "{\"kind\":\"iam.policies\",\"markers\":{\"Marker\":\"policy-C4-B\"},\"parent\":\"cnesdata-cap-a1b2c3d4\",\"run\":\"a1b2c3d4\",\"seen\":[\"3b4ddd1f83687e7ae3d1d1130997d59917385776700659e294d74fa88e57f421\",\"c9269da49f6e9ad85a552a284e88c872c04c48574ddfdbcd9445ba3727df8274\"],\"service\":\"iam\",\"v\":1}"
+  },
+  "replies": {
+    "policies_first": {
+      "PolicyNames": [],
+      "IsTruncated": true,
+      "Marker": "policy-C4-private"
+    },
+    "policies_last": {
+      "PolicyNames": [],
+      "IsTruncated": false
+    },
+    "attachments_first": {
+      "AttachedPolicies": [],
+      "IsTruncated": true,
+      "Marker": "attach-C4-private"
+    },
+    "attachments_last": {
+      "AttachedPolicies": [],
+      "IsTruncated": false
+    },
+    "profiles_first": {
+      "InstanceProfiles": [],
+      "IsTruncated": true,
+      "Marker": "profile-C4-private"
+    },
+    "profiles_last": {
+      "InstanceProfiles": [],
+      "IsTruncated": false
+    },
+    "policies_b": {
+      "PolicyNames": [],
+      "IsTruncated": true,
+      "Marker": "policy-C4-B"
+    }
+  },
+  "calls": {
+    "policies_next": [
+      "iam",
+      "list-role-policies",
+      "us-east-1",
+      {
+        "RoleName": "cnesdata-cap-a1b2c3d4",
+        "MaxItems": 100,
+        "Marker": "policy-C4-private"
+      }
+    ],
+    "attachments_next": [
+      "iam",
+      "list-attached-role-policies",
+      "us-east-1",
+      {
+        "RoleName": "cnesdata-cap-a1b2c3d4",
+        "MaxItems": 100,
+        "Marker": "attach-C4-private"
+      }
+    ],
+    "profiles_next": [
+      "iam",
+      "list-instance-profiles-for-role",
+      "us-east-1",
+      {
+        "RoleName": "cnesdata-cap-a1b2c3d4",
+        "MaxItems": 100,
+        "Marker": "profile-C4-private"
+      }
+    ],
+    "policies_b": [
+      "iam",
+      "list-role-policies",
+      "us-east-1",
+      {
+        "RoleName": "cnesdata-cap-a1b2c3d4",
+        "MaxItems": 100,
+        "Marker": "policy-C4-B"
+      }
+    ]
+  },
+  "limit_replies": [
+    {
+      "PolicyNames": [],
+      "IsTruncated": true,
+      "Marker": "limit-1"
+    },
+    {
+      "PolicyNames": [],
+      "IsTruncated": true,
+      "Marker": "limit-2"
+    },
+    {
+      "PolicyNames": [],
+      "IsTruncated": true,
+      "Marker": "limit-3"
+    },
+    {
+      "PolicyNames": [],
+      "IsTruncated": true,
+      "Marker": "limit-4"
+    },
+    {
+      "PolicyNames": [],
+      "IsTruncated": true,
+      "Marker": "limit-5"
+    },
+    {
+      "PolicyNames": [],
+      "IsTruncated": true,
+      "Marker": "limit-6"
+    },
+    {
+      "PolicyNames": [],
+      "IsTruncated": true,
+      "Marker": "limit-7"
+    },
+    {
+      "PolicyNames": [],
+      "IsTruncated": true,
+      "Marker": "limit-8"
+    }
+  ],
+  "limit_calls": [
+    [
+      "iam",
+      "list-role-policies",
+      "us-east-1",
+      {
+        "RoleName": "cnesdata-cap-a1b2c3d4",
+        "MaxItems": 100
+      }
+    ],
+    [
+      "iam",
+      "list-role-policies",
+      "us-east-1",
+      {
+        "RoleName": "cnesdata-cap-a1b2c3d4",
+        "MaxItems": 100,
+        "Marker": "limit-1"
+      }
+    ],
+    [
+      "iam",
+      "list-role-policies",
+      "us-east-1",
+      {
+        "RoleName": "cnesdata-cap-a1b2c3d4",
+        "MaxItems": 100,
+        "Marker": "limit-2"
+      }
+    ],
+    [
+      "iam",
+      "list-role-policies",
+      "us-east-1",
+      {
+        "RoleName": "cnesdata-cap-a1b2c3d4",
+        "MaxItems": 100,
+        "Marker": "limit-3"
+      }
+    ],
+    [
+      "iam",
+      "list-role-policies",
+      "us-east-1",
+      {
+        "RoleName": "cnesdata-cap-a1b2c3d4",
+        "MaxItems": 100,
+        "Marker": "limit-4"
+      }
+    ],
+    [
+      "iam",
+      "list-role-policies",
+      "us-east-1",
+      {
+        "RoleName": "cnesdata-cap-a1b2c3d4",
+        "MaxItems": 100,
+        "Marker": "limit-5"
+      }
+    ],
+    [
+      "iam",
+      "list-role-policies",
+      "us-east-1",
+      {
+        "RoleName": "cnesdata-cap-a1b2c3d4",
+        "MaxItems": 100,
+        "Marker": "limit-6"
+      }
+    ],
+    [
+      "iam",
+      "list-role-policies",
+      "us-east-1",
+      {
+        "RoleName": "cnesdata-cap-a1b2c3d4",
+        "MaxItems": 100,
+        "Marker": "limit-7"
+      }
+    ]
+  ]
+}

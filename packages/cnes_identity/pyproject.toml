@@ -10,7 +10,7 @@ dependencies = [
     "python-jose[cryptography]>=3.3",
     "cryptography>=43",
     "httpx>=0.28",
-    "pydantic>=2.10",
+      "pydantic>=2.10",
     "boto3>=1.43",
 ]
 
@@ -24,6 +24,27 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-only-include = ["__init__.py", "access_tokens.py", "ca.py", "device_codes.py", "dynamodb_memberships.py", "errors.py", "jwt.py", "local_auth.py", "local_credentials.py", "models.py", "oidc.py", "peer_cert.py", "provisioned_certs.py", "refresh_tokens.py"]
+only-include = [
+    "__init__.py",
+    "access_tokens.py",
+    "ca.py",
+    "cert_extensions.py",
+    "device_codes.py",
+    "dynamodb_certificates.py",
+    "dynamodb_memberships.py",
+    "dynamodb_refresh_codec.py",
+    "dynamodb_refresh_tokens.py",
+    "errors.py",
+    "jwt.py",
+    "local_auth.py",
+    "local_credentials.py",
+    "models.py",
+    "oidc.py",
+    "peer_cert.py",
+    "provisioned_certs.py",
+    "refresh_tokens.py",
+    "sqlite_certificates.py",
+    "sqlite_refresh_tokens.py",
+]
 sources = { "" = "cnes_identity" }
 dev-mode-dirs = [".."]

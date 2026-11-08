@@ -1,0 +1,477 @@
+{
+  "steps": [
+    {
+      "request": [
+        "dynamodb",
+        "update-item",
+        "us-east-2",
+        {
+          "TableName": "cnesdata-cap-a1b2c3d4",
+          "Key": {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "cancel#1"}},
+          "UpdateExpression": "SET #v=:new",
+          "ConditionExpression": "attribute_not_exists(#pk) AND attribute_not_exists(#sk)",
+          "ExpressionAttributeNames": {"#v": "version", "#pk": "pk", "#sk": "sk"},
+          "ExpressionAttributeValues": {":new": {"N": "1"}},
+          "ReturnValues": "ALL_NEW"
+        }
+      ],
+      "reply": {
+        "exit": 0,
+        "data": {
+          "Attributes":
+            {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "cancel#1"}, "version": {"N": "1"}},
+          "ResponseMetadata": {"RequestId": "R1_PRIVATE_CANARY"}
+        }
+      }
+    },
+    {
+      "request": [
+        "dynamodb",
+        "update-item",
+        "us-east-2",
+        {
+          "TableName": "cnesdata-cap-a1b2c3d4",
+          "Key": {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "cancel#2"}},
+          "UpdateExpression": "SET #v=:new",
+          "ConditionExpression": "attribute_not_exists(#pk) AND attribute_not_exists(#sk)",
+          "ExpressionAttributeNames": {"#v": "version", "#pk": "pk", "#sk": "sk"},
+          "ExpressionAttributeValues": {":new": {"N": "1"}},
+          "ReturnValues": "ALL_NEW"
+        }
+      ],
+      "reply": {
+        "exit": 0,
+        "data": {
+          "Attributes":
+            {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "cancel#2"}, "version": {"N": "1"}},
+          "ResponseMetadata": {"RequestId": "R1_PRIVATE_CANARY"}
+        }
+      }
+    },
+    {
+      "request": [
+        "dynamodb",
+        "update-item",
+        "us-east-2",
+        {
+          "TableName": "cnesdata-cap-a1b2c3d4",
+          "Key": {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "cancel#3"}},
+          "UpdateExpression": "SET #v=:new",
+          "ConditionExpression": "attribute_not_exists(#pk) AND attribute_not_exists(#sk)",
+          "ExpressionAttributeNames": {"#v": "version", "#pk": "pk", "#sk": "sk"},
+          "ExpressionAttributeValues": {":new": {"N": "1"}},
+          "ReturnValues": "ALL_NEW"
+        }
+      ],
+      "reply": {
+        "exit": 0,
+        "data": {
+          "Attributes":
+            {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "cancel#3"}, "version": {"N": "1"}},
+          "ResponseMetadata": {"RequestId": "R1_PRIVATE_CANARY"}
+        }
+      }
+    },
+    {
+      "request": [
+        "dynamodb",
+        "transact-write-items",
+        "us-east-2",
+        {
+          "TransactItems": [
+            {
+              "Update": {
+                "TableName": "cnesdata-cap-a1b2c3d4",
+                "Key": {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "cancel#1"}},
+                "UpdateExpression": "SET #v=:new",
+                "ConditionExpression": "#v=:expected",
+                "ExpressionAttributeNames": {"#v": "version"},
+                "ExpressionAttributeValues": {":new": {"N": "2"}, ":expected": {"N": "1"}}
+              }
+            },
+            {
+              "Update": {
+                "TableName": "cnesdata-cap-a1b2c3d4",
+                "Key": {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "cancel#2"}},
+                "UpdateExpression": "SET #v=:new",
+                "ConditionExpression": "#v=:expected",
+                "ExpressionAttributeNames": {"#v": "version"},
+                "ExpressionAttributeValues": {":new": {"N": "2"}, ":expected": {"N": "0"}}
+              }
+            },
+            {
+              "Update": {
+                "TableName": "cnesdata-cap-a1b2c3d4",
+                "Key": {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "cancel#3"}},
+                "UpdateExpression": "SET #v=:new",
+                "ConditionExpression": "#v=:expected",
+                "ExpressionAttributeNames": {"#v": "version"},
+                "ExpressionAttributeValues": {":new": {"N": "2"}, ":expected": {"N": "1"}}
+              }
+            }
+          ],
+          "ClientRequestToken": "a1b2c3d4-cancel"
+        }
+      ],
+      "reply": {
+        "exit": 254,
+        "error": {
+          "Code": "TransactionCanceledException",
+          "Message": "R1_PRIVATE_CANARY",
+          "CancellationReasons": [
+            {"Code": "None"},
+            {
+              "Code": "ConditionalCheckFailed",
+              "Message": "R1_PRIVATE_CANARY",
+              "Item": {"pk": {"S": "R1_PRIVATE_CANARY"}}
+            },
+            {"Code": "None"}
+          ]
+        }
+      }
+    },
+    {
+      "request": [
+        "dynamodb",
+        "get-item",
+        "us-east-2",
+        {
+          "TableName": "cnesdata-cap-a1b2c3d4",
+          "Key": {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "cancel#1"}},
+          "ConsistentRead": true
+        }
+      ],
+      "reply": {
+        "exit": 0,
+        "data": {
+          "Item": {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "cancel#1"}, "version": {"N": "1"}},
+          "ResponseMetadata": {"RequestId": "R1_PRIVATE_CANARY"}
+        }
+      }
+    },
+    {
+      "request": [
+        "dynamodb",
+        "get-item",
+        "us-east-2",
+        {
+          "TableName": "cnesdata-cap-a1b2c3d4",
+          "Key": {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "cancel#2"}},
+          "ConsistentRead": true
+        }
+      ],
+      "reply": {
+        "exit": 0,
+        "data": {
+          "Item": {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "cancel#2"}, "version": {"N": "1"}},
+          "ResponseMetadata": {"RequestId": "R1_PRIVATE_CANARY"}
+        }
+      }
+    },
+    {
+      "request": [
+        "dynamodb",
+        "get-item",
+        "us-east-2",
+        {
+          "TableName": "cnesdata-cap-a1b2c3d4",
+          "Key": {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "cancel#3"}},
+          "ConsistentRead": true
+        }
+      ],
+      "reply": {
+        "exit": 0,
+        "data": {
+          "Item": {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "cancel#3"}, "version": {"N": "1"}},
+          "ResponseMetadata": {"RequestId": "R1_PRIVATE_CANARY"}
+        }
+      }
+    }
+  ],
+  "overrides": {
+    "colisao_seed_1": {
+      "index": 0,
+      "reply": {
+        "exit": 254,
+        "error": {"Code": "ConditionalCheckFailedException", "Message": "R1_PRIVATE_CANARY"}
+      }
+    },
+    "atributos_seed_1": {
+      "index": 0,
+      "reply": {
+        "exit": 0,
+        "data": {
+          "Attributes":
+            {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "cancel#1"}, "version": {"N": "2"}},
+          "ResponseMetadata": {"RequestId": "R1_PRIVATE_CANARY"}
+        }
+      }
+    },
+    "colisao_seed_2": {
+      "index": 1,
+      "reply": {
+        "exit": 254,
+        "error": {"Code": "ConditionalCheckFailedException", "Message": "R1_PRIVATE_CANARY"}
+      }
+    },
+    "atributos_seed_2": {
+      "index": 1,
+      "reply": {
+        "exit": 0,
+        "data": {
+          "Attributes":
+            {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "cancel#2"}, "version": {"N": "2"}},
+          "ResponseMetadata": {"RequestId": "R1_PRIVATE_CANARY"}
+        }
+      }
+    },
+    "colisao_seed_3": {
+      "index": 2,
+      "reply": {
+        "exit": 254,
+        "error": {"Code": "ConditionalCheckFailedException", "Message": "R1_PRIVATE_CANARY"}
+      }
+    },
+    "atributos_seed_3": {
+      "index": 2,
+      "reply": {
+        "exit": 0,
+        "data": {
+          "Attributes":
+            {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "cancel#3"}, "version": {"N": "2"}},
+          "ResponseMetadata": {"RequestId": "R1_PRIVATE_CANARY"}
+        }
+      }
+    },
+    "transacao_sucesso_vazio": {"index": 3, "reply": {"exit": 0}},
+    "cancelamento_local": {
+      "index": 3,
+      "reply": {
+        "exit": 252,
+        "error": {
+          "Code": "TransactionCanceledException",
+          "Message": "R1_PRIVATE_CANARY",
+          "CancellationReasons": [
+            {"Code": "None"},
+            {
+              "Code": "ConditionalCheckFailed",
+              "Message": "R1_PRIVATE_CANARY",
+              "Item": {"pk": {"S": "R1_PRIVATE_CANARY"}}
+            },
+            {"Code": "None"}
+          ]
+        }
+      }
+    },
+    "acesso_negado": {
+      "index": 3,
+      "reply": {
+        "exit": 254,
+        "error": {
+          "Code": "AccessDeniedException",
+          "Message": "R1_PRIVATE_CANARY",
+          "CancellationReasons": [
+            {"Code": "None"},
+            {
+              "Code": "ConditionalCheckFailed",
+              "Message": "R1_PRIVATE_CANARY",
+              "Item": {"pk": {"S": "R1_PRIVATE_CANARY"}}
+            },
+            {"Code": "None"}
+          ]
+        }
+      }
+    },
+    "reasons_ausentes": {
+      "index": 3,
+      "reply": {
+        "exit": 254,
+        "error": {"Code": "TransactionCanceledException", "Message": "R1_PRIVATE_CANARY"}
+      }
+    },
+    "reasons_mapping": {
+      "index": 3,
+      "reply": {
+        "exit": 254,
+        "error": {
+          "Code": "TransactionCanceledException",
+          "Message": "R1_PRIVATE_CANARY",
+          "CancellationReasons": {"Code": "None"}
+        }
+      }
+    },
+    "reasons_duas": {
+      "index": 3,
+      "reply": {
+        "exit": 254,
+        "error": {
+          "Code": "TransactionCanceledException",
+          "Message": "R1_PRIVATE_CANARY",
+          "CancellationReasons": [
+            {"Code": "None"},
+            {
+              "Code": "ConditionalCheckFailed",
+              "Message": "R1_PRIVATE_CANARY",
+              "Item": {"pk": {"S": "R1_PRIVATE_CANARY"}}
+            }
+          ]
+        }
+      }
+    },
+    "reasons_quatro": {
+      "index": 3,
+      "reply": {
+        "exit": 254,
+        "error": {
+          "Code": "TransactionCanceledException",
+          "Message": "R1_PRIVATE_CANARY",
+          "CancellationReasons": [
+            {"Code": "None"},
+            {
+              "Code": "ConditionalCheckFailed",
+              "Message": "R1_PRIVATE_CANARY",
+              "Item": {"pk": {"S": "R1_PRIVATE_CANARY"}}
+            },
+            {"Code": "None"},
+            {"Code": "None"}
+          ]
+        }
+      }
+    },
+    "reason_null": {
+      "index": 3,
+      "reply": {
+        "exit": 254,
+        "error": {
+          "Code": "TransactionCanceledException",
+          "Message": "R1_PRIVATE_CANARY",
+          "CancellationReasons": [
+            null,
+            {
+              "Code": "ConditionalCheckFailed",
+              "Message": "R1_PRIVATE_CANARY",
+              "Item": {"pk": {"S": "R1_PRIVATE_CANARY"}}
+            },
+            {"Code": "None"}
+          ]
+        }
+      }
+    },
+    "code_null": {
+      "index": 3,
+      "reply": {
+        "exit": 254,
+        "error": {
+          "Code": "TransactionCanceledException",
+          "Message": "R1_PRIVATE_CANARY",
+          "CancellationReasons": [
+            {"Code": null},
+            {
+              "Code": "ConditionalCheckFailed",
+              "Message": "R1_PRIVATE_CANARY",
+              "Item": {"pk": {"S": "R1_PRIVATE_CANARY"}}
+            },
+            {"Code": "None"}
+          ]
+        }
+      }
+    },
+    "codes_reordenados": {
+      "index": 3,
+      "reply": {
+        "exit": 254,
+        "error": {
+          "Code": "TransactionCanceledException",
+          "Message": "R1_PRIVATE_CANARY",
+          "CancellationReasons": [
+            {
+              "Code": "ConditionalCheckFailed",
+              "Message": "R1_PRIVATE_CANARY",
+              "Item": {"pk": {"S": "R1_PRIVATE_CANARY"}}
+            },
+            {"Code": "None"},
+            {"Code": "None"}
+          ]
+        }
+      }
+    },
+    "code_ausente": {
+      "index": 3,
+      "reply": {
+        "exit": 254,
+        "error": {
+          "Code": "TransactionCanceledException",
+          "Message": "R1_PRIVATE_CANARY",
+          "CancellationReasons": [
+            {"Message": "R1_PRIVATE_CANARY"},
+            {
+              "Code": "ConditionalCheckFailed",
+              "Message": "R1_PRIVATE_CANARY",
+              "Item": {"pk": {"S": "R1_PRIVATE_CANARY"}}
+            },
+            {"Code": "None"}
+          ]
+        }
+      }
+    },
+    "reason_string": {
+      "index": 3,
+      "reply": {
+        "exit": 254,
+        "error": {
+          "Code": "TransactionCanceledException",
+          "Message": "R1_PRIVATE_CANARY",
+          "CancellationReasons": [
+            "None",
+            {
+              "Code": "ConditionalCheckFailed",
+              "Message": "R1_PRIVATE_CANARY",
+              "Item": {"pk": {"S": "R1_PRIVATE_CANARY"}}
+            },
+            {"Code": "None"}
+          ]
+        }
+      }
+    },
+    "primeiro_ausente": {
+      "index": 4,
+      "reply": {"exit": 0, "data": {"ResponseMetadata": {"RequestId": "R1_PRIVATE_CANARY"}}}
+    },
+    "segundo_dois": {
+      "index": 5,
+      "reply": {
+        "exit": 0,
+        "data": {
+          "ResponseMetadata": {"RequestId": "R1_PRIVATE_CANARY"},
+          "Item": {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "cancel#2"}, "version": {"N": "2"}}
+        }
+      }
+    },
+    "terceiro_estrangeiro": {
+      "index": 6,
+      "reply": {
+        "exit": 0,
+        "data": {
+          "ResponseMetadata": {"RequestId": "R1_PRIVATE_CANARY"},
+          "Item": {
+            "pk": {"S": "R1_PRIVATE_CANARY"},
+            "sk": {"S": "cancel#3"},
+            "version": {"N": "1"}
+          }
+        }
+      }
+    },
+    "terceiro_numero": {
+      "index": 6,
+      "reply": {
+        "exit": 0,
+        "data": {
+          "ResponseMetadata": {"RequestId": "R1_PRIVATE_CANARY"},
+          "Item": {"pk": {"S": "cap#a1b2c3d4"}, "sk": {"S": "cancel#3"}, "version": {"N": 1}}
+        }
+      }
+    },
+    "timeout_transacao": {"index": 3, "reply": {"timeout": "R1_PRIVATE_CANARY"}},
+    "timeout_primeiro_get": {"index": 4, "reply": {"timeout": "R1_PRIVATE_CANARY"}}
+  }
+}

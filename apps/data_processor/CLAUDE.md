@@ -17,7 +17,22 @@ do perfil (SQLite local ou DynamoDB), nunca em Postgres.
 ## Functionalities
 
 - `local`: `build_local_processor_runtime` + loop de recuperação (`_poll_until_shutdown`)
-- `aws`: `build_processor_runtime("aws", ...)` + `run_aws_entrypoint` (ex.: `recover-once`)
+- `aws`: três modos (`run-unit`, `recover-once`, `dispatch-outbox-once`), com seleção/validação
+  pura antes de I/O; `build_aws_unit_runtime` ou
+  `build_aws_recovery_runtime` ou `build_aws_audit_runtime` +
+  `run_aws_entrypoint(invocation, runtime)`.
+- Unidade usa o envelope completo de sete variáveis, sem argumentos. `recover-once`
+  rejeita qualquer chave desse envelope, inclusive vazia; batch 100 e lease/deadline 3600.
+  Recovery compõe coordenador/publisher, sem registry, stage processor, worker ou audit sink.
+- `dispatch-outbox-once` rejeita qualquer chave do envelope e aceita somente região, tabela,
+  bucket de audit e retenção positiva. Compõe apenas control plane e sink Object Lock, executa
+  uma página de 100 eventos e usa deadline fixo de 60 segundos.
+- Após validar modo/settings (e billing somente em `run-unit`/`recover-once`), um único
+  `DeadlinePolicy` cobre logging,
+  telemetria, Session, composição, execução e diagnóstico. Unidade usa `LEASE_SECONDS`;
+  recovery usa 3600. O watchdog agenda o timer
+  principal em `D-0.1`, o fallback em `0.1` e encerra com exit 3; o evento de expiração é
+  best-effort e não pode atrasar o fallback. Sucesso e erro normal desarmam o timer.
 - `integrity_check.verify_parquet` para SHA-256 quando esperado
 - `cdc_merger.merge_delta` para linhas `_op ∈ {I,U,D}`
 - Adapters CNES/SIHD/BPA/SIA preservados para rotas de ingestão específicas
@@ -48,7 +63,7 @@ do perfil (SQLite local ou DynamoDB), nunca em Postgres.
 | Var | Obrigatória | Descrição |
 |---|---|---|
 | `PROFILE` | sim | `local` ou `aws`; ausente/outro valor sai com 1 (`profile_required`) |
-| `DB_URL` | sim (import) | Exigida por `cnes_runtime.config` no import; placeholder, nunca conectada |
+| `DB_URL` | sim (`local`) | Exigida por `cnes_runtime.config`; AWS não importa essa configuração nem lê `.env` |
 | `TENANT_ID` | sim (`local`) | Tenant semeado no control plane SQLite |
 | `DATA_DIR` | opcional (`local`) | Raiz do SQLite/filesystem; default em `cnes_domain.profiles` |
 | `PROCESSOR_POLL_INTERVAL` | opcional | Intervalo do loop de recuperação local, default `5.0` s |
@@ -59,6 +74,10 @@ do perfil (SQLite local ou DynamoDB), nunca em Postgres.
 | Arquivo | Responsabilidade |
 |---|---|
 | `src/data_processor/main.py` | Entrypoint async + `_setup_logging` + perfis `local`/`aws`; fail-closed nos demais |
+| `src/data_processor/aws_entrypoint.py` | Seleção pura de invocação e execução única do modo validado |
+| `src/data_processor/aws_composition.py` | Factories AWS separadas de unidade e recuperação |
+| `src/data_processor/processor_wiring.py` | Registry de fontes e política de publicação compartilhados |
+| `src/data_processor/deadline.py` | Watchdog daemon com saída dura dentro do orçamento |
 | `src/data_processor/processor.py` | SHA-256 + delta route helpers |
 | `src/data_processor/config.py` | Config do worker (`POLL_INTERVAL`) |
 | `src/data_processor/adapters/cnes_local_adapter.py` | Parquet CNES raw → DataFrame canônico |
@@ -82,6 +101,13 @@ do perfil (SQLite local ou DynamoDB), nunca em Postgres.
 | `src/data_processor/sources/sihd/serving.py` | `materialize_sihd` (sem PII) |
 
 ## Gotchas
+
+- **Saídas AWS:** 0 sucesso/deferred; 1 falha operacional (inclusive `RecoveryFailed`);
+  2 configuração terminal; 3 deadline. Preflight inválido retorna 2 sem logging/telemetria
+  ou Session. Falha após preflight emite JSON dentro do mesmo deadline.
+- **Deadline AWS:** `main` arma o watchdog após validação pura, antes do bootstrap.
+  O `os._exit(3)` não executa `finally`, `atexit` nem flush de telemetria; a
+  observabilidade de `processor_deadline_exceeded` é best-effort.
 
 - **`fontes` JSONB merge + `vinculo_repo` upsert:** ver
   `packages/cnes_data/CLAUDE.md` (Gotchas) — regras únicas, não duplicar aqui.

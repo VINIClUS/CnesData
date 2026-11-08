@@ -3,20 +3,39 @@
 from collections.abc import Mapping
 from dataclasses import replace
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import Mock, call, sentinel
+from urllib.parse import urlsplit
 
+import boto3
 import pytest
 from botocore.exceptions import ClientError
 
 from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
 from cnes_data.object_store.s3 import S3ObjectStore
+from cnes_domain.orchestration.dispatch_admission import EnvironmentAdmission
+from cnes_domain.ports.environment_gate import UNGATED_ADMISSION, ExecutionPresence
 from cnes_governance.s3_object_lock_sink import S3ObjectLockAuditSink
-from cnes_runtime.aws.runtime import AwsClients, build_aws_runtime, create_aws_clients
-from cnes_runtime.aws.settings import AwsRuntimeSettings
+from cnes_runtime.aws.runtime import (
+    AwsClients,
+    build_aws_runtime,
+    build_dispatch_admission,
+    create_aws_clients,
+)
+from cnes_runtime.aws.settings import AwsRuntimeConfigurationError, AwsRuntimeSettings
+from packages.cnes_runtime.tests.aws.production_values import (
+    PRODUCTION_STATE_MACHINE_ARN,
+    PRODUCTION_VALUES,
+)
+
+if TYPE_CHECKING:
+    from types_boto3_s3.client import S3Client
+
+    from cnes_domain.ports.control_plane import ControlPlanePort
 
 _NOW = datetime(2026, 9, 27, 12, tzinfo=UTC)
 _LOCKED = {"ObjectLockConfiguration": {"ObjectLockEnabled": "Enabled"}}
+_SERVING_KEY = "serving/354130/run-01/overview.json"
 
 
 def _settings(
@@ -84,6 +103,7 @@ def test_cria_clientes_na_regiao_e_endpoint_configurados() -> None:
     assert s3.kwargs["region_name"] == "us-east-1"
     assert s3.kwargs["endpoint_url"] == "http://aws-emulator:4566"
     assert s3.kwargs["config"].signature_version == "s3v4"
+    assert s3.kwargs["config"].s3 is None
     assert set(s3.kwargs) == {"region_name", "endpoint_url", "config"}
     assert sfn == call(
         "stepfunctions", region_name="us-east-1", endpoint_url="http://aws-emulator:4566",
@@ -97,7 +117,32 @@ def test_usa_endpoints_padrao_da_aws_em_producao() -> None:
 
     assert session.client.call_count == 3
     assert [c.kwargs["endpoint_url"] for c in session.client.call_args_list] == [None] * 3
-    assert session.client.call_args_list[1].kwargs["config"].signature_version == "s3v4"
+    config = session.client.call_args_list[1].kwargs["config"]
+    assert config.signature_version == "s3v4"
+    assert config.s3 == {"addressing_style": "virtual"}
+
+
+def test_url_assinada_de_serving_usa_host_regional_do_bucket(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for name in ("AWS_ENDPOINT_URL", "AWS_ENDPOINT_URL_S3"):
+        monkeypatch.delenv(name, raising=False)
+    settings = AwsRuntimeSettings.from_mapping(PRODUCTION_VALUES)
+    session = boto3.Session(
+        aws_access_key_id="test", aws_secret_access_key="test",  # noqa: S106
+    )
+
+    signer = cast("S3Client", create_aws_clients(settings, session).s3)
+
+    url = signer.generate_presigned_url(
+        "get_object", Params={"Bucket": settings.data_bucket, "Key": _SERVING_KEY},
+        ExpiresIn=settings.serving_url_ttl_seconds,
+    )
+
+    parts = urlsplit(url)
+    assert (parts.scheme, parts.netloc, parts.path) == (
+        "https", "cnesdata-prod-data.s3.us-east-2.amazonaws.com", f"/{_SERVING_KEY}",
+    )
 
 
 def test_compoe_adapters_com_recursos_configurados() -> None:
@@ -138,3 +183,46 @@ def test_rejeita_bucket_de_auditoria_sem_object_lock() -> None:
 
     with pytest.raises(ValueError, match="object_lock=disabled"):
         build_aws_runtime(_settings(), clients, clock=lambda: _NOW)
+
+
+def test_admissao_fora_da_politica_de_producao_e_sem_gate() -> None:
+    clients = _clients(_LOCKED)
+
+    admission = build_dispatch_admission(
+        _settings(), clients, cast("ControlPlanePort", object()),
+    )
+
+    assert admission is UNGATED_ADMISSION
+    assert _mock(clients.step_functions).mock_calls == []
+
+
+def test_admissao_de_producao_usa_o_gate_e_o_probe_do_executor() -> None:
+    settings = AwsRuntimeSettings.from_mapping(PRODUCTION_VALUES)
+    clients = _clients(_LOCKED)
+    control_plane = DynamoDBControlPlane(
+        clients.dynamodb, settings.control_plane_table, lambda: _NOW,
+    )
+    _mock(clients.step_functions).describe_execution.return_value = {"status": "RUNNING"}
+
+    admission = build_dispatch_admission(settings, clients, control_plane)
+
+    assert isinstance(admission, EnvironmentAdmission)
+    assert admission._gate is control_plane
+    assert (admission._environment, admission._lease_seconds) == ("prod", 3600)
+    observation = admission._probe.probe("0123456789abcdef")
+    assert observation.presence is ExecutionPresence.RUNNING
+    prefix = PRODUCTION_STATE_MACHINE_ARN.replace(":stateMachine:", ":execution:")
+    _mock(clients.step_functions).describe_execution.assert_called_once_with(
+        executionArn=f"{prefix}:0123456789abcdef",
+    )
+    assert _mock(clients.dynamodb).mock_calls == []
+
+
+def test_admissao_de_producao_exige_control_plane_com_gate() -> None:
+    settings = AwsRuntimeSettings.from_mapping(PRODUCTION_VALUES)
+    clients = _clients(_LOCKED)
+
+    with pytest.raises(AwsRuntimeConfigurationError, match=r"^environment_gate_unsupported$"):
+        build_dispatch_admission(settings, clients, cast("ControlPlanePort", object()))
+
+    assert _mock(clients.step_functions).mock_calls == []

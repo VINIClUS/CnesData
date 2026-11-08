@@ -30,7 +30,8 @@ from cnes_control_plane.persistence.billed_tenant import (
     require_creatable_tenant_id,
     tenant_created_event,
 )
-from cnes_control_plane.persistence.dynamodb_keys import idempotency_key, item_key
+from cnes_control_plane.persistence.dynamodb_keys import idempotency_key
+from cnes_data.dynamodb import item_key
 from cnes_domain.billing.commands import ConsumeCapacityCommand
 from cnes_domain.billing.errors import (
     BillingDependencyError,
@@ -119,7 +120,9 @@ def test_cria_tenant_links_e_consome_reserva_em_uma_transacao(enforce_env: Env) 
     assert (record.status, record.resource_id) == ("COMPLETED", NEW)
     assert record.request_hash == billed_tenant_digest(command)
     assert record.expires_at == NOW + timedelta(days=1)
-    events = {event.event_type: event for event in enforce_env.plane.pending_outbox(100)}
+    events = {
+        event.event_type: event for event in enforce_env.plane.read_outbox_page(None, 100).events
+    }
     created_event = events["tenant.created"]
     assert created_event.event_id == deterministic_id("tenant.created", NEW)
     assert created_event.tenant_id == BILLING_AUDIT_TENANT_ID

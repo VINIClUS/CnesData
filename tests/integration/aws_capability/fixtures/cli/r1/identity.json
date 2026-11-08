@@ -1,0 +1,56 @@
+{
+  "sts": {
+    "Account": "111111111111",
+    "Arn": "arn:aws:sts::111111111111:assumed-role/capability/session",
+    "UserId": "SYNTHETIC:session"
+  },
+  "iam": {
+    "Account": "111111111111",
+    "Arn": "arn:aws:iam::111111111111:user/capability",
+    "UserId": "SYNTHETICUSER"
+  },
+  "iam_root": {
+    "Account": "111111111111",
+    "Arn": "arn:aws:iam::111111111111:root",
+    "UserId": "SYNTHETICROOT"
+  },
+  "wrong_account": {
+    "Account": "222222222222",
+    "Arn": "arn:aws:sts::222222222222:assumed-role/capability/session",
+    "UserId": "SYNTHETIC"
+  },
+  "arn_other_account": {
+    "Account": "111111111111",
+    "Arn": "arn:aws:sts::222222222222:assumed-role/capability/session",
+    "UserId": "SYNTHETIC"
+  },
+  "wrong_service": {
+    "Account": "111111111111",
+    "Arn": "arn:aws:s3::111111111111:bucket/capability",
+    "UserId": "SYNTHETIC"
+  },
+  "arn_with_region": {
+    "Account": "111111111111",
+    "Arn": "arn:aws:sts:us-east-2:111111111111:assumed-role/capability/session",
+    "UserId": "SYNTHETIC"
+  },
+  "wrong_partition": {
+    "Account": "111111111111",
+    "Arn": "arn:aws-cn:sts::111111111111:assumed-role/capability/session",
+    "UserId": "SYNTHETIC"
+  },
+  "missing_arn": {
+    "Account": "111111111111",
+    "UserId": "SYNTHETIC"
+  },
+  "bad_account_type": {
+    "Account": 111111111111,
+    "Arn": "arn:aws:iam::111111111111:user/capability",
+    "UserId": "SYNTHETIC"
+  },
+  "missing_account": {
+    "Arn": "arn:aws:iam::111111111111:user/capability",
+    "UserId": "SYNTHETIC"
+  },
+  "empty": {}
+}

@@ -225,7 +225,7 @@ def test_falha_antes_do_cas_preserva_o_ponteiro_ativo(tmp_path: Path) -> None:
     assert stored is not None
     assert stored.state is RunState.PUBLISHING
     assert adapter.get_dataset_version(_TENANT, "gold", run_id_b) is None
-    pending = adapter.pending_outbox(10)
+    pending = adapter.read_outbox_page(None, 10).events
     assert len(pending) == 1
     assert pending[0].aggregate_id == run_id_a
 

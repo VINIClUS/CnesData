@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from cnes_control_plane.billing.keys import tenant_entity_key
-from cnes_control_plane.persistence.dynamodb_codec import encode_model
+from cnes_data.dynamodb import encode_model
 from cnes_domain.billing.commands import (
     CreateBillingAccountCommand,
     SnapshotWrite,

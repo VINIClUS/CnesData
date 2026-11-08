@@ -14,11 +14,18 @@ const DEPLOY_MAIN = readFileSync(
 );
 
 const OIDC_VARS = ["VITE_OIDC_AUTHORITY", "VITE_OIDC_CLIENT_ID", "VITE_OIDC_REDIRECT_URI"];
+const PRODUCTION_OIDC_VARS = ["VITE_OIDC_DOMAIN"];
 
-test("Dockerfile declara ARG e ENV para as três variáveis OIDC do build", () => {
-  for (const name of OIDC_VARS) {
+test("Dockerfile declara ARG e ENV para as variáveis OIDC do build", () => {
+  for (const name of [...OIDC_VARS, ...PRODUCTION_OIDC_VARS]) {
     expect(DOCKERFILE).toContain(`ARG ${name}`);
     expect(DOCKERFILE).toContain(`ENV ${name}=$${name}`);
+  }
+});
+
+test("Dockerfile mantém vazias por padrão as variáveis OIDC só de produção", () => {
+  for (const name of PRODUCTION_OIDC_VARS) {
+    expect(DOCKERFILE).toContain(`ARG ${name}=""`);
   }
 });
 

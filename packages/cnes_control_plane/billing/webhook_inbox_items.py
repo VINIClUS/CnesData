@@ -11,7 +11,7 @@ from cnes_control_plane.billing.keys import (
     stripe_event_key,
     stripe_recovery_due_sort_key,
 )
-from cnes_control_plane.persistence.dynamodb_codec import Item
+from cnes_data.dynamodb import Item
 from cnes_domain.billing.inbox import InboxProcessingState, InboxRecoveryRecord, StripeEvent
 
 if TYPE_CHECKING:

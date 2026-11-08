@@ -1,18 +1,13 @@
 """Canonical DynamoDB encoding of Run items and dependency markers."""
 
-from cnes_control_plane.persistence.dynamodb_codec import (
-    Action,
-    Item,
-    encode_marker,
-    encode_model,
-    put_action,
-)
+from cnes_control_plane.persistence.dynamodb_codec import encode_marker
 from cnes_control_plane.persistence.dynamodb_keys import (
     dependency_marker_key,
     key_component,
     run_entity_key,
     timestamp,
 )
+from cnes_data.dynamodb import Action, Item, encode_model, put_action
 from cnes_domain.control_plane.entities import Run
 from cnes_domain.control_plane.enums import RunState
 from cnes_domain.control_plane.errors import Conflict

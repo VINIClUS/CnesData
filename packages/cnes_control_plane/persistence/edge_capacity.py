@@ -5,14 +5,14 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
-from cnes_control_plane.persistence.dynamodb_codec import payload, put_action
+from cnes_data.dynamodb import payload, put_action
 from cnes_domain.billing.models import CapacityKind, ReservationStatus
 
 if TYPE_CHECKING:
     from datetime import datetime
 
-    from cnes_control_plane.persistence.dynamodb_codec import Action, Item
     from cnes_control_plane.persistence.edge_registration import NewEdgeAgent
+    from cnes_data.dynamodb import Action, Item
 
 RESERVATION_EXPIRED = "capacity_reservation_expired"
 

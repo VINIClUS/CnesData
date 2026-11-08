@@ -51,7 +51,7 @@ def test_replays_e_conflitos_de_acesso(sqlite_control_plane, clock, invalid_kind
         sqlite_control_plane.decide_access_request(invalid, ignored)
     assert before == (
         sqlite_control_plane.get_access_request("354130", "request-a"),
-        sqlite_control_plane.pending_outbox(100),
+        sqlite_control_plane.read_outbox_page(None, 100).events,
     )
     decided = _event("access-approved")
     assert sqlite_control_plane.decide_access_request(approved, decided) == approved
@@ -73,4 +73,4 @@ def test_replays_e_conflitos_de_acesso(sqlite_control_plane, clock, invalid_kind
     with pytest.raises(Conflict, match="access_request_state_conflict"):
         sqlite_control_plane.decide_access_request(
             pending.model_copy(update={"request_id": "missing"}), ignored)
-    assert sqlite_control_plane.pending_outbox(100) == (decided, created)
+    assert sqlite_control_plane.read_outbox_page(None, 100).events == (decided, created)

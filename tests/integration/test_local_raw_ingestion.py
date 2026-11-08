@@ -203,7 +203,7 @@ def chain(stack: Stack, competencia: str = "2026-01") -> tuple[Any, ...]:
 
 
 def outbox_types(stack: Stack) -> list[str]:
-    return [event.event_type for event in stack.control_plane.pending_outbox(100)]
+    return [event.event_type for event in stack.control_plane.read_outbox_page(None, 100).events]
 
 
 def test_full_e_delta_chegam_ao_raw_sem_mudar_dataset_ativo(tmp_path: Path) -> None:

@@ -39,8 +39,8 @@ from cnes_control_plane.billing.keys import (
     capacity_usage_key,
     entitlement_snapshot_key,
 )
-from cnes_control_plane.persistence.dynamodb_codec import Action, Item, payload, put_action
 from cnes_control_plane.persistence.dynamodb_keys import idempotency_key
+from cnes_data.dynamodb import Action, Item, payload, put_action
 from cnes_domain.billing.commands import (
     CapacityReservationCommand,
     ConsumeCapacityCommand,

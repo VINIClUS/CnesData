@@ -10,24 +10,17 @@ from cnes_control_plane.billing.settings import LOCAL_BILLING_SETTINGS, BillingS
 from cnes_control_plane.persistence.dynamodb_billing import DynamoBillingMixin
 from cnes_control_plane.persistence.dynamodb_claims import DynamoDBClaims
 from cnes_control_plane.persistence.dynamodb_codec import (
-    Action,
     CandidateQuery,
-    Item,
     aggregate_replay,
-    check_action,
-    decode_model,
-    encode_model,
-    execute_transaction,
-    payload,
-    put_action,
     query_partition,
     raw_manifest_actions,
 )
 from cnes_control_plane.persistence.dynamodb_dispatch import DynamoDBDispatch
+from cnes_control_plane.persistence.dynamodb_environment_gate import DynamoDBEnvironmentGate
+from cnes_control_plane.persistence.dynamodb_execution_quota import DynamoDBExecutionQuota
 from cnes_control_plane.persistence.dynamodb_keys import (
     dependency_marker_key,
     entity_key,
-    item_key,
     key_component,
     membership_key,
     raw_manifest_lookup_key,
@@ -45,6 +38,17 @@ from cnes_control_plane.persistence.dynamodb_run_codec import run_dependency_act
 from cnes_control_plane.persistence.dynamodb_tenants import DynamoBilledTenantMixin, membership_item
 from cnes_control_plane.persistence.edge_registration import DynamoEdgeRegistrationMixin
 from cnes_control_plane.persistence.raw_query_compat import DeprecatedRawQueryMixin
+from cnes_data.dynamodb import (
+    Action,
+    Item,
+    check_action,
+    decode_model,
+    encode_model,
+    execute_transaction,
+    item_key,
+    payload,
+    put_action,
+)
 from cnes_domain.control_plane.entities import (
     AccessRequest,
     Agent,
@@ -82,7 +86,7 @@ _NONTERMINAL_UNITS = {RunUnitState.PENDING, RunUnitState.LEASED, RunUnitState.FA
 class DynamoDBControlPlane(
     DynamoBillingMixin, DynamoBilledTenantMixin, DynamoEdgeRegistrationMixin,
     DeprecatedRawQueryMixin, DynamoDBQueries, DynamoDBClaims, DynamoDBDispatch,
-    DynamoDBPublication
+    DynamoDBPublication, DynamoDBEnvironmentGate, DynamoDBExecutionQuota
 ):
     """Persiste o plano de controle em uma tabela DynamoDB."""
     def __init__(

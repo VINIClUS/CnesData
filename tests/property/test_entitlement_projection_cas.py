@@ -10,7 +10,7 @@ from moto import mock_aws
 
 from cnes_control_plane.billing.dynamodb_projection import DynamoEntitlementProjection
 from cnes_control_plane.billing.keys import stripe_event_key
-from cnes_control_plane.persistence.dynamodb_keys import item_key
+from cnes_data.dynamodb import item_key
 from cnes_domain.billing.commands import SnapshotWrite
 from cnes_domain.billing.errors import StaleInboxClaim
 from cnes_domain.billing.inbox import InboxClaim

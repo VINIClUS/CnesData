@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import logging
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, cast
 
@@ -14,6 +15,10 @@ if TYPE_CHECKING:
 
     from cnes_domain.ports.object_store import ObjectStorePort
     from cnes_domain.ports.serving import ServingAccessPort, ServingGrant, ServingRequest
+
+logger = logging.getLogger(__name__)
+
+_NO_STORE = "private, no-store"
 
 
 class ServingKeyForbidden(Exception):
@@ -48,9 +53,10 @@ class SignedServingSettings:
 class SignedServingGrant:
     version_id: str
     run_id: str
-    object_key: str
-    url: str
+    object_key: str = field(repr=False)
+    url: str = field(repr=False)
     expires_at: datetime
+    expires_in: int
 
 
 def _resolve_key(authorized: ServingGrant, relative_name: str) -> str:
@@ -81,9 +87,9 @@ class S3SignedServingAccess:
 
         Args: Requisição com identidade e nome relativo; instante de emissão.
         Returns: URL assinada com expiração ``now + ttl``.
-        Raises: ServingKeyForbidden, ServingSigningUnavailable, erros da policy.
+        Raises: ServingKeyForbidden, ServingSigningUnavailable, ServingUnavailable da policy.
         """
-        authorized = self._access_policy.authorize(request.access)
+        authorized = self._authorize(request.access)
         if authorized.tenant_id != request.access.tenant_id:
             raise ServingKeyForbidden("serving_key_forbidden")
         key = _resolve_key(authorized, request.relative_name)
@@ -94,7 +100,16 @@ class S3SignedServingAccess:
             object_key=key,
             url=self._sign(key),
             expires_at=now + timedelta(seconds=self._settings.ttl_seconds),
+            expires_in=self._settings.ttl_seconds,
         )
+
+    def _authorize(self, access: ServingRequest) -> ServingGrant:
+        try:
+            return self._access_policy.authorize(access)
+        except (BotoCoreError, ClientError, OSError) as error:
+            # botocore messages carry the endpoint URL, which names the bucket and the object key.
+            logger.warning("serving_authorization_lookup_failed error=%s", type(error).__name__)
+            raise ServingSigningUnavailable("serving_authorization_lookup_failed") from None
 
     def _require_object(self, key: str) -> None:
         try:
@@ -112,6 +127,7 @@ class S3SignedServingAccess:
                     "Bucket": self._settings.bucket,
                     "Key": key,
                     "ResponseContentType": "application/json",
+                    "ResponseCacheControl": _NO_STORE,
                 },
                 ExpiresIn=self._settings.ttl_seconds,
             )

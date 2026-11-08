@@ -64,7 +64,7 @@ from tests.integration.billing._execution_stack import (
 )
 
 if TYPE_CHECKING:
-    from cnes_control_plane.persistence.dynamodb_codec import Item
+    from cnes_data.dynamodb import Item
     from cnes_domain.control_plane.entities import RunDispatch
     from packages.cnes_control_plane.tests.billing.revocation_support import RevEnv
 

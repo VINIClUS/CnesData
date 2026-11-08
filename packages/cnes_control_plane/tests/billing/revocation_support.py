@@ -16,15 +16,14 @@ from cnes_control_plane.billing.dynamodb_quota_items import decode_reservation
 from cnes_control_plane.billing.dynamodb_revocation import DynamoRevocationStore
 from cnes_control_plane.billing.keys import reservation_key, run_lookup_key, usage_key
 from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
-from cnes_control_plane.persistence.dynamodb_codec import encode_model
 from cnes_control_plane.persistence.dynamodb_keys import (
     dispatch_key,
-    item_key,
     key_component,
     run_entity_key,
     unit_key,
 )
 from cnes_control_plane.persistence.dynamodb_run_codec import run_item
+from cnes_data.dynamodb import encode_model, item_key
 from cnes_domain.billing.execution import RunBillingState, RunExecutionBindingCommand
 from cnes_domain.billing.models import QuotaReservation, ReservationStatus
 from cnes_domain.billing.revocation import (

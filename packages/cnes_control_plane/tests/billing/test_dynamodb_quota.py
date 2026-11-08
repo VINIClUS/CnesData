@@ -26,7 +26,8 @@ from cnes_control_plane.billing.keys import (
     run_lookup_key,
     usage_key,
 )
-from cnes_control_plane.persistence.dynamodb_keys import idempotency_key, item_key, outbox_key
+from cnes_control_plane.persistence.dynamodb_keys import idempotency_key, outbox_key
+from cnes_data.dynamodb import item_key
 from cnes_domain.billing.errors import (
     EntitlementDenied,
     IdempotencyConflict,

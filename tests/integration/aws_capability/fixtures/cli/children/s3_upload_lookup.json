@@ -1,0 +1,173 @@
+{
+  "source": {
+    "file": "task-3-services-b1-source-s3.txt",
+    "sha256": "f11e9149d16fcc226a85456d1d5d4a2258041818f1a64027007f76ce535f2eb3",
+    "operations": ["GetBucketLocation", "GetBucketTagging", "ListParts"]
+  },
+  "private_values": [
+    "cnesdata-cap-a1b2c3d4",
+    "private/upload",
+    "upload-private-1",
+    "111111111111",
+    "us-east-2",
+    "R1_PRIVATE_CANARY",
+    "foreign-bucket",
+    "foreign-upload",
+    "foreign-key",
+    "private-secret-upload"
+  ],
+  "resource": {
+    "service": "s3",
+    "resource_id": "{\"child_id\":{\"key\":\"private/upload\",\"upload_id\":\"upload-private-1\"},\"kind\":\"s3.upload\",\"parent_id\":\"cnesdata-cap-a1b2c3d4\",\"root_id\":\"cnesdata-cap-a1b2c3d4\",\"run\":\"a1b2c3d4\",\"service\":\"s3\",\"v\":1}",
+    "name": "cnesdata-cap-a1b2c3d4"
+  },
+  "replies": {
+    "location": {"LocationConstraint": "us-east-2"},
+    "location_foreign": {"LocationConstraint": "us-west-1"},
+    "tags": {
+      "TagSet": [
+        {"Key": "Project", "Value": "CnesData"},
+        {"Key": "Purpose", "Value": "aws-capability"},
+        {"Key": "Run", "Value": "a1b2c3d4"},
+        {"Key": "ExpiresAt", "Value": "1060"}
+      ]
+    },
+    "tags_empty": {"TagSet": []},
+    "tags_foreign": {
+      "TagSet": [
+        {"Key": "Project", "Value": "CnesData"},
+        {"Key": "Purpose", "Value": "aws-capability"},
+        {"Key": "Run", "Value": "foreign"},
+        {"Key": "ExpiresAt", "Value": "1060"}
+      ]
+    },
+    "parts": {
+      "Bucket": "cnesdata-cap-a1b2c3d4",
+      "Key": "private/upload",
+      "UploadId": "upload-private-1",
+      "IsTruncated": false,
+      "Parts": []
+    },
+    "parts_ids_only": {
+      "Bucket": "cnesdata-cap-a1b2c3d4",
+      "Key": "private/upload",
+      "UploadId": "upload-private-1"
+    },
+    "parts_truncated": {
+      "Bucket": "cnesdata-cap-a1b2c3d4",
+      "Key": "private/upload",
+      "UploadId": "upload-private-1",
+      "IsTruncated": true,
+      "Parts": [],
+      "NextPartNumberMarker": 2
+    },
+    "parts_bridge": {
+      "Bucket": "cnesdata-cap-a1b2c3d4",
+      "Key": "private/upload",
+      "UploadId": "upload-private-1",
+      "IsTruncated": false,
+      "Parts": [],
+      "Uploads": [{"Key": "private/upload", "UploadId": "upload-private-1"}]
+    },
+    "parts_wrong_bucket": {
+      "Bucket": "foreign-bucket",
+      "Key": "private/upload",
+      "UploadId": "upload-private-1",
+      "IsTruncated": false,
+      "Parts": []
+    },
+    "parts_wrong_key": {
+      "Bucket": "cnesdata-cap-a1b2c3d4",
+      "Key": "foreign-key",
+      "UploadId": "upload-private-1",
+      "IsTruncated": false,
+      "Parts": []
+    },
+    "parts_wrong_upload": {
+      "Bucket": "cnesdata-cap-a1b2c3d4",
+      "Key": "private/upload",
+      "UploadId": "foreign-upload",
+      "IsTruncated": false,
+      "Parts": []
+    },
+    "parts_missing_bucket": {
+      "Key": "private/upload",
+      "UploadId": "upload-private-1",
+      "IsTruncated": false,
+      "Parts": []
+    },
+    "parts_missing_key": {
+      "Bucket": "cnesdata-cap-a1b2c3d4",
+      "UploadId": "upload-private-1",
+      "IsTruncated": false,
+      "Parts": []
+    },
+    "parts_missing_upload": {
+      "Bucket": "cnesdata-cap-a1b2c3d4",
+      "Key": "private/upload",
+      "IsTruncated": false,
+      "Parts": []
+    },
+    "parts_bad_truncated": {
+      "Bucket": "cnesdata-cap-a1b2c3d4",
+      "Key": "private/upload",
+      "UploadId": "upload-private-1",
+      "IsTruncated": "false",
+      "Parts": []
+    },
+    "parts_bad_parts": {
+      "Bucket": "cnesdata-cap-a1b2c3d4",
+      "Key": "private/upload",
+      "UploadId": "upload-private-1",
+      "IsTruncated": false,
+      "Parts": {}
+    }
+  },
+  "errors": {
+    "remote_no_upload": [254, "", "{\"Code\":\"NoSuchUpload\",\"Message\":\"R1_PRIVATE_CANARY\"}"],
+    "local_no_upload": [1, "", "{\"Code\":\"NoSuchUpload\",\"Message\":\"R1_PRIVATE_CANARY\"}"],
+    "remote_no_bucket": [254, "", "{\"Code\":\"NoSuchBucket\",\"Message\":\"R1_PRIVATE_CANARY\"}"],
+    "remote_denied": [254, "", "{\"Code\":\"AccessDenied\",\"Message\":\"R1_PRIVATE_CANARY\"}"],
+    "remote_no_key": [254, "", "{\"Code\":\"NoSuchKey\",\"Message\":\"R1_PRIVATE_CANARY\"}"],
+    "remote_404": [254, "", "{\"Code\":\"404\",\"Message\":\"R1_PRIVATE_CANARY\"}"],
+    "remote_no_upload_exception": [254, "", "{\"Code\":\"NoSuchUploadException\",\"Message\":\"R1_PRIVATE_CANARY\"}"],
+    "bad_json": [0, "R1_PRIVATE_CANARY", ""],
+    "empty_stdout": [0, "", ""]
+  },
+  "calls": {
+    "location": [
+      "s3api",
+      "get-bucket-location",
+      "us-east-2",
+      {"Bucket": "cnesdata-cap-a1b2c3d4", "ExpectedBucketOwner": "111111111111"}
+    ],
+    "tags": [
+      "s3api",
+      "get-bucket-tagging",
+      "us-east-2",
+      {"Bucket": "cnesdata-cap-a1b2c3d4", "ExpectedBucketOwner": "111111111111"}
+    ],
+    "parts": [
+      "s3api",
+      "list-parts",
+      "us-east-2",
+      {
+        "Bucket": "cnesdata-cap-a1b2c3d4",
+        "Key": "private/upload",
+        "UploadId": "upload-private-1",
+        "ExpectedBucketOwner": "111111111111",
+        "MaxParts": 1
+      }
+    ],
+    "legacy_parts": [
+      "s3api",
+      "list-multipart-uploads",
+      "us-east-2",
+      {
+        "Bucket": "cnesdata-cap-a1b2c3d4",
+        "ExpectedBucketOwner": "111111111111",
+        "MaxUploads": 1000
+      }
+    ]
+  }
+}

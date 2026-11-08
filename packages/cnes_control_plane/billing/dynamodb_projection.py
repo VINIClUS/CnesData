@@ -15,8 +15,7 @@ from cnes_control_plane.billing.dynamodb_items import (
     utc_attribute,
 )
 from cnes_control_plane.billing.keys import entitlement_snapshot_key, stripe_event_key
-from cnes_control_plane.persistence.dynamodb_codec import Action, Item
-from cnes_control_plane.persistence.dynamodb_keys import item_key
+from cnes_data.dynamodb import Action, Item, item_key
 from cnes_domain.billing.commands import SnapshotWrite
 from cnes_domain.billing.errors import RetryableBillingError, StaleInboxClaim
 from cnes_domain.billing.inbox import InboxClaim, InboxProcessingState

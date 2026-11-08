@@ -12,7 +12,7 @@ from botocore.exceptions import ClientError, EndpointConnectionError, ReadTimeou
 from cnes_control_plane.billing.dynamodb_catalog import DynamoBillingCatalog
 from cnes_control_plane.billing.dynamodb_items import CORRUPT_CODE, utc_attribute
 from cnes_control_plane.billing.keys import pending_checkout_key
-from cnes_control_plane.persistence.dynamodb_keys import item_key
+from cnes_data.dynamodb import item_key
 from cnes_domain.billing.commands import (
     ReleasePendingCheckoutCommand,
     ReservePendingCheckoutCommand,

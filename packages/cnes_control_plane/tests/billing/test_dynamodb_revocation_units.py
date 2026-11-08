@@ -18,7 +18,8 @@ from cnes_control_plane.billing.keys import run_billing_key
 from cnes_control_plane.billing.settings import BillingSettings
 from cnes_control_plane.persistence import dynamodb_adapter
 from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
-from cnes_control_plane.persistence.dynamodb_keys import dispatch_key, item_key, run_entity_key
+from cnes_control_plane.persistence.dynamodb_keys import dispatch_key, run_entity_key
+from cnes_data.dynamodb import item_key
 from cnes_domain.billing.errors import PermanentBillingError, RetryableBillingError
 from cnes_domain.billing.models import BillingEnforcementMode, ReservationStatus
 from cnes_domain.control_plane.enums import DispatchOutcome, DispatchState, RunState, RunUnitState
@@ -298,7 +299,7 @@ def test_evento_de_finalizacao_da_revogacao_nao_colide_com_o_do_coordenador(
 
     cancel_until_done(env, fenced)
 
-    ids = {event.event_id for event in env.plane.pending_outbox(100)}
+    ids = {event.event_id for event in env.plane.read_outbox_page(None, 100).events}
     assert f"run.canceled.revoked:{TENANT}:{RUN_ID}" in ids
     assert f"run.canceled:{TENANT}:{RUN_ID}" not in ids
 

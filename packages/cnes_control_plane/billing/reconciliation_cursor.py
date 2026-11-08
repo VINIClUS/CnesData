@@ -13,7 +13,7 @@ from cnes_control_plane.billing.dynamodb_items import (
     utc_attribute,
 )
 from cnes_control_plane.billing.keys import Key, stripe_reconciliation_cursor_key
-from cnes_control_plane.persistence.dynamodb_keys import item_key
+from cnes_data.dynamodb import item_key
 from cnes_domain.billing.errors import BillingDependencyError
 from cnes_domain.billing.ports import ClockPort
 from cnes_domain.billing.validation import optional_id, optional_utc, require_non_negative

@@ -9,13 +9,8 @@ from moto import mock_aws
 
 from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
 from cnes_control_plane.persistence.dynamodb_claims import DynamoDBClaims
-from cnes_control_plane.persistence.dynamodb_codec import put_action
-from cnes_control_plane.persistence.dynamodb_keys import (
-    entity_key,
-    item_key,
-    key_component,
-    unit_key,
-)
+from cnes_control_plane.persistence.dynamodb_keys import entity_key, key_component, unit_key
+from cnes_data.dynamodb import item_key, put_action
 from cnes_domain.control_plane.commands import (
     BindRunDispatch,
     ClaimRunUnit,

@@ -7,14 +7,13 @@ import pytest
 from moto import mock_aws
 
 from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
-from cnes_control_plane.persistence.dynamodb_codec import execute_transaction
 from cnes_control_plane.persistence.dynamodb_keys import (
     dependency_marker_key,
-    item_key,
     key_component,
     outbox_key,
     run_entity_key,
 )
+from cnes_data.dynamodb import execute_transaction, item_key
 from cnes_domain.control_plane.commands import FinalizeRunCancellation, ReserveRunDispatch
 from cnes_domain.control_plane.enums import RunState, RunUnitState
 from cnes_domain.control_plane.errors import Conflict

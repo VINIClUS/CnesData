@@ -7,7 +7,7 @@ import pytest
 from cnes_control_plane.billing.dynamodb_catalog_tenants import DynamoTenantAccountMixin
 from cnes_control_plane.billing.dynamodb_items import encode_tenant_account
 from cnes_control_plane.billing.keys import account_tenant_key
-from cnes_control_plane.persistence.dynamodb_keys import item_key
+from cnes_data.dynamodb import item_key
 from cnes_domain.billing.errors import BillingDependencyError, PermanentBillingError
 from cnes_domain.billing.models import BillingAccountTenantLink, ReadConsistency
 from cnes_domain.billing.ports import BillingCatalogPort

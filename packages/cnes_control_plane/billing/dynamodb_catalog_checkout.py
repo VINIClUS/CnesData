@@ -15,8 +15,7 @@ from cnes_control_plane.billing.dynamodb_items import (
     utc_attribute,
 )
 from cnes_control_plane.billing.keys import pending_checkout_key
-from cnes_control_plane.persistence.dynamodb_codec import Item
-from cnes_control_plane.persistence.dynamodb_keys import item_key
+from cnes_data.dynamodb import Item, item_key
 from cnes_domain.billing.commands import (
     PendingCheckout,
     ReleasePendingCheckoutCommand,

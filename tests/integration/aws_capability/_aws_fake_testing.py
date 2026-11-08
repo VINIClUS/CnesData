@@ -1,0 +1,134 @@
+"""Fronteira de comandos com estado mínimo de S3, IAM e STS para probes e ciclo completo."""
+
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
+
+from tests.integration.aws_capability._aws_fake_cognito_testing import CognitoHandlers, FakePool
+from tests.integration.aws_capability._aws_fake_ddb_testing import DdbHandlers, FakeTable
+from tests.integration.aws_capability._aws_fake_ecs_testing import EcsHandlers
+from tests.integration.aws_capability._aws_fake_fargate_testing import (
+    FargateHandlers,
+    FargateState,
+)
+from tests.integration.aws_capability._aws_fake_iam_testing import IamHandlers
+from tests.integration.aws_capability._aws_fake_policy_testing import PolicyHandlers
+from tests.integration.aws_capability._aws_fake_run_task_testing import RunTaskHandlers
+from tests.integration.aws_capability._aws_fake_s3_testing import S3Handlers
+from tests.integration.aws_capability._aws_fake_sts_testing import (
+    StsHandlers,
+    name_for,
+    who_of_token,
+)
+from tests.integration.aws_capability._aws_fake_types_testing import (
+    ACCESS_KEY,
+    OPERATOR,
+    SECRET,
+    FakeBucket,
+    FakeRole,
+    good,
+)
+from tests.integration.aws_capability._b1_testing import ACCOUNT
+from tests.integration.aws_capability._service_contracts import Reply
+from tests.integration.aws_capability.cli import Request
+from tests.integration.aws_capability.contracts import RequestContext
+
+CHAINING_MESSAGE = (
+    "The requested DurationSeconds exceeds the 1 hour session limit "
+    "for roles assumed by role chaining."
+)
+
+
+@dataclass
+class FakeAws(
+    S3Handlers,
+    IamHandlers,
+    DdbHandlers,
+    StsHandlers,
+    PolicyHandlers,
+    CognitoHandlers,
+    FargateHandlers,
+    EcsHandlers,
+    RunTaskHandlers,
+):
+    clock: Callable[[], float]
+    advance: Callable[[float], None]
+    latency: float = 1.0
+    policy_lag: int = 0
+    assume_denials: int = 0
+    malformed_creates: int = 0
+    trust_lag: int = 0
+    bucket_policy_lag: int = 0
+    bucket_policy_malformed: int = 0
+    bucket_absent_polls: int = 0
+    role_absent_polls: int = 0
+    lingering: dict[str, int] = field(default_factory=dict)
+    list_gates_missing: bool = False
+    ddb_ready_describes: int = 0
+    ddb_deleting_describes: int = 0
+    ddb_tx_reasons: dict[str, int] | None = None
+    ddb_errors: dict[str, str] = field(default_factory=dict)
+    batch_unprocessed: dict[int, int] = field(default_factory=dict)
+    batch_errors: dict[int, str] = field(default_factory=dict)
+    batch_calls: int = 0
+    scan_page_size: int | None = None
+    duration_message: str = CHAINING_MESSAGE
+    buckets: dict[str, FakeBucket] = field(default_factory=dict)
+    roles: dict[str, FakeRole] = field(default_factory=dict)
+    tables: dict[str, FakeTable] = field(default_factory=dict)
+    pools: dict[str, FakePool] = field(default_factory=dict)
+    idp: Callable[[Mapping[str, object]], Reply] | None = None
+    calls: list[tuple[str, str, str]] = field(default_factory=list)
+    lanes: list[str] = field(default_factory=list)
+    requests: list[Request] = field(default_factory=list)
+    counter: int = 0
+    assumes: int = 0
+    fargate: FargateState = field(default_factory=FargateState)
+    caller_arn: str | None = None
+
+    def call(self, request: Request, context: RequestContext) -> Reply:
+        return self.dispatch(request, context, OPERATOR)
+
+    def session(self, credentials: Mapping[str, str]) -> "FakeSession":
+        assert credentials["AWS_ACCESS_KEY_ID"] == ACCESS_KEY
+        assert credentials["AWS_SECRET_ACCESS_KEY"] == SECRET
+        return FakeSession(self, who_of_token(credentials["AWS_SESSION_TOKEN"]))
+
+    def dispatch(self, request: Request, context: RequestContext, who: str) -> Reply:
+        context.budget.acquire(context.lane)
+        self.advance(self.latency)
+        self.counter += 1
+        self.calls.append((request.service, request.operation, who))
+        self.lanes.append(context.lane)
+        self.requests.append(request)
+        name = f"{request.service}_{request.operation}".replace("-", "_")
+        handler = getattr(self, f"_{name}")
+        return handler(dict(request.payload), who)
+
+    def allowed(self, who: str, action: str) -> bool:
+        if who == OPERATOR:
+            return True
+        role = self.roles.get(name_for(who))
+        if role is None:
+            return False
+        return any(
+            action in actions and self.counter >= effective
+            for actions, effective, _ in role.policies.values()
+        )
+
+    def operations(self, who: str | None = None) -> list[str]:
+        return [op for _, op, actor in self.calls if who is None or actor == who]
+
+    def _sts_get_caller_identity(self, payload: dict, who: str) -> Reply:
+        default = f"arn:aws:sts::{ACCOUNT}:assumed-role/cnesdata-cap-operator-0a1b2c3d/session"
+        arn = self.caller_arn or default
+        return good({"Account": ACCOUNT, "Arn": arn, "UserId": "synthetic"})
+
+
+
+@dataclass
+class FakeSession:
+    aws: FakeAws
+    who: str
+
+    def call(self, request: Request, context: RequestContext) -> Reply:
+        return self.aws.dispatch(request, context, self.who)

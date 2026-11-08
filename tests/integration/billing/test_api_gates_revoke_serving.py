@@ -75,27 +75,29 @@ def test_dono_revoga_e_snapshot_fica_admin_revoked(stack: ApiStack) -> None:
     assert response.json()["entitlement_version"] == snapshot.entitlement_version
 
 
-@pytest.mark.parametrize("redirect", [False, True], ids=["stream", "redirect"])
+@pytest.mark.parametrize("signed", [False, True], ids=["stream", "envelope"])
 def test_admin_revoked_nega_serving_na_hora_nos_dois_formatos(
-    stack: ApiStack, redirect: bool,
+    stack: ApiStack, signed: bool,
 ) -> None:
     seed_dataset(stack, "cnes", utc_now())
-    client = build_client(stack, redirect)
+    client = build_client(stack, signed)
 
     before = _read(client)
     assert _revoke(client, user_headers(OWNER)) == 200
     after = _read(client)
 
-    assert before.status_code == (307 if redirect else 200)
-    if redirect:
-        assert before.headers["location"].startswith("https://")
+    assert before.status_code == 200
+    if signed:
+        assert set(before.json()) == {"url", "version_id", "expires_in"}
+        assert before.json()["url"].startswith("https://")
+        assert "location" not in before.headers
     else:
         assert before.content == b'{"documento": "overview"}'
     assert (after.status_code, after.json()["detail"]) == (403, "serving_entitlement_denied")
 
 
-@pytest.mark.parametrize("redirect", [False, True], ids=["stream", "redirect"])
-def test_read_only_respeita_retencao(stack: ApiStack, redirect: bool) -> None:
+@pytest.mark.parametrize("signed", [False, True], ids=["stream", "envelope"])
+def test_read_only_respeita_retencao(stack: ApiStack, signed: bool) -> None:
     canceled = replace(
         default_snapshot(retention_days=RETENTION_DAYS),
         subscription_status=SubscriptionStatus.CANCELED,
@@ -103,10 +105,10 @@ def test_read_only_respeita_retencao(stack: ApiStack, redirect: bool) -> None:
     seed_snapshot(stack.client, canceled)
     seed_dataset(stack, "cnes", utc_now() - timedelta(days=1))
     seed_dataset(stack, "sihd", utc_now() - timedelta(days=RETENTION_DAYS + 5))
-    client = build_client(stack, redirect)
+    client = build_client(stack, signed)
 
     recent = _read(client, "cnes")
     old = _read(client, "sihd")
 
-    assert recent.status_code == (307 if redirect else 200)
+    assert recent.status_code == 200
     assert (old.status_code, old.json()["detail"]) == (403, "serving_entitlement_denied")

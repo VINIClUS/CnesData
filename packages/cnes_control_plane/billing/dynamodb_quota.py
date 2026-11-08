@@ -41,9 +41,9 @@ from cnes_control_plane.billing.dynamodb_quota_items import (
 from cnes_control_plane.billing.dynamodb_quota_recovery import DynamoQuotaRecoveryMixin
 from cnes_control_plane.billing.dynamodb_quota_settlement import DynamoQuotaSettlementMixin
 from cnes_control_plane.billing.keys import Key, entitlement_snapshot_key, usage_key
-from cnes_control_plane.persistence.dynamodb_codec import Action, Item
 from cnes_control_plane.persistence.dynamodb_keys import idempotency_key
 from cnes_control_plane.persistence.dynamodb_run_codec import run_dependency_actions, run_item
+from cnes_data.dynamodb import Action, Item
 from cnes_domain.billing.commands import (
     CreateRunRequest,
     ReserveAnalyticsCommand,

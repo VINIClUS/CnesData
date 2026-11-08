@@ -238,7 +238,7 @@ SIGNED_URL = f"https://signed.example.test/{KEY}?X-Amz-Signature=abc"
 def signed_grant() -> SignedServingGrant:
     return SignedServingGrant(
         version_id=RUN_ID, run_id=RUN_ID, object_key=KEY, url=SIGNED_URL,
-        expires_at=NOW + timedelta(seconds=300),
+        expires_at=NOW + timedelta(seconds=300), expires_in=300,
     )
 
 
@@ -271,7 +271,7 @@ def expected_request() -> SignedServingRequest:
     )
 
 
-def test_rota_aws_redireciona_para_get_assinado_sem_tenant_na_url(caplog) -> None:
+def test_rota_aws_entrega_envelope_privado_sem_tenant_na_url(caplog) -> None:
     signed = Signed()
     caplog.set_level("DEBUG")
 
@@ -279,13 +279,15 @@ def test_rota_aws_redireciona_para_get_assinado_sem_tenant_na_url(caplog) -> Non
         f"/api/v1/dashboard/serving/cnes/{DOCUMENT}", follow_redirects=False,
     )
 
-    assert response.status_code == 307
-    assert response.headers["location"] == SIGNED_URL
+    assert response.status_code == 200
+    assert response.json() == {"url": SIGNED_URL, "version_id": RUN_ID, "expires_in": 300}
+    assert "location" not in response.headers
     assert response.headers["x-dataset-version"] == RUN_ID
     assert response.headers["cache-control"] == "private, no-store"
     assert "tenant" not in response.request.url.query.decode()
     assert signed.calls == [(expected_request(), NOW)]
     assert SIGNED_URL not in caplog.text
+    assert KEY not in caplog.text
 
 
 def test_rota_aws_ignora_tenant_e_chave_da_query() -> None:
@@ -297,7 +299,7 @@ def test_rota_aws_ignora_tenant_e_chave_da_query() -> None:
         follow_redirects=False,
     )
 
-    assert response.status_code == 307
+    assert response.status_code == 200
     assert signed.calls == [(expected_request(), NOW)]
 
 

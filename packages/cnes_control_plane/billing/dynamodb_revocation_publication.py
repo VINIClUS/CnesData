@@ -5,8 +5,8 @@ from typing import Any
 from cnes_control_plane.billing.dynamodb_items import outbox_item, put_new, transact
 from cnes_control_plane.billing.dynamodb_quota import DynamoQuotaReservations
 from cnes_control_plane.billing.dynamodb_revocation_units import RunContext, load_context
-from cnes_control_plane.persistence.dynamodb_codec import Action, check_action, payload, put_action
 from cnes_control_plane.persistence.dynamodb_run_codec import run_item
+from cnes_data.dynamodb import Action, check_action, payload, put_action
 from cnes_domain.billing.errors import RetryableBillingError
 from cnes_domain.billing.ports import ClockPort
 from cnes_domain.billing.revocation import FailDeniedPublicationCommand

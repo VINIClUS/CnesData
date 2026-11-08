@@ -1,0 +1,105 @@
+{
+  "source": {
+    "file": "task-3-services-b1-source-cognito.txt",
+    "sha256": "ee91799490a4530490b18a6ea56b64956090077c704dc4b343c653631f36ec0f",
+    "operations": ["DescribeUserPool", "ListTagsForResource", "DescribeUserPoolDomain", "DescribeUserPoolClient", "DescribeResourceServer", "AdminGetUser", "DescribeManagedLoginBrandingByClient", "ListUserPoolClients", "ListResourceServers", "ListUsers"]
+  },
+  "private_values": [
+    "us-east-2_X9opaqueQ",
+    "arn:aws:cognito-idp:us-east-2:111111111111:userpool/us-east-2_X9opaqueQ",
+    "cap-login",
+    "login.example.invalid",
+    "https://api.example.invalid/v1",
+    "urn:second:server",
+    "11111111-2222-4333-8444-555555555555",
+    "4m7k8syntheticclient",
+    "8secondclient",
+    "user@example.invalid",
+    "second-user",
+    "c2private-login",
+    "https://c2private.example.invalid/resource",
+    "99999999-aaaa-4bbb-8ccc-dddddddddddd"
+  ],
+  "private_identities": {
+    "domain": {
+      "resource": {"service":"cognito","resource_id":"{\"child_id\":{\"domain\":\"c2private-login\"},\"kind\":\"cognito.domain\",\"parent_id\":\"us-east-2_X9opaqueQ\",\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1}","name":"cnesdata-cap-a1b2c3d4"},
+      "readback": {"DomainDescription":{"Domain":"c2private-login","UserPoolId":"us-east-2_X9opaqueQ","AWSAccountId":"111111111111"}},
+      "call": ["cognito-idp","describe-user-pool-domain","us-east-2",{"Domain":"c2private-login"}]
+    },
+    "server": {
+      "resource": {"service":"cognito","resource_id":"{\"child_id\":{\"identifier\":\"https://c2private.example.invalid/resource\"},\"kind\":\"cognito.server\",\"parent_id\":\"us-east-2_X9opaqueQ\",\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1}","name":"cnesdata-cap-a1b2c3d4"},
+      "readback": {"ResourceServer":{"Identifier":"https://c2private.example.invalid/resource","UserPoolId":"us-east-2_X9opaqueQ"}},
+      "call": ["cognito-idp","describe-resource-server","us-east-2",{"UserPoolId":"us-east-2_X9opaqueQ","Identifier":"https://c2private.example.invalid/resource"}]
+    },
+    "branding": {
+      "resource": {"service":"cognito","resource_id":"{\"child_id\":{\"branding_id\":\"99999999-aaaa-4bbb-8ccc-dddddddddddd\",\"client_id\":\"4m7k8syntheticclient\"},\"kind\":\"cognito.branding\",\"parent_id\":\"{\\\"child_id\\\":{\\\"client_id\\\":\\\"4m7k8syntheticclient\\\"},\\\"kind\\\":\\\"cognito.client\\\",\\\"parent_id\\\":\\\"us-east-2_X9opaqueQ\\\",\\\"root_id\\\":\\\"us-east-2_X9opaqueQ\\\",\\\"run\\\":\\\"a1b2c3d4\\\",\\\"service\\\":\\\"cognito\\\",\\\"v\\\":1}\",\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1}","name":"cnesdata-cap-a1b2c3d4"},
+      "readback": {"ManagedLoginBranding":{"UserPoolId":"us-east-2_X9opaqueQ","ManagedLoginBrandingId":"99999999-aaaa-4bbb-8ccc-dddddddddddd"}},
+      "call": ["cognito-idp","describe-managed-login-branding-by-client","us-east-2",{"UserPoolId":"us-east-2_X9opaqueQ","ClientId":"4m7k8syntheticclient","ReturnMergedResources":false}]
+    }
+  },
+  "resources": {
+    "pool": {"service":"cognito","resource_id":"us-east-2_X9opaqueQ","name":"cnesdata-cap-a1b2c3d4"},
+    "domain": {"service":"cognito","resource_id":"{\"child_id\":{\"domain\":\"cap-login\"},\"kind\":\"cognito.domain\",\"parent_id\":\"us-east-2_X9opaqueQ\",\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1}","name":"cnesdata-cap-a1b2c3d4"},
+    "custom": {"service":"cognito","resource_id":"{\"child_id\":{\"domain\":\"login.example.invalid\"},\"kind\":\"cognito.domain\",\"parent_id\":\"us-east-2_X9opaqueQ\",\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1}","name":"cnesdata-cap-a1b2c3d4"},
+    "client": {"service":"cognito","resource_id":"{\"child_id\":{\"client_id\":\"4m7k8syntheticclient\"},\"kind\":\"cognito.client\",\"parent_id\":\"us-east-2_X9opaqueQ\",\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1}","name":"cnesdata-cap-a1b2c3d4"},
+    "client2": {"service":"cognito","resource_id":"{\"child_id\":{\"client_id\":\"8secondclient\"},\"kind\":\"cognito.client\",\"parent_id\":\"us-east-2_X9opaqueQ\",\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1}","name":"cnesdata-cap-a1b2c3d4"},
+    "server": {"service":"cognito","resource_id":"{\"child_id\":{\"identifier\":\"https://api.example.invalid/v1\"},\"kind\":\"cognito.server\",\"parent_id\":\"us-east-2_X9opaqueQ\",\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1}","name":"cnesdata-cap-a1b2c3d4"},
+    "server2": {"service":"cognito","resource_id":"{\"child_id\":{\"identifier\":\"urn:second:server\"},\"kind\":\"cognito.server\",\"parent_id\":\"us-east-2_X9opaqueQ\",\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1}","name":"cnesdata-cap-a1b2c3d4"},
+    "user": {"service":"cognito","resource_id":"{\"child_id\":{\"username\":\"user@example.invalid\"},\"kind\":\"cognito.user\",\"parent_id\":\"us-east-2_X9opaqueQ\",\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1}","name":"cnesdata-cap-a1b2c3d4"},
+    "user2": {"service":"cognito","resource_id":"{\"child_id\":{\"username\":\"second-user\"},\"kind\":\"cognito.user\",\"parent_id\":\"us-east-2_X9opaqueQ\",\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1}","name":"cnesdata-cap-a1b2c3d4"},
+    "branding": {"service":"cognito","resource_id":"{\"child_id\":{\"branding_id\":\"11111111-2222-4333-8444-555555555555\",\"client_id\":\"4m7k8syntheticclient\"},\"kind\":\"cognito.branding\",\"parent_id\":\"{\\\"child_id\\\":{\\\"client_id\\\":\\\"4m7k8syntheticclient\\\"},\\\"kind\\\":\\\"cognito.client\\\",\\\"parent_id\\\":\\\"us-east-2_X9opaqueQ\\\",\\\"root_id\\\":\\\"us-east-2_X9opaqueQ\\\",\\\"run\\\":\\\"a1b2c3d4\\\",\\\"service\\\":\\\"cognito\\\",\\\"v\\\":1}\",\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1}","name":"cnesdata-cap-a1b2c3d4"}
+  },
+  "replies": {
+    "root": {"UserPool":{"Id":"us-east-2_X9opaqueQ","Name":"cnesdata-cap-a1b2c3d4","Arn":"arn:aws:cognito-idp:us-east-2:111111111111:userpool/us-east-2_X9opaqueQ"}},
+    "tags": {"Tags":{"Project":"CnesData","Purpose":"aws-capability","Run":"a1b2c3d4","ExpiresAt":"1060"}},
+    "domain": {"DomainDescription":{"Domain":"cap-login","UserPoolId":"us-east-2_X9opaqueQ","AWSAccountId":"111111111111"}},
+    "server": {"ResourceServer":{"Identifier":"https://api.example.invalid/v1","UserPoolId":"us-east-2_X9opaqueQ"}},
+    "user": {"Username":"user@example.invalid"},
+    "client": {"UserPoolClient":{"ClientId":"4m7k8syntheticclient","UserPoolId":"us-east-2_X9opaqueQ"}},
+    "branding": {"ManagedLoginBranding":{"UserPoolId":"us-east-2_X9opaqueQ","ManagedLoginBrandingId":"11111111-2222-4333-8444-555555555555"}},
+    "domains": {"UserPool":{"Id":"us-east-2_X9opaqueQ","Name":"cnesdata-cap-a1b2c3d4","Arn":"arn:aws:cognito-idp:us-east-2:111111111111:userpool/us-east-2_X9opaqueQ","Domain":"cap-login","CustomDomain":"login.example.invalid"}},
+    "clients": {"UserPoolClients":[{"ClientId":"4m7k8syntheticclient","UserPoolId":"us-east-2_X9opaqueQ"}]},
+    "servers": {"ResourceServers":[{"Identifier":"https://api.example.invalid/v1","UserPoolId":"us-east-2_X9opaqueQ"}]},
+    "users": {"Users":[{"Username":"user@example.invalid"}]},
+    "clients_empty": {"UserPoolClients":[]},
+    "servers_empty": {"ResourceServers":[]},
+    "users_empty": {"Users":[]}
+  },
+  "errors": {
+    "denied": [254,"","{\"Code\":\"NotAuthorizedException\",\"Message\":\"R1_PRIVATE_CANARY\"}"],
+    "http403": [254,"","{\"Code\":\"403\",\"Message\":\"R1_PRIVATE_CANARY\"}"],
+    "http404": [254,"","{\"Code\":\"404\",\"Message\":\"R1_PRIVATE_CANARY\"}"],
+    "wrong_wire": [254,"","{\"Code\":\"ResourceNotFound\",\"Message\":\"R1_PRIVATE_CANARY\"}"],
+    "local_not_found": [252,"","{\"Code\":\"ResourceNotFoundException\",\"Message\":\"R1_PRIVATE_CANARY\"}"],
+    "json": [0,"R1_PRIVATE_CANARY",""],
+    "empty_stdout": [0,"",""],
+    "bad_stderr": [254,"","R1_PRIVATE_CANARY"]
+  },
+  "calls": {
+    "root": ["cognito-idp","describe-user-pool","us-east-2",{"UserPoolId":"us-east-2_X9opaqueQ"}],
+    "tags": ["cognito-idp","list-tags-for-resource","us-east-2",{"ResourceArn":"arn:aws:cognito-idp:us-east-2:111111111111:userpool/us-east-2_X9opaqueQ"}],
+    "domain": ["cognito-idp","describe-user-pool-domain","us-east-2",{"Domain":"cap-login"}],
+    "server": ["cognito-idp","describe-resource-server","us-east-2",{"UserPoolId":"us-east-2_X9opaqueQ","Identifier":"https://api.example.invalid/v1"}],
+    "user": ["cognito-idp","admin-get-user","us-east-2",{"UserPoolId":"us-east-2_X9opaqueQ","Username":"user@example.invalid"}],
+    "client": ["cognito-idp","describe-user-pool-client","us-east-2",{"UserPoolId":"us-east-2_X9opaqueQ","ClientId":"4m7k8syntheticclient"}],
+    "branding": ["cognito-idp","describe-managed-login-branding-by-client","us-east-2",{"UserPoolId":"us-east-2_X9opaqueQ","ClientId":"4m7k8syntheticclient","ReturnMergedResources":false}],
+    "domains": ["cognito-idp","describe-user-pool","us-east-2",{"UserPoolId":"us-east-2_X9opaqueQ"}],
+    "clients": ["cognito-idp","list-user-pool-clients","us-east-2",{"UserPoolId":"us-east-2_X9opaqueQ","MaxResults":60}],
+    "servers": ["cognito-idp","list-resource-servers","us-east-2",{"UserPoolId":"us-east-2_X9opaqueQ","MaxResults":50}],
+    "users": ["cognito-idp","list-users","us-east-2",{"UserPoolId":"us-east-2_X9opaqueQ","Limit":60}]
+  },
+  "lookup_scripts": {
+    "domain":["root","tags","domain"],
+    "server":["root","tags","server"],
+    "user":["root","tags","user"],
+    "branding":["root","tags","client","branding"]
+  },
+  "expected": {
+    "graph_replies":["root","tags","root","tags","root","root","tags","clients","root","tags","servers_empty","root","tags","users_empty","root","tags","client","root","tags","client","branding","root","tags","client","branding","root","tags","client","branding"],
+    "graph_trace":["root","tags","root","tags","domains","root","tags","clients","root","tags","servers","root","tags","users","root","tags","client","root","tags","client","branding","root","tags","client","branding","root","tags","client","branding"],
+    "graph_calls":29,
+    "graph_work_calls":0,
+    "graph_resources":["pool","client","branding"],
+    "seven_page_calls":21
+  }
+}

@@ -14,21 +14,21 @@ from cnes_control_plane.persistence.billed_tenant import (
     require_creatable_tenant_id,
     tenant_created_event,
 )
-from cnes_control_plane.persistence.dynamodb_codec import (
+from cnes_control_plane.persistence.dynamodb_keys import (
+    MEMBERSHIP,
+    idempotency_key,
+    key_component,
+    membership_key,
+    tenant_partition,
+)
+from cnes_data.dynamodb import (
     Action,
     Item,
     decode_model,
     encode_model,
+    item_key,
     payload,
     put_action,
-)
-from cnes_control_plane.persistence.dynamodb_keys import (
-    MEMBERSHIP,
-    idempotency_key,
-    item_key,
-    key_component,
-    membership_key,
-    tenant_partition,
 )
 from cnes_domain.billing.errors import (
     BillingDependencyError,

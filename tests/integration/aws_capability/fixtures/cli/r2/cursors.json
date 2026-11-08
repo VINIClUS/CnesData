@@ -1,0 +1,26 @@
+{
+  "valid": {
+    "v": 1,
+    "run": "a1b2c3d4",
+    "service": "cognito",
+    "parent": null,
+    "kind": "cognito.pools",
+    "markers": {"NextToken": "pool-next"},
+    "seen": ["3a2ba67efd878c6f202092abec1bfb9605fb6840f5d4239d094f887ac554a76e"]
+  },
+  "invalid": {
+    "wrong_version": {"v": 2, "run": "a1b2c3d4", "service": "cognito", "parent": null, "kind": "cognito.pools", "markers": {"NextToken": "pool-next"}, "seen": ["3a2ba67efd878c6f202092abec1bfb9605fb6840f5d4239d094f887ac554a76e"]},
+    "boolean_version": {"v": true, "run": "a1b2c3d4", "service": "cognito", "parent": null, "kind": "cognito.pools", "markers": {"NextToken": "pool-next"}, "seen": ["3a2ba67efd878c6f202092abec1bfb9605fb6840f5d4239d094f887ac554a76e"]},
+    "other_run": {"v": 1, "run": "eeeeffff", "service": "cognito", "parent": null, "kind": "cognito.pools", "markers": {"NextToken": "pool-next"}, "seen": ["3a2ba67efd878c6f202092abec1bfb9605fb6840f5d4239d094f887ac554a76e"]},
+    "other_service": {"v": 1, "run": "a1b2c3d4", "service": "dynamodb", "parent": null, "kind": "cognito.pools", "markers": {"NextToken": "pool-next"}, "seen": ["3a2ba67efd878c6f202092abec1bfb9605fb6840f5d4239d094f887ac554a76e"]},
+    "other_parent": {"v": 1, "run": "a1b2c3d4", "service": "cognito", "parent": "foreign", "kind": "cognito.pools", "markers": {"NextToken": "pool-next"}, "seen": ["3a2ba67efd878c6f202092abec1bfb9605fb6840f5d4239d094f887ac554a76e"]},
+    "other_kind": {"v": 1, "run": "a1b2c3d4", "service": "cognito", "parent": null, "kind": "dynamodb.tables", "markers": {"NextToken": "pool-next"}, "seen": ["3a2ba67efd878c6f202092abec1bfb9605fb6840f5d4239d094f887ac554a76e"]},
+    "extra_field": {"v": 1, "run": "a1b2c3d4", "service": "cognito", "parent": null, "kind": "cognito.pools", "markers": {"NextToken": "pool-next"}, "seen": ["3a2ba67efd878c6f202092abec1bfb9605fb6840f5d4239d094f887ac554a76e"], "extra": "R1_PRIVATE_CANARY"},
+    "empty_token": {"v": 1, "run": "a1b2c3d4", "service": "cognito", "parent": null, "kind": "cognito.pools", "markers": {"NextToken": ""}, "seen": ["3a2ba67efd878c6f202092abec1bfb9605fb6840f5d4239d094f887ac554a76e"]},
+    "missing_token": {"v": 1, "run": "a1b2c3d4", "service": "cognito", "parent": null, "kind": "cognito.pools", "markers": {}, "seen": ["3a2ba67efd878c6f202092abec1bfb9605fb6840f5d4239d094f887ac554a76e"]},
+    "empty_seen": {"v": 1, "run": "a1b2c3d4", "service": "cognito", "parent": null, "kind": "cognito.pools", "markers": {"NextToken": "pool-next"}, "seen": []},
+    "fingerprint_missing": {"v": 1, "run": "a1b2c3d4", "service": "cognito", "parent": null, "kind": "cognito.pools", "markers": {"NextToken": "pool-other"}, "seen": ["3a2ba67efd878c6f202092abec1bfb9605fb6840f5d4239d094f887ac554a76e"]},
+    "fingerprint_not_last": {"v": 1, "run": "a1b2c3d4", "service": "cognito", "parent": null, "kind": "cognito.pools", "markers": {"NextToken": "pool-next"}, "seen": ["3a2ba67efd878c6f202092abec1bfb9605fb6840f5d4239d094f887ac554a76e", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]},
+    "ddb_marker": {"v": 1, "run": "a1b2c3d4", "service": "cognito", "parent": null, "kind": "cognito.pools", "markers": {"ExclusiveStartTableName": "legacy-table"}, "seen": ["3a2ba67efd878c6f202092abec1bfb9605fb6840f5d4239d094f887ac554a76e"]}
+  }
+}

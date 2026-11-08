@@ -1,6 +1,7 @@
 """Falhas de fronteira do runtime AWS composto: pointer, outbox, outage e runs degradados."""
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, cast
 
 import pytest
@@ -8,6 +9,7 @@ from botocore.exceptions import ClientError, EndpointConnectionError
 
 from central_api.composition import build_runtime
 from central_api.services.serving_access import ServingUnavailable
+from cnes_control_plane.billing import BillingSettings
 from cnes_control_plane.execution.step_functions import (
     IncompatibleStateMachine,
     ProcessorExecutionUnavailable,
@@ -16,7 +18,19 @@ from cnes_domain.billing.errors import BillingDependencyError
 from cnes_domain.control_plane.enums import DispatchState, RunStage, RunState, RunUnitState
 from cnes_domain.control_plane.errors import Conflict
 from cnes_domain.outbox_dispatcher import DispatchResult, dispatch_once
-from data_processor.composition import build_processor_runtime
+from cnes_runtime.aws.processor_settings import (
+    AwsAuditDispatchSettings,
+    AwsRecoverySettings,
+    AwsUnitSettings,
+)
+from data_processor.aws_composition import (
+    AwsExecutionPolicy,
+    build_aws_audit_runtime,
+    build_aws_recovery_runtime,
+    build_aws_unit_runtime,
+)
+from data_processor.orchestration.coordinator import noop_execution_started
+from packages.cnes_control_plane.tests.contracts.clock import MutableClock
 from tests.integration.aws._harness import (
     DATASET,
     LOCAL,
@@ -37,6 +51,7 @@ from tests.integration.aws._harness import (
     publish_version,
     put_planned_run,
     read_run_manifest,
+    recovery_runtime_values,
     run_manifest_key,
     run_manifest_puts,
     runtime_values,
@@ -86,8 +101,15 @@ def test_falha_audit_apos_cas_reexecuta_outbox_sem_republicar(
 ) -> None:
     request = prepare_publication(aws_runtime, "run-new")
     aws_runtime.processor.publisher.publish(request)
-    control_plane, sink = aws_runtime.api.control_plane, aws_runtime.api.audit_sink
-    with aws_runtime.s3.failing_audit_put_once():
+    session = new_session(aws_runtime.resources)
+    audit = build_aws_audit_runtime(
+        AwsAuditDispatchSettings.from_mapping(runtime_values(aws_runtime.resources)),
+        cast("Session", session),
+        aws_runtime.clock.now,
+    )
+    control_plane, sink = audit.control_plane, audit.sink
+    s3 = session.client("s3")
+    with s3.failing_audit_put_once():
         first = dispatch_once(control_plane, sink, aws_runtime.clock.now())
     assert (pending_events(aws_runtime), audit_keys(aws_runtime)) == (
         ((_PUBLISHED, "run-new"),), (),
@@ -97,7 +119,7 @@ def test_falha_audit_apos_cas_reexecuta_outbox_sem_republicar(
 
     assert first == DispatchResult(delivered=0, failed=1)
     assert second == DispatchResult(delivered=1, failed=0)
-    assert len(aws_runtime.s3.injected_failures) == 1
+    assert len(s3.injected_failures) == 1
     assert pending_events(aws_runtime) == ()
     dated = [key for key in audit_keys(aws_runtime) if not key.startswith("audit/.event-id/")]
     assert len(dated) == 1
@@ -214,8 +236,21 @@ def test_state_machine_express_ou_distributed_falha_fechado(
 ) -> None:
     values = runtime_values(aws_resources, {"AWS_STATE_MACHINE_ARN": invalid_state_machines[kind]})
 
+    clock = MutableClock(datetime(2026, 1, 15, tzinfo=UTC))
+    policy = AwsExecutionPolicy(BillingSettings.from_mapping(values), noop_execution_started)
     with pytest.raises(IncompatibleStateMachine, match=code):
-        build_processor_runtime("aws", values, cast("Session", new_session(aws_resources)))
+        build_aws_unit_runtime(
+            AwsUnitSettings.from_mapping(values), cast("Session", new_session(aws_resources)),
+            clock.now, policy,
+        )
+    recovery_values = recovery_runtime_values(
+        aws_resources, {"AWS_STATE_MACHINE_ARN": invalid_state_machines[kind]},
+    )
+    with pytest.raises(IncompatibleStateMachine, match=code):
+        build_aws_recovery_runtime(
+            AwsRecoverySettings.from_mapping(recovery_values),
+            cast("Session", new_session(aws_resources)), clock.now, policy,
+        )
     with pytest.raises(IncompatibleStateMachine, match=code):
         build_runtime("aws", values, cast("Session", new_session(aws_resources)))
 

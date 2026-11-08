@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from cnes_control_plane.persistence.dynamodb_codec import Action, Item, check_action
 from cnes_control_plane.persistence.dynamodb_host import DynamoDBHost
+from cnes_data.dynamodb import Action, Item, check_action
 from cnes_domain.billing.execution import PublicationGuard
 from cnes_domain.billing.publication import (
     require_publication_companion,

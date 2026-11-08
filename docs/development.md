@@ -77,6 +77,19 @@ happens.
 and `--profile shadow` (`minio-shadow`, now also LocalStack — see
 `docker-compose.yml`) need no license.
 
+`--profile floci` runs the pinned Floci emulator (MIT, no license file) on
+`127.0.0.1:4577` only, for the PROD-013 Cognito/DynamoDB/S3 Object Lock/IAM
+suite (marker `floci`, excluded from the fast suite with `not floci`):
+
+```bash
+docker compose --profile floci up -d --wait floci
+FLOCI_ENDPOINT_URL=http://127.0.0.1:4577 uv run --no-build pytest -rs -m floci tests/integration/floci
+docker compose --profile floci down -v
+```
+
+Isolation rules, the real-AWS check procedure and the divergence matrix:
+`docs/runbooks/floci-and-aws-capability.md`.
+
 Run only the API from the workspace:
 
 ```bash
@@ -174,6 +187,31 @@ uv run pytest tests/chaos/ -m "chaos and not chaos_infra" -v
 uv run pytest tests/negative/ -m negative -v
 ```
 
+OpenTofu native suite and non-mutating infrastructure acceptance gate (`tests/production/infra`;
+CI job `opentofu-native` in `.github/workflows/infra-native.yml`, eligible as a required check:
+`pull_request` has no path filter and a git-only step skips the job body when no infra path
+changed; single command and capability matrix in `docs/runbooks/infrastructure-plan.md`).
+Needs `tofu` (CI pins 1.13.2) and `trivy` 0.74.0 on `PATH`; `CI=true` fails on a missing tool.
+The OPA policy tests also need `conftest` 0.71.1 (CI installs it with a pinned sha256 in the same
+job; locally download the release tarball, check it against `checksums.txt`, extract only the
+`conftest` binary into `~/.local/bin`). Acceptance gate:
+`conftest test tests/fixtures/plans --policy policies --ignore rejected`; the literal command
+without `--ignore` exits 1 by design because the rejection fixtures live in the same tree.
+`PROCESSING_SOURCE_BINDINGS` pins the processing sources by sha256: rerun
+`bind_processing_sources.py` after editing any file under
+`apps/data_processor/src` or `packages/cnes_{contracts,domain,infra}/src`.
+
+```bash
+uv sync --locked --all-packages
+export TF_PLUGIN_CACHE_DIR=~/.cache/tofu-plugins
+export PROCESSING_SOURCE_BINDINGS=/tmp/processing-source-bindings.json
+mkdir -p "$TF_PLUGIN_CACHE_DIR"
+TF_DATA_DIR=/tmp/tofu-warm \
+  tofu -chdir=infra/opentofu/env/prod init -backend=false -input=false -lockfile=readonly
+uv run python -I tests/production/infra/bind_processing_sources.py "${PROCESSING_SOURCE_BINDINGS}"
+CI=true uv run pytest tests/production/infra -q
+```
+
 ## Go Edge Agent
 
 ```bash
@@ -252,3 +290,11 @@ públicos permanecem `cnes_*`. `tests/architecture` verifica grafo, layout e
 fronteiras. `scripts/ci_package_artifacts.sh` instala os oito wheels em diretório
 isolado e usa Python sem processamento de editable paths para verificar imports
 e recursos Alembic. Docker e integrações pesadas ficam no CI.
+
+Actionlint local/CI (Linux amd64): **1.7.7**, archive
+`actionlint_1.7.7_linux_amd64.tar.gz`, SHA256
+`023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757`.
+Download from `https://github.com/rhysd/actionlint/releases/download/v1.7.7/`,
+verify with `sha256sum -c` before extraction and add the binary to `PATH`.
+The inline installer in `.github/workflows/verify-production.yml` is the CI equivalent.
+`CI=true` fails delivery tool checks when actionlint is absent.

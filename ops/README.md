@@ -1,4 +1,4 @@
-# Operação e infraestrutura
+# Operação
 
 Código operacional e configuração de deploy ficam aqui. Procedimentos canônicos
 permanecem em [docs/runbooks](../docs/runbooks/); não são duplicados neste diretório.
@@ -9,8 +9,11 @@ permanecem em [docs/runbooks](../docs/runbooks/); não são duplicados neste dir
 | Identidade operacional | `identity/keycloak/` | realm usado pelo bootstrap dev |
 | Backup local | `backup/` | wrapper e testes; implementação em central_api.local_backup |
 | Diagnóstico edge | `scripts/edge_audit/` | snapshot operacional |
-| Infra AWS raw | `infra/aws/raw-legacy/` | Terraform legado; não representa o alvo AWS atual |
-| Helm frontend | `legacy/helm/web-dashboard/` | legado, fora do deploy ativo |
+| Runtime AWS | `deploy/aws/` | Compose de produção e exemplo do credential process |
+
+Infraestrutura fica na pasta irmã [infra](../infra/): OpenTofu em
+`infra/opentofu/`, Terraform raw legado em `infra/aws/raw-legacy/` e chart Helm
+aposentado em `infra/legacy/helm/web-dashboard/`.
 
 O Compose de desenvolvimento continua na raiz. Os Dockerfiles permanecem nos apps,
 os workflows em `.github/workflows` e os geradores/gates em `scripts/`.
@@ -21,8 +24,11 @@ os workflows em `.github/workflows` e os geradores/gates em `scripts/`.
 |---|---|
 | `deploy/dev/` | `ops/deploy/vps/dev/` |
 | `deploy/prod/` | `ops/deploy/vps/prod/` |
-| `deploy/aws/raw/` | `ops/infra/aws/raw-legacy/` |
-| `charts/web-dashboard/` | `ops/legacy/helm/web-dashboard/` |
+| `deploy/aws/raw/` | `infra/aws/raw-legacy/` |
+| `charts/web-dashboard/` | `infra/legacy/helm/web-dashboard/` |
+| `deploy/aws/config` | `ops/deploy/aws/config` |
+| `deploy/compose.production.yaml` | `ops/deploy/aws/compose.production.yaml` |
+| `infra/opentofu/` | `infra/opentofu/` (preservado) |
 | `docker-compose.keycloak/` | `ops/identity/keycloak/` |
 | `scripts/edge_audit/` | `ops/scripts/edge_audit/` |
 | `scripts/local_backup.py` | `ops/backup/local_backup.py` |

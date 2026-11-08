@@ -24,22 +24,63 @@
 | Delta + integridade | Ativo | `_op` delta Parquet, `delta.db`, SHA-256 em `landing.extractions.sha256`, HMAC audit JSONL |
 | Distribuição do edge agent (GitHub Releases + R2) | Ativo | `.github/workflows/dump-agent-go-release.yml`, `docs/contracts/dumpagent-update-manifest.schema.json`, `docs/runbooks/dumpagent-release.md` |
 
-## Next (planejado, sem código ainda)
+## Next (backlog ativo, atualizado em 2026-10-25)
+
+Ordem de execução e auditorias em
+`docs/superpowers/plans/2026-10-25-backlog-execution-plan.md`. O runtime AWS já
+está integrado; infraestrutura parcial em código não significa promoção AWS concluída.
 
 | Item | Prioridade | Bloqueio / Pré-req |
 |---|---|---|
-| Completar `data_processor` landing -> Gold | Alta | Implementar heartbeat/upload e ligar download/adapters/repos |
-| End-to-end extraction lifecycle | Alta | Reconciliar status `PENDING/CLAIMED/REGISTERED/UPLOADED/PROCESSING/INGESTED` e presigned URL ownership |
+| Corrida entre execução e bind do dispatch (#413) | Alta | [^b413] |
+| Evidências MIG-012/013 (#278/#279, concluídas) | Aceitas | [^bmig] |
+| Identidade e descoberta AWS (#398/#381/#410) | Alta | [^bidentidade] |
+| Outbox e workers isolados (#374/#375) | Alta | [^bworkers] |
+| Promoção AWS (#365 fechada; Tasks 3, 4, 8, 10 e 11 do delivery) | Alta | [^binfra] |
+| Cutover final (#280/#281) | Alta | [^bcutover] |
+| PEN IANA dos certificados (#60, concluída) | Implementado | [^bpen] |
 | Rules service externo | Média | Repo separado; consome Gold/landing via SQL JOINs |
 | HR PIS->CPF cross-walking | Média | Reativar/reescrever fluxo em monorepo |
 | Esus PEC | Alta | Acesso ao DB municipal varia; negociação política |
 | Automated DATASUS submission check | Baixa | Alertar quando competência local > nacional por mais de 2 meses |
 | Web dashboard v1.2 | Média | Faturamento+regressão, drill estabelecimento, admin UI approve/reject |
-| Billing, Entitlements e Stripe (EPIC #95) | Alta | Código completo e testado sem rede Stripe (BIL-010…023, Tasks 6/13/17; gate CI `python-quality.yml` job `billing-acceptance` + `tests/scripts/test_ci_billing.py`), enforcement desligado em produção. Go-live pendente de: environment `stripe-sandbox` e run `5 passed` do `stripe-billing-e2e.yml` (BIL-024 #328), secrets Stripe no Secrets Manager (D2), IaC dos alarmes, deploy do `billing_worker`, `PlanVersion`/Price reais e aceite de termos; rollout em `shadow` antes de `enforce` |
-| Perfil de produção AWS (EPIC #94) | Média | Step Functions/ECS Fargate/DynamoDB/Cognito; gate AWS-010…014 sem código, atrás de CND-064; planos em docs/superpowers/plans/2026-08-31-cnesdata-production-*.md |
+| Billing e entitlements (#95, concluída) | Implementado | [^bbilling] |
+| Perfil AWS (#94, concluída) | Implementado | [^baws] |
 | PII em logs (CPF/nome/PIS em WARNING) | Média | `transformer.py`, `hr_client.py` logam CPF/nome/PIS crus — mascarar antes de logar |
 | Update check + self-update no edge agent | Média | Contrato de manifesto já publicado (distribuição acima); falta `internal/updater` no dumpagent, fix do bug `AGENT_VERSION` sempre `dev` (`internal/apiclient/adapter.go`), e assinatura de código para AV estrito |
-| Rebase de `.worktrees/*` na reestruturação de context routing (2026-09-19) | Alta | 4 worktrees (`cnd-050-normalize-cnes-local`, `cnd-052-reconcile-cnes`, `marketing-public-pages`, `minio-quay-digest`) ainda servem o `CLAUDE.md` raiz pré-reestruturação (335 L) até serem rebaseados no commit desta mudança |
+| Rebase de trabalho ativo | Em execução | [^brebase] |
+
+[^b413]: Regressão determinística, auditoria dos testes e correção antes de avançar o runtime
+
+[^bmig]: Listagem não root de 2026-10-25 publicada e auditada; write-fence/snapshots atestados, sem
+    antecipar remoção do legado
+
+[^bidentidade]: Capability checks reais; Cognito Essentials/managed login v2; memberships e sessão
+    sem tenant selecionado
+
+[^bworkers]: Cursor/CAS antes de separar unit/recovery/audit; gate de runtime #377
+
+[^binfra]: #365 fechada em 2026-11-05 com código e gates em `develop`, sem `apply`. O que depende de
+    produção passou às Tasks 3, 4, 8, 10 e 11 do plano delivery, com gate fechado (closure amendment de
+    2026-11-05), e o MIG-014 continua bloqueado. Custos até USD 8/produto e freeze
+    na previsão agregada USD 15
+
+[^bcutover]: Promoção AWS, equivalentes das features vivas e evidências atuais antes de remover
+    PostgreSQL/MinIO/BigQuery/Keycloak
+
+[^bpen]: PEN 67386 nos OIDs dos certificados de agente, contrato em
+    `docs/contracts/agent-certificate-oids.md`. Certificados 99999 deixam de valer no deploy;
+    cada agente se registra de novo pelo procedimento do contrato. A emissão em produção segue
+    presa à promoção AWS e ao plano delivery
+
+[^bbilling]: Manter `BILLING_MODE=disabled` neste rollout; ativação comercial exige seus próprios
+    pré-requisitos
+
+[^baws]: Runtime/gate integrados; promoção de produção pertence ao plano delivery; ver
+    [readiness](production-readiness.md).
+
+[^brebase]: Base `develop`; reaproveitar branches antigas somente quando ligadas a issues/PRs
+    pendentes, preservando os demais worktrees
 
 ## Later (conceitual)
 

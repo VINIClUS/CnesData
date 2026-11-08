@@ -34,15 +34,9 @@ from cnes_control_plane.billing.keys import (
     run_lookup_partition,
 )
 from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
-from cnes_control_plane.persistence.dynamodb_codec import (
-    Item,
-    check_action,
-    decode_model,
-    payload,
-    put_action,
-)
 from cnes_control_plane.persistence.dynamodb_keys import dispatch_key
 from cnes_control_plane.persistence.dynamodb_run_codec import run_item
+from cnes_data.dynamodb import Item, check_action, decode_model, payload, put_action
 from cnes_domain.billing.errors import (
     BillingDependencyError,
     RetryableBillingError,

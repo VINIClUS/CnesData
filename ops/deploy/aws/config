@@ -1,0 +1,2 @@
+[profile cnesdata-production]
+credential_process = /usr/bin/timeout 60 /opt/aws/aws_signing_helper credential-process --certificate /etc/cnesdata/aws/leaf-certificate.pem --private-key /etc/cnesdata/aws/leaf-private-key.pem --trust-anchor-arn <TRUST_ANCHOR_ARN> --profile-arn <PROFILE_ARN> --role-arn <ROLE_ARN> --session-duration 3600

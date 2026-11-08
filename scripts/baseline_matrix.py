@@ -18,7 +18,7 @@ WAIVED_SUITES = frozenset({"python-fast", "python-integration-docker"})
 WAIVER = {
     "failure": (
         "ModuleNotFoundError: No module named "
-        "'cnes_infra.storage.repositories.estabelecimento_repo' during collection of "
+        "'cnes_data.storage.repositories.estabelecimento_repo' during collection of "
         "tests/perf/{macro,micro,soak,spike,stress}"
     ),
     "expected_exit_code": 2,
@@ -40,7 +40,7 @@ Suite = tuple[str, Command]
 
 PYTHON_FAST_MARKERS = (
     "not integration and not postgres and not bigquery and not e2e and not stress and "
-    "not soak and not spike and not windows_only and not chaos_infra"
+    "not soak and not spike and not windows_only and not chaos_infra and not floci"
 )
 PYTHON_PACKAGE_MARKERS = "not bigquery and not e2e and not stress and not soak and not spike"
 PYTHON_APP_MARKERS = (

@@ -10,7 +10,8 @@ import pytest
 from moto import mock_aws
 
 from cnes_control_plane.persistence.dynamodb_adapter import DynamoDBControlPlane
-from cnes_control_plane.persistence.dynamodb_keys import item_key, run_entity_key
+from cnes_control_plane.persistence.dynamodb_keys import run_entity_key
+from cnes_data.dynamodb import item_key
 from cnes_domain.control_plane.entities import RunDependency
 from cnes_domain.control_plane.enums import RunState
 from cnes_domain.control_plane.queries import (

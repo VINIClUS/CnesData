@@ -38,6 +38,37 @@ def test_emite_certificado_com_subject_cn_do_csr(test_root_ca, test_csr_pem):
     assert cn == "agent-machine-001"
 
 
+def test_emite_certificado_com_oids_do_pen_67386_em_utf8string_der(test_root_ca, test_csr_pem):
+    cert_pem, key_pem = test_root_ca
+    ca = CertAuthority(root_cert_pem=cert_pem, root_key_pem=key_pem)
+
+    leaf_pem = ca.issue_cert(csr_pem=test_csr_pem, agent_id="agent-001", tenant_id="354130")
+
+    leaf = x509.load_pem_x509_certificate(leaf_pem)
+    tenant = leaf.extensions.get_extension_for_oid(
+        x509.ObjectIdentifier("1.3.6.1.4.1.67386.1.1"),
+    )
+    agent = leaf.extensions.get_extension_for_oid(
+        x509.ObjectIdentifier("1.3.6.1.4.1.67386.1.2"),
+    )
+    assert isinstance(tenant.value, x509.UnrecognizedExtension)
+    assert isinstance(agent.value, x509.UnrecognizedExtension)
+    assert tenant.value.value == b"\x0c\x06354130"
+    assert agent.value.value == b"\x0c\x09agent-001"
+    assert (tenant.critical, agent.critical) == (False, False)
+
+
+def test_emite_certificado_sem_oids_do_placeholder_99999(test_root_ca, test_csr_pem):
+    cert_pem, key_pem = test_root_ca
+    ca = CertAuthority(root_cert_pem=cert_pem, root_key_pem=key_pem)
+
+    leaf_pem = ca.issue_cert(csr_pem=test_csr_pem, agent_id="agent-001", tenant_id="354130")
+
+    leaf = x509.load_pem_x509_certificate(leaf_pem)
+    oids = {ext.oid.dotted_string for ext in leaf.extensions}
+    assert not any(oid.startswith("1.3.6.1.4.1.99999.") for oid in oids)
+
+
 def test_rejeita_csr_invalido(test_root_ca):
     cert_pem, key_pem = test_root_ca
     ca = CertAuthority(root_cert_pem=cert_pem, root_key_pem=key_pem)
