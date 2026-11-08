@@ -52,20 +52,31 @@ _CANARY_CACHE: dict[str, Node] = {}
 CANARY_ID = "d155e7af91747d96917453791d3c2125"
 CANARY_PRINCIPAL = f"arn:aws:iam::{ACCOUNT}:role/promotion-workflow"
 CANARY_RUN = "raiz_com_canary"
-CANARY_ROLES = ("canary_task", "canary_execution", "canary_seeder", "canary_verifier",
-                "promotion_fence_operator")
+CANARY_ROLES = (
+    "canary_task",
+    "canary_execution",
+    "canary_seeder",
+    "canary_verifier",
+    "promotion_fence_operator",
+)
 
 
 def _canary_overrides() -> list[Node]:
     table = f"arn:aws:dynamodb:us-east-2:{ACCOUNT}:table/{PREFIX}-canary"
     bucket = f"arn:aws:s3:::{PREFIX}-canary"
     return [
-        {"address": "module.processing.aws_dynamodb_table.canary[0]",
-         "fields": {"arn": {"value": table}}},
-        {"address": "module.processing.aws_s3_bucket.canary[0]",
-         "fields": {"arn": {"value": bucket}}},
-        {"address": 'module.processing.aws_ecs_task_definition.processor["audit"]',
-         "fields": {"arn": {"value": REVISION % ("audit", 17)}}},
+        {
+            "address": "module.processing.aws_dynamodb_table.canary[0]",
+            "fields": {"arn": {"value": table}},
+        },
+        {
+            "address": "module.processing.aws_s3_bucket.canary[0]",
+            "fields": {"arn": {"value": bucket}},
+        },
+        {
+            "address": 'module.processing.aws_ecs_task_definition.processor["audit"]',
+            "fields": {"arn": {"value": REVISION % ("audit", 17)}},
+        },
         CLUSTER_OVERRIDE,
     ]
 
@@ -75,11 +86,19 @@ def _canary_role_seeds(artifacts: Node) -> list[Node]:
     records = []
     for name in CANARY_ROLES:
         file = "promotion.tf" if name == "promotion_fence_operator" else "canary.tf"
-        target = (f"module.runtime_iam.aws_iam_role.{name}[0]", name.replace("_", "-"),
-                  ["infra/opentofu/env/prod/main.tf", f"infra/opentofu/modules/runtime-iam/{file}"])
-        records.append(_seed_record(
-            target, artifacts["configuration"], artifacts["schema"], contract,
-        ))
+        target = (
+            f"module.runtime_iam.aws_iam_role.{name}[0]",
+            name.replace("_", "-"),
+            ["infra/opentofu/env/prod/main.tf", f"infra/opentofu/modules/runtime-iam/{file}"],
+        )
+        records.append(
+            _seed_record(
+                target,
+                artifacts["configuration"],
+                artifacts["schema"],
+                contract,
+            )
+        )
     return records
 
 
@@ -88,8 +107,9 @@ def _assert_canary_producers(plan: Node, seeds: list[Node], active: bool) -> Non
     if active:
         expected |= {f"module.runtime_iam.aws_iam_role.{name}[0]" for name in CANARY_ROLES}
     assert {seed["address"] for seed in seeds} == expected
-    resources = [item for item in plan["resource_changes"]
-                 if item["address"].startswith(ROOT_PREFIXES)]
+    resources = [
+        item for item in plan["resource_changes"] if item["address"].startswith(ROOT_PREFIXES)
+    ]
     actual = {item["address"]: item for item in resources}
     assert len(resources) == len(expected), "canary_producer_count"
     assert set(actual) == expected, "canary_producer_inventory"
@@ -106,8 +126,11 @@ def canary_root_plan(tofu: Tofu, prod_root: Path, artifacts: Node) -> Node:
     if key in _CANARY_CACHE:
         return _CANARY_CACHE[key]
     declared = artifacts["configuration"]["root_module"]["variables"]
-    values = {"canary_release_id": CANARY_ID, "canary_trusted_principal_arn": CANARY_PRINCIPAL,
-              "canary_storage_enabled": True}
+    values = {
+        "canary_release_id": CANARY_ID,
+        "canary_trusted_principal_arn": CANARY_PRINCIPAL,
+        "canary_storage_enabled": True,
+    }
     inputs = {"image_digest": "sha256:" + "a" * 64}
     inputs |= {name: value for name, value in values.items() if name in declared}
     identities = json.loads((evidence / "processing-identity-overrides.json").read_text())
@@ -128,7 +151,10 @@ def canary_root_plan(tofu: Tofu, prod_root: Path, artifacts: Node) -> Node:
 
 @pytest.fixture(name="canary_plan", scope="module")
 def fixture_canary_plan(
-    tofu_context: Tofu, tofu_artifacts: Node, prod_root: Path, valid_shared_outputs: Node,
+    tofu_context: Tofu,
+    tofu_artifacts: Node,
+    prod_root: Path,
+    valid_shared_outputs: Node,
 ) -> Iterator[Node]:
     directory = prod_root / ".terraform" / "processing-tests"
     owned = not directory.exists()
@@ -179,7 +205,6 @@ def planned_output(plan: Node, name: str) -> Any:
     return outputs[name]["value"]
 
 
-
 @pytest.fixture(name="bootstrap_plan", scope="module")
 def fixture_bootstrap_plan(processing_native: NativePlans) -> Node:
     return processing_native.plans[ROOT_RUN]
@@ -194,7 +219,5 @@ def fixture_scheduled_plan(
 
 
 @pytest.fixture(name="all_root_plans", scope="module")
-def fixture_all_root_plans(
-    processing_native: NativePlans, scheduled_plan: Node
-) -> dict[str, Node]:
+def fixture_all_root_plans(processing_native: NativePlans, scheduled_plan: Node) -> dict[str, Node]:
     return {**processing_native.plans, SCHEDULED_RUN: scheduled_plan}
