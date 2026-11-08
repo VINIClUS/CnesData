@@ -455,14 +455,38 @@ def _call_references(call: Node) -> set[str]:
 def test_raiz_nao_passa_saida_de_processing_para_runtime_iam(
     processing_native: NativePlans,
 ) -> None:
+    def assert_edges(calls: Node) -> None:
+        runtime = calls["runtime_iam"]
+        assert not runtime.get("depends_on")
+        assert not calls["processing"].get("depends_on")
+        expressions = dict(runtime["expressions"])
+        canary = expressions.pop("canary_release")
+        names = {"canary_table_arn", "canary_gsi6_arn", "canary_bucket_arn"}
+        expected = {f"module.processing.{name}" for name in names} | {"module.processing"}
+        actual = {ref for ref in canary["references"] if ref.startswith("module.processing")}
+        assert actual == expected, f"canary_processing_edges={sorted(actual)!r}"
+        other = runtime | {"expressions": expressions}
+        assert not any(ref.startswith("module.processing") for ref in _call_references(other))
+        ids = {"step_functions_role_id", "step_functions_role_arn", "canary_verifier_role_id"}
+        seen = _call_references(calls["processing"])
+        assert {f"module.runtime_iam.{name}" for name in ids} <= seen
+
     calls = processing_native.configuration["root_module"]["module_calls"]
-    leaked = {item for item in _call_references(calls["runtime_iam"])
-              if item.startswith("module.processing")}
-    assert not leaked, f"runtime_iam_references_processing={sorted(leaked)!r}"
-    expected = {"module.runtime_iam.step_functions_role_id",
-                "module.runtime_iam.step_functions_role_arn"}
-    observed = _call_references(calls["processing"])
-    assert expected <= observed, f"processing_runtime_iam_edge={sorted(expected - observed)!r}"
+    assert_edges(calls)
+    for module, field, reference in (
+        ("runtime_iam", "canary_release", "module.processing.processor_task_definition_arns"),
+        ("runtime_iam", "other", "module.processing.canary_table_arn"),
+        ("runtime_iam", "depends_on", "module.processing"),
+        ("processing", "depends_on", "module.runtime_iam"),
+    ):
+        altered = json.loads(json.dumps(calls))
+        if field == "depends_on":
+            altered[module][field] = [reference]
+        else:
+            expression = altered[module]["expressions"].setdefault(field, {"references": []})
+            expression["references"].append(reference)
+        with pytest.raises(AssertionError):
+            assert_edges(altered)
 
 
 def _runtime_inputs(state_machine_arn: str | None, name_prefix: str = PREFIX) -> dict[str, object]:

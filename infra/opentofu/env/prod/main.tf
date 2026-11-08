@@ -101,6 +101,13 @@ module "runtime_iam" {
     var.shared_outputs.account_id,
     local.name_prefix,
   )
+  canary_release = var.canary_release_id == null ? null : {
+    release_id            = var.canary_release_id
+    trusted_principal_arn = var.canary_trusted_principal_arn
+    table_arn             = module.processing.canary_table_arn
+    index_arn             = module.processing.canary_gsi6_arn
+    bucket_arn            = module.processing.canary_bucket_arn
+  }
 }
 
 module "processing" {
@@ -116,6 +123,8 @@ module "processing" {
   step_functions_role_arn   = module.runtime_iam.step_functions_role_arn
   step_functions_role_id    = module.runtime_iam.step_functions_role_id
   enable_step_functions_iam = true
+  canary_storage_enabled    = var.canary_storage_enabled
+  canary_verifier_role_id   = module.runtime_iam.canary_verifier_role_id
   execution_role_arn        = module.runtime_iam.execution_role_arn
   log_group_name            = aws_cloudwatch_log_group.processor.name
   control_plane_table       = module.control_plane.table_name

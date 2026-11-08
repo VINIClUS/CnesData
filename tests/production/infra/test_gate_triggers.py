@@ -16,7 +16,7 @@ ROOT_CHAIN = re.compile(r"""(?i:repo_root|parents\[3\])((?:\s*/\s*["'][^"']+["']
 SEGMENT = re.compile(r"""["']([^"']+)["']""")
 SOURCE_LITERAL = re.compile(r"""["']((?:apps|packages)/[\w./-]+)["']""")
 WORKFLOW_SCRIPT = re.compile(r"(?<![\w/])tests/[\w./-]+\.py")
-IMPORT_ROOTS = frozenset({"apps", "packages", "tests"})
+IMPORT_ROOTS = frozenset({"apps", "packages", "tests", "scripts", "release"})
 # Varredura geral de workflows (runs-on, segredos): só outro.yml não dispara o gate, por decisão
 # fixada em test_ci_opentofu_runner.py.
 GENERAL_SCANS = frozenset({".github/workflows"})
@@ -90,6 +90,10 @@ def test_varredura_enxerga_as_fontes_conhecidas_do_gate() -> None:
         "docs/development.md",
         ".github/CODEOWNERS",
         "pytest.ini",
+        "scripts/promotion/_iam_source.py",
+        "scripts/promotion/_iam_expression.py",
+        "scripts/promotion/_canonical.py",
+        "release/verify_candidate.py",
     } <= _gate_inputs()
 
 
@@ -110,6 +114,11 @@ def test_gatilho_do_gate_cobre_as_fontes_lidas_fora_de_infra() -> None:
         ("from packages.x.y import z", "packages/x/y.py"),
         ("from tests.x.y import z", "tests/x/y.py"),
         (
+            "from scripts.promotion._iam_source import SourceResolver",
+            "scripts/promotion/_iam_source.py",
+        ),
+        ("from release.verify_candidate import require", "release/verify_candidate.py"),
+        (
             "from tests.integration.aws_capability import _cleanup, _fargate_mirror",
             "tests/integration/aws_capability/_fargate_mirror.py",
         ),
@@ -126,9 +135,46 @@ def test_varredura_do_workflow_ignora_as_listas_de_filtro() -> None:
     assert "tests/integration/aws_capability/_fargate_mirror.py" not in scripts
 
 
-def test_varredura_segue_imports_transitivos(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        (
+            "from tests.integration.aws_capability import _iam_s3_probe",
+            {"tests/integration/aws_capability/_matrix_policies.py"},
+        ),
+        (
+            "from scripts.promotion import _iam_source",
+            {
+                "scripts/promotion/_iam_expression.py",
+                "scripts/promotion/_canonical.py",
+                "release/verify_candidate.py",
+            },
+        ),
+    ],
+)
+def test_varredura_segue_imports_transitivos(tmp_path: Path, source: str, expected: set[str]):
     fonte = tmp_path / "fonte.py"
-    fonte.write_text(
-        "from tests.integration.aws_capability import _iam_s3_probe\n", encoding="utf-8"
-    )
-    assert "tests/integration/aws_capability/_matrix_policies.py" in _followed_inputs([fonte])
+    fonte.write_text(source + "\n", encoding="utf-8")
+    assert expected <= _followed_inputs([fonte])
+
+
+@pytest.mark.parametrize(
+    ("changed", "expected"),
+    [
+        ("scripts/promotion/_iam_source.py", True),
+        ("scripts/promotion/_iam_expression.py", True),
+        ("scripts/promotion/_canonical.py", True),
+        ("release/verify_candidate.py", True),
+        ("scripts/outro.py", False),
+    ],
+)
+def test_mudanca_isolada_do_kernel_dispara_push_e_pr(tmp_path, monkeypatch, changed, expected):
+    from tests.scripts import test_ci_opentofu_runner as runner
+
+    monkeypatch.setattr(runner, "_WORKFLOW", WORKFLOW)
+    patterns = _trigger_paths()
+    for job in ("opentofu-native", "opentofu-floor"):
+        assert runner._patterns(job) == patterns
+    runner._merge_commit(tmp_path / "repo", changed)
+    result = runner._detected(tmp_path / "repo", "pull_request", tmp_path / "saida")
+    assert (_covered(changed, patterns), result) == (expected, "infra=" + str(expected).lower())
