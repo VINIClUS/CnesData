@@ -10,8 +10,9 @@ verification, rollback/drain and production acceptance for CnesData.
 
 **Architecture:** A candidate manifest binds one green develop commit to tested artifacts but
 contains no ECS revisions. Phase A promotes the processor bytes to ECR, registers immutable
-unit/recovery/audit revisions and dual-authorizes them without routing changes; it then signs an
-activation manifest. Phase B switches only unit routing while the environment fence is closed. After
+unit/recovery/audit revisions and dual-authorizes them without routing changes; it then emits
+typed readback/evaluation evidence before EXT-2 signs one activation manifest. Phase B switches
+only unit routing while the environment fence is closed. After
 unit/API/frontend canaries, separate Phase C applies switch recovery then audit. Only complete
 accepted routing reopens the fence.
 
@@ -26,6 +27,12 @@ contracts from docs/superpowers/specs/2026-08-29-cnesdata-production-deployment-
 **Transferred obligations:** docs/superpowers/specs/2026-11-05-prod-infra-closure-amendment.md adds
 production obligations to Tasks 3, 4, 8, 10 and 11, listed in its "Transferências para o plano
 delivery" table. They bind those tasks together with the text below.
+
+**Phase A contract precedence:** [2026-11-07 amendment](../specs/2026-11-07-phase-a-contract-amendment.md)
+governs A1–A5, canary identity, retained handoff, artifact hashing and D1-A evidence. It is
+document-only in this plan revision: #468 remains owner of the future plan/apply schema and
+producer; #469 validates consumed fields and compatibility before Production. No workflow or
+schema path is created by this note.
 
 ## Ownership amendment — 2026-11-07
 
@@ -57,12 +64,14 @@ Code integration does not satisfy production acceptance. No merge deploys or app
 - Candidate release is one green develop SHA. Mutable tags are never authority.
 - Candidate manifest contains processor GHCR digest and expected ECR repository but no ECR promoted
   digest or ECS revision ARN.
-- Activation manifest is signed only after Phase A and binds candidate SHA-256, release/source IDs,
+- Activation manifest is signed only after Phase A and its typed IAM readbacks, and binds candidate SHA-256, release/source IDs,
   verified ECR_URI@sha256, exact unit/recovery/audit revisions and Phase A evidence.
 - Plan/apply are separate workflow_dispatch operations; apply verifies one unexpired binary plan and
   never replans.
 - Promotion is manual. Merge never deploys.
-- Phase A registers revisions once and dual-authorizes old/new RunTask without routing changes.
+- Phase A registers revisions once and dual-authorizes old/new RunTask without routing changes;
+  bootstrap keeps `active=null`, receipts retain pre/post sets, and tasks preserve
+  `skip_destroy=true`/`track_latest=false`.
 - Fence closes atomically before Phase B, then drain verifies semaphore idle/no dispatch. Only bound
   canary is admitted.
 - Phase B changes only Step Functions unit TaskDefinition. Both Schedulers stay prior.
@@ -240,6 +249,13 @@ packages-write: this workflow only reads and records a digest Task 1 already pus
 - Plan artifact contains binary/redacted plan,
   source/dependency/provider/backend/policy/cost/drift/expiry data and aggregate digest.
 - Apply inputs plan_run_id, artifact_id, artifact_digest and expected source SHA.
+- The canonical versioned plan/apply envelope is owned by #468. Planned and applied
+  artifacts are distinct immutable instances; the receipt binds the exact planned object,
+  protected pre/post state digests and allowlisted outputs. The artifact identity stays in
+  the authenticated GitHub descriptor, so no envelope hashes itself.
+- Phase A transport uses a closed input artifact with run/artifact/digest/source bindings;
+  #469 validates consumed fields and compatibility offline. No second schema or workflow
+  dependency is introduced here.
 - Calls exact pinned CnesData plan/deploy reusable gates from personal-infra-live.
 
 - [ ] **Step 1: Write wrong/mixed/expired artifact tests**
@@ -283,7 +299,10 @@ locking, verify state/drift, record redacted evidence.
 - Copies processor GHCR bytes to expected private ECR and verifies exact image digest.
 - Phase A exact plan/apply registers unit/recovery/audit revisions once and dual-authorizes old/new
   ecs:RunTask without changing state-machine/Schedulers.
-- Evidence records revision ARNs, digest, IAM propagation/readback and clean-state hash.
+- Evidence records revision ARNs, candidate/release/canary binding, retained before/after,
+  protected full-state hash, clean-state hash and typed IAM readback/evaluation. The chosen
+  `proof_kind` is not a simulation of propagation; real canaries and Phase B/C execution
+  gates remain mandatory before Production.
 
 - [ ] **Step 1: Write byte identity and repository tests**
 
@@ -300,9 +319,12 @@ target change fails.
 If exact family/revision definition already exists from this activation, read/verify it; never
 register another revision on retry.
 
-- [ ] **Step 4: Wait/revalidate IAM propagation**
+- [ ] **Step 4: Read back and evaluate IAM before signing**
 
-Prove old and candidate RunTask authorizations with exact roles/network before emitting evidence.
+Perform two concordant typed policy/trust/PassRole readbacks, at least 10 seconds apart and
+within the bounded D1-A deadline, with positive and negative principal/context cases. Emit
+evidence only as `iam-readback-and-evaluation`; do not call a simulation proof of real
+propagation. Real execution is reserved for the bound canaries and Phase B/C gates.
 
 - [ ] **Step 5: Run and commit**
 
@@ -321,8 +343,10 @@ Prove old and candidate RunTask authorizations with exact roles/network before e
 - Create: tests/production/delivery/test_activation_manifest.py
 
 **Interfaces:**
-- Binds candidate manifest SHA-256, release ID, source SHA, ECR_URI@sha256, unit/recovery/audit
-  revision ARNs and Phase A evidence digest.
+- Binds candidate manifest SHA-256, full release ID, source SHA, derived 32-hex `canary_id`,
+  complete canary binding, ECR_URI@sha256, unit/recovery/audit revision ARNs and Phase A
+  evidence digest. The binding is carried by this one activation signature; no second
+  signature is introduced.
 - Signed through the approved KMS/evidence gate; contains no secret.
 
 - [ ] **Step 1: Write artifact-mixing tests**
@@ -332,8 +356,9 @@ mutable ARN field, wrong state hash and missing signature context.
 
 - [ ] **Step 2: Implement canonical payload and detached signature**
 
-Signature context binds project=cnesdata, environment=prod, schema and release ID. Verifier checks
-expiry and all referenced evidence before use.
+Signature context binds project=cnesdata, environment=prod, schema, full release ID and
+canary binding. Verifier checks expiry, readback/evaluation evidence and every referenced
+artifact before use; signing remains impossible before Phase A.
 
 - [ ] **Step 3: Add exact OpenTofu input renderer**
 
@@ -360,7 +385,9 @@ CLI target mutation.
 - Seeder PutItem exact release-bound pending event.
 - Verifier Query exact GSI up to 60 seconds, then conditioned GetItem and exact audit
   GetObject/GetObjectRetention.
-- Runs candidate with canary-only role/resource overrides and exact PassRole.
+- Runs the bound candidate as a real canary after the single signed activation, with
+  canary-only role/resource overrides and exact PassRole; a simulator/readback never
+  satisfies this gate.
 
 - [ ] **Step 1: Write IAM/identity denial tests**
 

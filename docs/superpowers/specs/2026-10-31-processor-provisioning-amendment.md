@@ -45,9 +45,13 @@ prévio que reintroduza esse ciclo. Nenhuma task ganha policy ou inicia trabalho
 
 `image_digest=null` significa zero registros de task. Um digest válido só identifica
 conteúdo; sua forma não prova provenance. Fixtures A/B são sintéticas e usadas somente
-em provider mocks. Antes de promoção/apply, delivery deve verificar source SHA,
-assinatura/checksums, repositório e bytes idênticos entre artefato e digest ECR, conforme
-Phase A/activation manifest já especificados no plano de delivery e operações.
+em provider mocks. Antes da promoção/apply, delivery deve verificar procedência autenticada,
+source SHA, artifacts/run/attempt, checksums, repositório e bytes idênticos entre artefato e
+digest ECR. Checksums não são assinatura: conforme o [contrato Phase A](2026-11-07-phase-a-contract-amendment.md),
+a activation manifest só recebe assinatura criptográfica EXT-2 após a Phase A e seus readbacks
+IAM tipados. Esta regra transfere a obrigação de assinatura antecipada descrita historicamente
+para #384 sem reabrir nem repetir o aceite histórico; nenhum apply, cloud ou execução é
+autorizado por esta nota.
 
 Manter lifecycle untagged sete dias e não criar expiração automática tagged que
 possa remover current/prior/in-flight/revisions. O oráculo processor_retention já
