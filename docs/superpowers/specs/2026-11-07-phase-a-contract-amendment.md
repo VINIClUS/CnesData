@@ -91,77 +91,109 @@ Vetor determinístico de prova, não release final (a entrada é histórica e n�
 
 ## 4. A3 — envelope plan/apply único, propriedade #468
 
-O contrato futuro tem `schema_version=1`, UTF-8 canônico, datas UTC, SHAs minúsculos,
-`additionalProperties=false` e limite de 262144 bytes. Há no máximo 32 dependencies, 32
-arquivos de conteúdo no package, 128 revisões retained e 64 fingerprints de recursos/grants;
-listas não têm duplicatas. `status=planned` contém `apply=null`; `status=applied` repete o
-mesmo objeto `plan` lógico, liga `plan_binding_sha256` e acrescenta receipt `apply`.
+### 4.1 Envelope, enum e package
 
-Campos fechados do `plan`: `plan.repository`, `plan.source_sha`, `plan.producer.workflow_path`,
-`plan.producer.workflow_sha`, `plan.producer.run_id`, `plan.producer.run_attempt`,
-`plan.package` com
-`name/size/sha256` e `aggregate_sha256`, `purpose`, `created_at`, `expires_at`,
-`binary_sha256`, `json_sha256`, `inputs_sha256`, `dependencies`, `toolchain`, `backend`,
-`state_before`, `policy`, `cost`, `drift`, `release` e `phase_a_inputs`. `plan.package`
-lista apenas arquivos de conteúdo, sem o envelope, duplicata, extra, link ou traversal.
-`aggregate_sha256` é o hash da lista canônica ordenada, não ZIP, envelope ou state.
+O envelope tem `schema_version=1`, UTF-8 canônico, datas UTC, SHAs minúsculos,
+`additionalProperties=false` e limite de 262144 bytes. `status` é enum fechado:
+`planned` ou `applied`; planned exige `apply=null`, applied repete o mesmo objeto `plan`
+lógico, liga `plan_binding_sha256` e acrescenta receipt `apply`.
 
-`plan.state_before` contém lineage, serial e `state_sha256`; seus três valores são nulos juntos
-somente no bootstrap sem state existente. `policy`, `cost` e `drift` ligam verdict e digest
-de evidência real. `release` é null em ACM/bootstrap; em Phase A contém
-`release_id`, `source_sha`, `candidate_sha256`, `canary_id`, `binding_sha256` e
-`image_digest`. `phase_a_inputs` é null fora de Phase A.
+`plan.purpose` é enum fechado: `acm-certificate`, `bootstrap` ou `phase-a`. Não aceitar
+novo purpose sem amendment consumidor. Há no máximo 32 `plan.dependencies`, 32 arquivos
+de conteúdo no package, 128 revisões retained e 64 fingerprints de recursos/grants/routes;
+listas são ordenadas e sem duplicatas.
 
-`plan.dependencies` usa somente referências imutáveis e digests efetivamente consumidos,
-sem `latest`; `plan.toolchain` registra versão OpenTofu, selections de providers e hash do
-lock; `plan.backend` registra `identity_sha256` e a configuração não secreta exata protegida.
-A validade UTC de `plan.created_at`/`plan.expires_at` não pode ultrapassar o insumo que
-expira primeiro. A política
-única de artifacts limita o binário e o plan JSON antes da extração; o consumidor não eleva
-essa quota para aceitar payload maior.
+`plan.package` lista somente arquivos de conteúdo com `name`, `size` e `sha256`, incluindo
+binário e plan JSON, sem o envelope, arquivo extra, duplicata, link ou traversal.
+`plan.package.aggregate_sha256` é o SHA-256 da lista canônica ordenada por `name`, não do
+ZIP, envelope ou state. O planned artifact nunca é reescrito.
 
-No `apply`, são obrigatórios `apply.producer.workflow_path`,
-`apply.producer.workflow_sha`, `apply.producer.run_id`, `apply.producer.run_attempt`,
-`apply.consumed_plan_artifact.artifact_id`, `apply.consumed_plan_artifact.artifact_sha256`,
-`apply.consumed_plan_artifact.run_id` e `apply.consumed_plan_artifact.run_attempt`,
-`apply.plan_binding_sha256`, `apply.started_at`, `apply.completed_at`,
-`apply.result=success`, `apply.lease`, `apply.principal`, `apply.state_after`,
-`apply.drift=clean` e `apply.outputs`. `apply.state_after` contém lineage, serial e
-`state_sha256`; `apply.outputs` é mapa allowlisted e inclui `outputs_sha256`.
-`apply.lease` liga owner/run identity e prova CAS/renovação/liberação; `apply.principal` liga a
-identidade temporária aprovada, conta/região e gate. `drift` inclui digest do readback pós-
-apply e não gera nem aplica novo plan. Phase A exige os outputs de §4.4. Falhas de apply não
-são receipts applied.
+### 4.2 Campos fechados do plan e do apply
 
-O artifact planned não é reescrito; planned e applied têm identidade externa própria
-autenticada pelo GitHub/Actions API. O digest externo é conferido separadamente, logo não
-existe hash circular nem artifact que contenha a própria identidade.
+`plan` exige `repository`, `source_sha`, `producer.workflow_path`,
+`producer.workflow_sha`, `producer.run_id`, `producer.run_attempt`, `package`, `purpose`,
+`created_at`, `expires_at`, `binary_sha256`, `json_sha256`, `inputs_sha256`,
+`dependencies`, `toolchain`, `backend`, `state_before`, `policy`, `cost`, `drift`,
+`release` e `phase_a_inputs`. `dependencies` usa refs/digests imutáveis, nunca `latest`;
+`toolchain` registra OpenTofu, selections de providers e hash do lock; `backend` registra
+`identity_sha256` e configuração não secreta exata protegida.
 
-`state_sha256` é SHA-256 da serialização canônica UTF-8 do JSON integral retornado pelo
-backend exato sob lease, incluindo secrets/outputs no cálculo, sem persistir plaintext em
-artifact público; parser rejeita duplicatas/NaN. Evidência guarda só digest, lineage/serial
-e outputs permitidos. `outputs_sha256` cobre o mapa allowlisted completo. Mudança de state,
-lineage, drift ou vínculo pre/post falha fechada.
+`plan.created_at` e `plan.expires_at` são UTC; a validade não ultrapassa o insumo que
+expira primeiro. `plan.policy`, `plan.cost` e `plan.drift` ligam verdict e digest de
+evidência real, com pass obrigatório. `plan.release` é null em ACM/bootstrap; em phase-a
+contém exatamente `release_id`, `source_sha`, `candidate_sha256`, `canary_id`,
+`binding_sha256` e `image_digest`.
 
-Para `purpose=phase-a`, #469 produz artifact fechado com `image_digest`, active anterior
-(inclusive null), retained anterior ordenado/deduplicado, `canary_storage_enabled=true`,
-`canary_release_id=canary_id` e principal canary aprovado. Os futuros inputs de raiz são
-propriedade de #469; #468 apenas valida e transporta sua estrutura. O transporte exige
-`phase_inputs_run_id`, `phase_inputs_artifact_id`, `phase_inputs_artifact_digest` e
-`expected_source_sha`; não aceita tfvars arbitrário, override de backend/provider/target/
-parallelism/destroy/lock ou URL. As demais raízes vêm do handoff shared_outputs v2.
+O `apply` exige `producer.workflow_path`, `producer.workflow_sha`, `producer.run_id`,
+`producer.run_attempt`, `consumed_plan_artifact.artifact_id`,
+`consumed_plan_artifact.artifact_sha256`, `consumed_plan_artifact.run_id`,
+`consumed_plan_artifact.run_attempt`, `plan_binding_sha256`, `started_at`, `completed_at`,
+`result`, `lease`, `principal`, `state_after`, `drift` e `outputs`. `result` só pode ser
+`success` em receipt aceito; falhas ficam como diagnóstico, nunca applied.
 
-Saídas Phase A são as três task-definition ARNs, digest, active/retained pre e post,
-canary/binding e fingerprints de recursos/grants/routes lidos. Não ampliar outputs Terraform
-sem necessidade concreta.
+`apply.started_at >= plan.created_at`, `apply.completed_at > apply.started_at`, ambos
+ficam dentro da validade do plan com a margem exigida e não ultrapassam o insumo que expira
+primeiro. `apply.lease` liga owner/run identity e prova CAS/renovação/liberação; `principal`
+liga identidade temporária aprovada, conta/região e gate. `apply.drift` exige `clean` e
+digest de readback pós-apply; não gera nem aplica novo plan.
 
-O wiring futuro de #469 é fechado e sem ARNs literais: `canary_id` →
+O artifact planned e o applied receipt têm identidade externa própria autenticada pela
+GitHub/Actions API. O digest externo é conferido separadamente; nenhum artifact contém a
+própria identidade e não existe hash circular ou envelope concorrente.
+
+### 4.3 Entrada Phase A e handoff
+
+Fora de `purpose=phase-a`, `plan.phase_a_inputs=null`. Em phase-a, o objeto fechado é:
+
+- `image_digest`: digest ECR promovido e conferido;
+- `processor_active_unit_task_definition_arn`: ARN anterior ou null no bootstrap;
+- `processor_retained_unit_task_definition_arns`: conjunto anterior, ordenado, único,
+  validado e limitado a 128 ARNs;
+- `canary_storage_enabled`: booleano true;
+- `canary_release_id`: o `canary_id` derivado no §3;
+- `canary_trusted_principal_arn`: ARN do principal canary aprovado no mesmo contexto.
+
+O artifact de inputs é produzido por #469 e #468 apenas verifica e transporta origem,
+digest e validade antes de OIDC. O transporte exige `phase_inputs_run_id`,
+`phase_inputs_artifact_id`, `phase_inputs_artifact_digest` e `expected_source_sha`.
+Não aceita tfvars arbitrário, URL ou override de backend, provider, target, parallelism,
+destroy ou lock; as demais raízes vêm do handoff `shared_outputs v2`.
+
+O wiring futuro de #469 não usa ARN literal: `canary_id` →
 `runtime_iam.canary_release.release_id`; principal →
-`runtime_iam.canary_release.trusted_principal_arn`; tabela/índice/bucket →
-`processing.canary_table_arn`/`processing.canary_gsi6_arn`/`processing.canary_bucket_arn`.
-`processing.canary_storage_enabled` e `processing.canary_verifier_role_id` recebem os
-outputs homônimos de `runtime_iam`. Bootstrap mantém esses valores nulos/isolados quando
-canary não está habilitado; nenhum `depends_on` global entre módulos é criado.
+`runtime_iam.canary_release.trusted_principal_arn`; outputs de storage processing →
+`runtime_iam.canary_release.table_arn/index_arn/bucket_arn`.
+`processing.canary_storage_enabled = var.canary_storage_enabled`, nova var de raiz de #469.
+`processing.canary_verifier_role_id = module.runtime_iam.canary_verifier_role_id`.
+Bootstrap mantém release/principal/ARNs/role canary nulos e storage desabilitado; não há
+`depends_on` global entre módulos.
+
+### 4.4 Estado, outputs e hash
+
+`plan.state_before` contém `lineage`, `serial` e `state_sha256`; `apply.state_after` contém
+`lineage`, `serial`, `state_sha256` e `outputs_sha256`.
+No bootstrap sem state existente, os três valores de `state_before` são null juntos.
+`state_sha256` é SHA-256 da serialização canônica UTF-8 do JSON integral obtido do backend
+exato sob lease, incluindo secrets/outputs no cálculo; parser rejeita duplicatas/NaN e o
+plaintext nunca entra em artifact público. Mudança de state, lineage, drift ou vínculo
+pre/post falha fechada.
+
+Para Phase A, `apply.outputs` é objeto fechado:
+
+- `processor_task_definition_arns`: objeto exato com `unit`, `recovery` e `audit`;
+- `image_digest`: digest aplicado;
+- `active_before`: ARN anterior ou null;
+- `retained_before`: lista única, ordenada, de ARNs anteriores, máximo 128;
+- `retained_after`: lista única, ordenada, pós-apply, máximo 128;
+- `canary_id` e `binding_sha256`: identidade curta e vínculo completo do §3;
+- `resource_fingerprints`, `grant_fingerprints` e `route_fingerprints`: listas de no
+  máximo 64 objetos `{address, fingerprint_sha256}`, únicas e ordenadas por `address`.
+
+Cada fingerprint é SHA-256 da representação canônica do endereço e campos observados;
+endereços, listas, mapa de outputs e fingerprints são allowlisted e determinísticos.
+`apply.state_after.outputs_sha256` é SHA-256 canônico de `apply.outputs` completo,
+excluindo o próprio `outputs_sha256`; o hash não é autorreferente. Phase A exige essa forma
+fechada e não amplia outputs Terraform sem necessidade concreta.
 
 ## 5. A4 — sequência, retained, retry e evidência IAM
 
@@ -213,8 +245,8 @@ Em replacement ECS, delete só é aceitável com `skip_destroy=true` conferido e
 preservada; `track_latest=false` também é obrigatório. Qualquer endereço managed fora da lista
 é no-op. São invariantes: zero mudança em ASL/state machine/active/Schedulers/routes,
 cluster/network, roles runtime/API/SFN de serviço, ECR, backend/provider/locks, grants
-`states:*` de bootstrap e campos funcionais ECS além do digest. Raiz recebe somente
-Futuros inputs de raiz canary são propriedade de #469; seus campos são mapeados no §4 e
+`states:*` de bootstrap e campos funcionais ECS além do digest. Futuros inputs de raiz
+canary são propriedade de #469; seus campos são mapeados no §4 e
 validados/transportados por #468. ARNs nunca são literais. Defaults mantêm bootstrap nulo
 e storage isolado; não criar `depends_on` global nem novo oráculo IAM.
 
