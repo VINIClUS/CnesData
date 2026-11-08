@@ -38,6 +38,8 @@ _TRIGGER_PATHS = [
     "infra/**",
     "policies/**",
     "schemas/**",
+    "scripts/promotion/**",
+    "release/verify_candidate.py",
     "tests/fixtures/**",
     "tests/production/infra/**",
     "tests/production/test_runtime_acceptance.py",
