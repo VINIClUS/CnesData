@@ -1,0 +1,107 @@
+name: CnesData exact infrastructure apply
+
+"on":
+  workflow_dispatch:
+    inputs:
+      expected_source_sha:
+        type: string
+        required: true
+      purpose:
+        type: choice
+        required: true
+        options: [acm-certificate, bootstrap, phase-a]
+      request_descriptor:
+        type: string
+        required: true
+      request_descriptor_sha256:
+        type: string
+        required: true
+      plan_run_id:
+        type: string
+        required: true
+      artifact_id:
+        type: string
+        required: true
+      artifact_digest:
+        type: string
+        required: true
+      phase_inputs_run_id:
+        type: string
+        required: false
+        default: ""
+      phase_inputs_artifact_id:
+        type: string
+        required: false
+        default: ""
+      phase_inputs_artifact_digest:
+        type: string
+        required: false
+        default: ""
+
+permissions: {}
+
+concurrency:
+  group: cnesdata-prod-infra
+  cancel-in-progress: false
+
+jobs:
+  admit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      checks: read
+    outputs:
+      request_descriptor: ${{ steps.verify.outputs.request_descriptor }}
+      request_descriptor_sha256: ${{ steps.verify.outputs.request_descriptor_sha256 }}
+      contract_repository: ${{ steps.verify.outputs.contract_repository }}
+      contract_source_sha: ${{ steps.verify.outputs.contract_source_sha }}
+      contract_path: ${{ steps.verify.outputs.contract_path }}
+      contract_sha256: ${{ steps.verify.outputs.contract_sha256 }}
+      expected_source_sha: ${{ steps.verify.outputs.expected_source_sha }}
+      purpose: ${{ steps.verify.outputs.purpose }}
+    steps:
+      - name: Validate exact source before checkout
+        env:
+          EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "VINIClUS/CnesData"
+          test "$GITHUB_EVENT_NAME" = "workflow_dispatch"
+          test "$GITHUB_REF" = "refs/heads/develop"
+          [[ "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$GITHUB_SHA" = "$EXPECTED_SOURCE_SHA"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.expected_source_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+      - name: Authenticate public artifact bytes and source
+        id: verify
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REQUEST_JSON: ${{ toJSON(inputs) }}
+        run: python -m scripts.promotion.verify_plan_artifact apply
+  gate:
+    needs: admit
+    permissions:
+      contents: read
+      actions: read
+      checks: read
+      id-token: write
+    uses: "VINIClUS/infra-ansible/.github/workflows/\
+      reusable-cnesdata-infra-deploy-gate.yml@\
+      99fc0e4805b96fbca7df06440d5ea3ad42e53369"
+    with:
+      request_descriptor: ${{ needs.admit.outputs.request_descriptor }}
+      request_descriptor_sha256: ${{ needs.admit.outputs.request_descriptor_sha256 }}
+      contract_repository: ${{ needs.admit.outputs.contract_repository }}
+      contract_source_sha: ${{ needs.admit.outputs.contract_source_sha }}
+      contract_path: ${{ needs.admit.outputs.contract_path }}
+      contract_sha256: ${{ needs.admit.outputs.contract_sha256 }}
+      expected_source_sha: ${{ needs.admit.outputs.expected_source_sha }}
+      purpose: ${{ needs.admit.outputs.purpose }}

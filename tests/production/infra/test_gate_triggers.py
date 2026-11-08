@@ -69,6 +69,9 @@ def _followed_inputs(sources: list[Path]) -> set[str]:
 
 def _gate_inputs() -> set[str]:
     sources = sorted(path for path in INFRA_TESTS.rglob("*.py") if path != Path(__file__))
+    sources.append(
+        REPO_ROOT / "tests/production/delivery/test_plan_apply_workflows.py"
+    )
     return (_workflow_scripts() | _followed_inputs(sources)) - GENERAL_SCANS
 
 
@@ -178,3 +181,31 @@ def test_mudanca_isolada_do_kernel_dispara_push_e_pr(tmp_path, monkeypatch, chan
     runner._merge_commit(tmp_path / "repo", changed)
     result = runner._detected(tmp_path / "repo", "pull_request", tmp_path / "saida")
     assert (_covered(changed, patterns), result) == (expected, "infra=" + str(expected).lower())
+
+
+def test_varredura_inclui_entrypoints_reais_de_plan_apply() -> None:
+    assert {
+        ".github/workflows/infra-plan.yml",
+        ".github/workflows/infra-apply.yml",
+        "release/plan-apply-evidence.schema.json",
+        "release/build_candidate.py",
+        "scripts/promotion/verify_plan_artifact.py",
+        "tests/production/delivery/_plan_apply_fixtures.py",
+    } <= _gate_inputs()
+
+
+@pytest.mark.parametrize("changed", [
+    ".github/workflows/infra-plan.yml", ".github/workflows/infra-apply.yml",
+    "release/plan-apply-evidence.schema.json", "release/build_candidate.py",
+    "tests/production/delivery/test_plan_apply_workflows.py",
+    "tests/production/delivery/_plan_apply_fixtures.py",
+])
+def test_mudanca_isolada_de_plan_apply_dispara_detector_real(tmp_path, monkeypatch, changed):
+    from tests.scripts import test_ci_opentofu_runner as runner
+
+    monkeypatch.setattr(runner, "_WORKFLOW", WORKFLOW)
+    runner._merge_commit(tmp_path / "repo", changed)
+    assert _covered(changed, _trigger_paths())
+    for job in ("opentofu-native", "opentofu-floor"):
+        monkeypatch.setattr(runner, "_NATIVE", job)
+        assert runner._detected(tmp_path / "repo", "pull_request", tmp_path / job) == "infra=true"

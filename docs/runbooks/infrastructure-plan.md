@@ -57,24 +57,110 @@ ruleset de `develop` é decisão separada.
 
 ## Antes de qualquer apply (pré-apply)
 
-A raiz recebe a revisão dos schedules por variável (`scheduler_recovery_task_definition_arn` e
-`scheduler_audit_task_definition_arn`). Essa revisão não é imposta no plan mockado; regra rego
-sobre plan real (ARN do schedule entre os ARNs de task definition do processing em
-`prior_state`/`planned_values`) fica como follow-up. Até lá, conferir à mão:
+A entrega usa `infra-plan.yml` e `infra-apply.yml`, ambos somente `workflow_dispatch`
+em `develop`. Nenhum merge aplica infraestrutura. O source informado deve ser o SHA
+exato da execução, contido em develop, com os dez checks obrigatórios verdes no próprio
+SHA. O registro dos dois YAMLs na default main é um PR mínimo posterior ao Código verde,
+com bytes/pins idênticos, auditoria e CI de main; não é autorização para executar em main
+nem para habilitar Deploy develop.
 
-1. Ler a saída `processor_task_definition_arns` do state aplicado.
-2. Confirmar que as duas variáveis são exatamente as revisões `recovery` e `audit` dessa saída.
-3. Registrar a conferência (sem ARN completo) na evidência do apply.
+O Draft de #468 está fechado no CLI enquanto faltar pin integrado/auditado/verde de
+P1/P2. O pin base EXT1 `99fc0e4805b96fbca7df06440d5ea3ad42e53369` é real, mas não
+comprova essas duas conferências. Proposta/HEAD de PR não substitui o pin final. Antes
+de liberar execução, atualizar em conjunto os dois callers e a constante de produtor,
+reauditar e conferir schema/contratos atuais; nenhum SHA futuro deve ser antecipado.
 
-O CloudFront recusa certificado ACM que não esteja `ISSUED`, e `aws_acm_certificate.static_web` só
-emite depois da validação por DNS. O primeiro apply tem duas fases:
+### Entradas e admissão
 
-1. Aplicar só o certificado e publicar os registros da saída `acm_dns_validation_records`.
-2. Confirmar o status `ISSUED`, e só então aplicar a distribuição que usa o ARN.
+- Plan: `expected_source_sha`, `purpose`, `request_descriptor`,
+  `request_descriptor_sha256`. Phase A exige também `phase_inputs_run_id`,
+  `phase_inputs_artifact_id`, `phase_inputs_artifact_digest` autenticados da #469.
+- Apply: os mesmos campos mais `plan_run_id`, `artifact_id`, `artifact_digest` do índice
+  planned. Em Phase A, o transporte dos inputs deve coincidir com a referência original
+  do proof planned; não pode substituir os inputs no apply.
+- Purpose fechado: `acm-certificate`, `bootstrap`, `phase-a`. Não existem inputs de
+  role, backend, target, URL, tfvars arbitrário, lock ou destroy.
 
-`certificate_domain_validated` segue `false` até a validação do domínio. Ligar depois dela aplica o
-HSTS, que o navegador memoriza: reverter não tem efeito imediato. A ordem do apply é da Task 3 do
-plano delivery, e o HSTS é da Task 11.
+O descriptor canônico contém repository/source, pins imutáveis, seis referências de
+baseline (backend, cost, drift, policy, shared-outputs, toolchain) e payload específico.
+Seu SHA-256 cobre os bytes UTF-8 canônicos, inclusive um único LF final. Referências
+trazem repository, workflow path/SHA, run/attempt e artifact ID/digest separados.
+Metadados reais e bytes externos são autenticados; Artifact REST não possui run_attempt.
+Created_at deve ficar estritamente dentro do intervalo do attempt autenticado: bordas
+inteiras ambíguas falham fechadas. Não escolher latest, confiar em nome ou em hash declarado.
+
+O job admit não acessa AWS. O reusable fixado repete a admissão pública completa contra
+allowlists/provas originais governadas antes de OIDC e compara os bytes privados depois
+da credencial temporária, antes de qualquer mutação. São oito inputs e quatro outputs
+`evidence_*`, sem secrets:inherit. Roles plan/deploy distintas vêm do fragmento de dois
+ARNs github do shared_outputs v2; o fragmento não é um objeto v2 completo. Governance e
+transporte privado pertencem aos produtores; os 43 fatos ausentes não viram exemplos ready.
+
+### Plan, checkpoint e apply exatos
+
+O único schema proprietário é `release/plan-apply-evidence.schema.json`. A3 planned e
+applied são instâncias imutáveis distintas do mesmo modelo; applied repete o plan e
+seu binding. Identidade externa do artifact e digest ZIP ficam fora do envelope. O
+aggregate cobre a lista de arquivos de conteúdo, sem envelope/selfhash. Binário, JSON,
+inputs gerados, fontes, dependências, lock/providers, backend, policy/cost/drift e validade
+ficam vinculados. O índice GitHub é só transporte sanitizado; binário, state, ARNs e
+reports integrais permanecem privados no canal governado, nunca em artifact público.
+
+Antes do apply, o produtor exige scheduler recovery/audit resolvidos do binário iguais
+às revisões recovery/audit de processor_task_definition_arns do state anterior. Não usar
+o candidate pós-apply para antecipar rotas. Mapa parcial/unknown ou divergência falha;
+ausência/{} só no estágio inicial comprovado com inputs null. Retry concluído apenas lê
+e verifica, sem novo apply. O diagnóstico público registra resultado/commitments, sem ARN.
+
+Capturar VersionId real, ETag comprometido, lineage, serial e hash do state sob lease;
+comparar o checkpoint planned autenticado ao estado atual antes do exact apply e guardar
+checkpoint pós-operação. Mesmos bytes não provam mesma versão. State realmente ausente
+é distinto de metadata ausente em objeto existente. Restore por versão é operação manual
+auditada do owner/backend, não privilégio novo do produto nem recuperação de dados de
+aplicação. Dados dos protótipos são descartáveis; state compartilhado, proveniência,
+identidade/isolamento e recuperação de infraestrutura continuam protegidos.
+
+Lease S3 CAS e .tflock nativo são controles distintos; ambos permanecem ativos. Validade
+máxima do plan: 3600s e menor expiração dos insumos. Admitir execução só com margem de
+1980s; até 1800s para execução, 15s para término comprovado e 45s compartilhados para
+finalização/readback, antes de expirar menos 120s. Falha/ambiguidade exige recovery revisado;
+não replan, takeover por TTL, -lock=false, destroy ou restauração automática. O apply
+executa exclusivamente o binário auditado e verifica state/drift/publicação ao final.
+
+### Ordem inicial e fases posteriores
+
+1. Par plan/apply acm-certificate: seleção interna fixa aws_acm_certificate.static_web
+   apenas na geração do plan; apply nunca recebe target. Publicar o CNAME observado do
+   apex pelo handoff privado/redigido. PENDING_VALIDATION não significa ISSUED.
+2. #476 Produção 1 publica DNS pelo owner EXT4 e confirma ISSUED do MESMO certificado.
+3. Par plan/apply bootstrap normal do restante da raiz: image/active/release/principal
+   nulos, retained vazio, canary storage false e sem state machine/Schedulers. Exigir
+   distribuição Deployed, vínculo WAF/certificado e invariantes observados. Não emitir
+   novo bootstrap para resetar release estabelecida. Sem DNS ou waiter no grafo do produto.
+4. #476 Produção 2 comprova assinatura CloudFront Free ACTIVE da distribuição/WAF exatas
+   antes do corte. Só então remover o bloqueio de ativação em seu PR governado.
+5. Phase A transporta a allowlist #469, sem publicar ECR/registrar ECS por fora do plan;
+   #472 Código/freeze e demais gates continuam exigidos antes da operação real.
+
+Custos brutos: produto <=USD8, agregado <USD15 (15 congela), Actions pagos USD0.
+PRE só inicial e monotônico, com activation/DNS/workloads blocked comprovados e projeção
+unbound CF/WAF/KMS/evidence/requests/versões. Phase A, pós-P2 e cutover exigem ACTIVE real,
+sem créditos, Free Tier da conta, evidência de outro app ou fallback pago. Manifest e
+report financeiro são separados e não incluem seus próprios hashes.
+
+Inputs/artefatos/credenciais e recuperação devem estar prontos antes do fence. Cada plan
+B/C é gerado contra o checkpoint REAL precedente e auditado antes de seu exact apply;
+nenhum C stale/serial pré-calculado/replan no apply. Propósitos B/C exigem amendment
+próprio, não reutilizam phase-a. A janela permanece close confirmado → reopen verificado
+<=1800s; GC/rollback estático/CSP ficam fora dela. IAM D1-A é readback/evaluation, não
+propagação ou execução real; canaries/saúde/isolamento e aceites de Produção permanecem.
+
+Antes de qualquer operação são necessários EXT1/5/6 reais, catálogo/allowlists, backend/
+versões/locks/restore, canal EXT2, OIDC/roles efetivas e demais handoffs. LimnoPulse é
+aceito primeiro e recebe smoke antes/depois de mudança compartilhada. Código ou fixtures
+não concedem Ready/Produção. certificate_domain_validated segue false até a validação;
+ligá-lo depois aplica HSTS e pertence à #476. IAM demo #481 exige amendment próprio,
+sem ampliar canary_seeder ou os inventários fechados 0 ACM/9 bootstrap/7 Phase A.
 
 ## Capability checks em AWS real
 
