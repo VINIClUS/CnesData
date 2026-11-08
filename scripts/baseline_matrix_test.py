@@ -14,7 +14,7 @@ from scripts import baseline_matrix
 from scripts.baseline_matrix import SuiteResult
 
 APPROVED_SHA = "8a2d3a4cbce85e87e31dc4769aab2a7a2b4bf7b2"
-MISSING_MODULE = "cnes_data.storage.repositories.estabelecimento_repo"
+MISSING_MODULE = "cnes_infra.storage.repositories.estabelecimento_repo"
 AFFECTED_PATHS = [
     "tests/perf/macro/test_data_processor_e2e.py",
     "tests/perf/micro/test_upsert_bench.py",
@@ -27,7 +27,7 @@ CANONICAL_BYTES = (
     b'"tests/perf/micro/test_upsert_bench.py","tests/perf/soak/test_upsert_soak.py",'
     b'"tests/perf/spike/test_upsert_spike.py","tests/perf/stress/test_upsert_stress.py"],'
     b'"exception":"ModuleNotFoundError",'
-    b'"module":"cnes_data.storage.repositories.estabelecimento_repo"}'
+    b'"module":"cnes_infra.storage.repositories.estabelecimento_repo"}'
 )
 CANONICAL_DIGEST = "b4b22c61c271c1cf5c4e129644b21a774960901fc3fee3be2bd837f502ae623f"
 canonical_failure_document = vars(baseline_matrix)["_canonical_failure_document"]
@@ -143,7 +143,7 @@ def test_registra_waiver_aprovado_no_sha_e_codigo_exatos(
     assert suite["waiver"] == {
         "failure": (
             "ModuleNotFoundError: No module named "
-            "'cnes_data.storage.repositories.estabelecimento_repo' during collection of "
+            "'cnes_infra.storage.repositories.estabelecimento_repo' during collection of "
             "tests/perf/{macro,micro,soak,spike,stress}"
         ),
         "expected_exit_code": 2,
@@ -230,7 +230,7 @@ def test_rejeita_waiver_com_fingerprint_valido_e_exit_code_diferente(exit_code: 
     "output",
     [
         _missing_module_output(exception="AssertionError"),
-        _missing_module_output(module="cnes_data.storage.repositories.outra"),
+        _missing_module_output(module="cnes_infra.storage.repositories.outra"),
         "",
     ],
 )

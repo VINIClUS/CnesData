@@ -137,7 +137,7 @@ Integrações e imagens no CI. Go: apps/dump_agent_go/CLAUDE.md.
 | `packages/cnes_runtime/` | library | Configuração compartilhada e composição AWS |
 | `apps/central_api/` | FastAPI | Job orchestration, presigned URLs, health |
 | `apps/billing_worker/` | CLI | Ciclos agendados de billing |
-| `apps/data_processor/` | worker | Parquet → transform → Postgres Gold (CNES + SIHD + BPA + SIA adapters) |
+| `apps/data_processor/` | worker | Parquet → transformações → artefatos/serving (CNES, SIHD, BPA e SIA) |
 | `apps/dump_agent_go/` | edge agent | Go edge extractor (CNES FB + SIHD + BPA GDB + SIA DBF) |
 | `apps/cnes_db_migrator/` | init-container | Alembic `upgrade head` |
 | `apps/web_dashboard/` | SPA (Bun/React) | Dashboard, OIDC, ativação de agentes |
