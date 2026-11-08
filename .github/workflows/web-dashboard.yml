@@ -1,6 +1,7 @@
 name: web-dashboard CI
 
 on:
+  workflow_dispatch:
   pull_request:
     paths:
       - 'apps/web_dashboard/**'

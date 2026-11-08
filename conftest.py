@@ -16,4 +16,33 @@ def assert_query_limit():
     return _check
 
 
-__all__ = ["assert_query_limit"]
+@pytest.fixture(scope="session")
+def pg_engine():
+    """Disponibiliza Postgres sob demanda para testes de integração."""
+    import os
+
+    from alembic import command
+    from alembic.config import Config
+    from sqlalchemy import create_engine, text
+
+    url = os.getenv(
+        "PG_TEST_URL",
+        "postgresql+psycopg://cnesdata:cnesdata_test@localhost:5433/cnesdata_test",
+    )
+    engine = create_engine(url)
+    try:
+        try:
+            with engine.connect() as connection:
+                connection.execute(text("SELECT 1"))
+        except Exception:
+            pytest.skip("postgres_unavailable configure=PG_TEST_URL")
+        config = Config()
+        config.set_main_option("script_location", "cnes_data:alembic")
+        config.set_main_option("sqlalchemy.url", url)
+        command.upgrade(config, "head")
+        yield engine
+    finally:
+        engine.dispose()
+
+
+__all__ = ["assert_query_limit", "pg_engine"]
