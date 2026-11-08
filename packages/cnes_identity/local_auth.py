@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hmac
 import logging
+from abc import abstractmethod
 from dataclasses import dataclass, field
 from datetime import timedelta
 from enum import StrEnum
@@ -62,12 +63,16 @@ class AuthenticatedPrincipal:
 
 
 class _MembershipReader(Protocol):
-    def get_membership(self, tenant_id: str, user_id: str) -> Membership | None: ...
+    @abstractmethod
+    def get_membership(self, tenant_id: str, user_id: str) -> Membership | None:
+        raise NotImplementedError
 
 
 class _TenantProfile(Protocol):
     @property
-    def tenant_id(self) -> str | None: ...
+    @abstractmethod
+    def tenant_id(self) -> str | None:
+        raise NotImplementedError
 
 
 @dataclass(frozen=True, slots=True)

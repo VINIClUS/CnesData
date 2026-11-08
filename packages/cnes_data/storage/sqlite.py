@@ -1,11 +1,16 @@
 """Protocolo de conexões e transações SQLite compartilhadas."""
 
 import sqlite3
+from abc import abstractmethod
 from contextlib import AbstractContextManager
 from typing import Protocol
 
 
 class SQLiteConnectionsPort(Protocol):
-    def read_connection(self) -> AbstractContextManager[sqlite3.Connection]: ...
+    @abstractmethod
+    def read_connection(self) -> AbstractContextManager[sqlite3.Connection]:
+        raise NotImplementedError
 
-    def write_transaction(self) -> AbstractContextManager[sqlite3.Connection]: ...
+    @abstractmethod
+    def write_transaction(self) -> AbstractContextManager[sqlite3.Connection]:
+        raise NotImplementedError
