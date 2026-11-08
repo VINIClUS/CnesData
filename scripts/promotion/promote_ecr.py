@@ -416,6 +416,22 @@ def promote_candidate(reference: Node, api: Any, registry: Any, governed: Node) 
     }
 
 
+def verify_promotion_receipt(promotion: Node, governed: Node) -> None:
+    """Raises: ValueError quando o recibo diverge da imagem do candidato autenticado."""
+    candidate = promotion["candidate"]
+    digest = candidate["images"]["data_processor"]["image"].rsplit("@", 1)[-1]
+    repository = candidate["expected_ecr_repository"]
+    destination = (
+        f"{governed['account_id']}.dkr.ecr.{governed['region']}.amazonaws.com/{repository}"
+    )
+    require(
+        bool(re.fullmatch(r"sha256:[0-9a-f]{64}", digest))
+        and promotion.get("image_digest") == digest
+        and promotion.get("ecr_image") == destination + "@" + digest,
+        "promotion=image_binding",
+    )
+
+
 def _destination_blobs(registry: Any, blobs: list[tuple[str, Path]], directory: Path) -> None:
     for index, (digest, source) in enumerate(blobs):
         target = directory / f"ecr-{index}"

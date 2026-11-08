@@ -37,6 +37,7 @@ from scripts.promotion.promote_ecr import (
     promote_candidate,
     sha256,
     verify_promoted_image,
+    verify_promotion_receipt,
 )
 from scripts.promotion.verify_task_revisions import (
     _prove_iam,
@@ -298,6 +299,7 @@ def _prior_artifacts(items: list[Node], api: Any, governed: Node) -> None:
 
 def prepare_inputs(promotion: Node, baseline: Node, governed: Node) -> Node:
     """Returns: somente os seis inputs Phase A; active e retained anteriores são preservados."""
+    verify_promotion_receipt(promotion, governed)
     candidate = promotion["candidate"]
     binding = canary_binding(candidate, sha256(canonical(candidate)))
     require(
@@ -470,6 +472,7 @@ def _verify_promotion(promotion: Node, api: Any, governed: Node) -> None:
         and authenticated_scan(verified, api) == promotion["scan"],
         "recovery_required=provenance",
     )
+    verify_promotion_receipt(promotion, governed)
     context = {
         key: promotion["candidate"][key]
         for key in ("repository", "source_sha", "release_id", "expected_ecr_repository")
