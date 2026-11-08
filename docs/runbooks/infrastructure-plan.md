@@ -116,9 +116,16 @@ Procedimento e matriz de divergências em `docs/runbooks/floci-and-aws-capabilit
 - Aprovação: dono, depois do primeiro apply da role `step-functions` e somente quando o
   controller abrir o handoff real. A execução é real, com o principal/contexto governado,
   e não pode ser usada para antecipar assinatura, alterar trust/rota ou criar máquina.
-- Retenção mínima, procedimento, evidência e limpeza seguem o gate operacional futuro; o
-  runbook não autoriza execução neste PR. Canaries e gates reais das Phases B/C permanecem
-  obrigatórios antes do aceite de Produção.
+  Este check posterior é acompanhado pelas issues operacionais #473 (dispatcher/host),
+  #474 (capability IAM/runtime) e #476 (aceite de Produção).
+- Retenção mínima: uma execução real da state machine de teste; apagar a execução ao fim.
+- Procedimento: `aws stepfunctions start-execution` com entrada mínima válida, conferindo
+  `ecs:RunTask` somente na revisão ativa e `iam:PassRole` recusando outra role. Usar o
+  principal, state machine e revisão governados pelo handoff; não inventar trust, máquina,
+  rota ou principal alternativo.
+- Evidência: status da execução e códigos de erro das negações, sem ARNs, segredos ou state.
+- Limpeza: `aws stepfunctions stop-execution` se houver execução aberta; sem recurso novo.
+  Canaries e gates reais das Phases B/C permanecem obrigatórios antes do aceite de Produção.
 
 #### Digest exato no ECR
 

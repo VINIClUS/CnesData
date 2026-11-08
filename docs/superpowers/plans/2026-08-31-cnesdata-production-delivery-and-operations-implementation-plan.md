@@ -28,8 +28,10 @@ contracts from docs/superpowers/specs/2026-08-29-cnesdata-production-deployment-
 production obligations to Tasks 3, 4, 8, 10 and 11, listed in its "Transferências para o plano
 delivery" table. They bind those tasks together with the text below.
 
-**Phase A contract precedence:** [2026-11-07 amendment](../specs/2026-11-07-phase-a-contract-amendment.md)
-governs A1–A5, canary identity, retained handoff, artifact hashing and D1-A evidence. It is
+**Phase A contract precedence:**
+[2026-11-07 amendment](../specs/2026-11-07-phase-a-contract-amendment.md) governs A1–A5,
+canary identity, retained handoff, artifact hashing and D1-A evidence.
+It is
 document-only in this plan revision: #468 remains owner of the future plan/apply schema and
 producer; #469 validates consumed fields and compatibility before Production. No workflow or
 schema path is created by this note.
@@ -64,7 +66,8 @@ Code integration does not satisfy production acceptance. No merge deploys or app
 - Candidate release is one green develop SHA. Mutable tags are never authority.
 - Candidate manifest contains processor GHCR digest and expected ECR repository but no ECR promoted
   digest or ECS revision ARN.
-- Activation manifest is signed only after Phase A and its typed IAM readbacks, and binds candidate SHA-256, release/source IDs,
+- Activation manifest is signed only after Phase A and its typed IAM readbacks, and binds
+  candidate SHA-256, release/source IDs,
   verified ECR_URI@sha256, exact unit/recovery/audit revisions and Phase A evidence.
 - Plan/apply are separate workflow_dispatch operations; apply verifies one unexpired binary plan and
   never replans.
