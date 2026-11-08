@@ -14,7 +14,7 @@ def _application():
     context["fingerprint_addresses"] = {
         key: [] for key in ("resource_fingerprints", "grant_fingerprints", "route_fingerprints")
     }
-    state = _bytes({"lineage": "synthetic-lineage", "serial": 1, "outputs": outputs}) + b"\n"
+    state = _synthetic_state(outputs)
     applied = _synthetic_apply(context, plan, outputs, state)
     binding_hash = _digest(_bytes(plan) + b"\n")[7:]
     planned = {
@@ -186,7 +186,7 @@ def _synthetic_plan(context, files):
             "configuration": context["backend"],
             "identity_sha256": _digest(_bytes(context["backend"]) + b"\n")[7:],
         },
-        "state_before": {"lineage": None, "serial": None, "state_sha256": None},
+        "state_before": dict.fromkeys(("lineage", "serial", "state_sha256")),
         "policy": {
             "verdict": "pass",
             "evidence_sha256": proof,
@@ -278,6 +278,12 @@ def _synthetic_outputs(release):
 
 def _synthetic_apply(context, plan, outputs, state):
     proof = context["report_sha256"]
+    state_metadata = {
+        key: value for key, value in json.loads(state).items() if key in ("lineage", "serial")
+    }
+    state_metadata.update(
+        state_sha256=_digest(state)[7:], outputs_sha256=_digest(_bytes(outputs) + b"\n")[7:]
+    )
     return {
         "producer": {
             "workflow_path": "synthetic-apply",
@@ -306,12 +312,7 @@ def _synthetic_apply(context, plan, outputs, state):
             "credential_expires_at": "2026-11-07T22:00:00Z",
             "evidence_sha256": proof,
         },
-        "state_after": {
-            "lineage": "synthetic-lineage",
-            "serial": 1,
-            "state_sha256": _digest(state)[7:],
-            "outputs_sha256": _digest(_bytes(outputs) + b"\n")[7:],
-        },
+        "state_after": state_metadata,
         "drift": {
             "verdict": "clean",
             "evidence_sha256": proof,
@@ -436,3 +437,9 @@ def _apply_lease(context, proof):
         "evidence_sha256": proof,
         "terminal_status": "released",
     }
+
+
+def _synthetic_state(outputs):
+    state = {"outputs": outputs}
+    state.update(lineage="synthetic-lineage", serial=1)
+    return _bytes(state) + b"\n"

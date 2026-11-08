@@ -10,6 +10,7 @@ from tests.production.delivery._phase_a_application_fixtures import (
     _public_index,
     _synthetic_apply,
     _synthetic_plan,
+    _synthetic_state,
 )
 from tests.production.delivery._phase_a_fixtures import (
     ACCOUNT,
@@ -129,9 +130,7 @@ def _runtime_bundle(promotion):
     resources, roles = _runtime_resources(promotion, outputs)
     changes, plan_json, source, approved = _runtime_graph(resources, governed, outputs)
     plan = _runtime_saved_plan(bundle, governed, plan_json, approved)
-    bundle["state_after"] = (
-        _bytes({"lineage": "synthetic-lineage", "serial": 1, "outputs": outputs}) + b"\n"
-    )
+    bundle["state_after"] = _synthetic_state(outputs)
     applied = {
         "schema_version": 1,
         "status": "applied",
