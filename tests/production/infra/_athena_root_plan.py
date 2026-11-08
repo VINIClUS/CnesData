@@ -64,21 +64,29 @@ CANARY_ROLES = (
 def _canary_overrides() -> list[Node]:
     table = f"arn:aws:dynamodb:us-east-2:{ACCOUNT}:table/{PREFIX}-canary"
     bucket = f"arn:aws:s3:::{PREFIX}-canary"
-    return [
-        {
-            "address": "module.processing.aws_dynamodb_table.canary[0]",
-            "fields": {"arn": {"value": table}},
-        },
-        {
-            "address": "module.processing.aws_s3_bucket.canary[0]",
-            "fields": {"arn": {"value": bucket}},
-        },
-        {
-            "address": 'module.processing.aws_ecs_task_definition.processor["audit"]',
-            "fields": {"arn": {"value": REVISION % ("audit", 17)}},
-        },
-        CLUSTER_OVERRIDE,
+    identities = [
+        ("module.processing.aws_dynamodb_table.canary[0]", table),
+        ("module.processing.aws_s3_bucket.canary[0]", bucket),
+        (
+            "aws_cloudwatch_log_group.processor",
+            f"arn:aws:logs:us-east-2:{ACCOUNT}:log-group:/ecs/{PREFIX}-processor:*",
+        ),
+        (
+            "module.processor_registry.aws_ecr_repository.this",
+            f"arn:aws:ecr:us-east-2:{ACCOUNT}:repository/{PREFIX}-processor",
+        ),
+        (
+            "module.control_plane.aws_dynamodb_table.control_plane",
+            f"arn:aws:dynamodb:us-east-2:{ACCOUNT}:table/{PREFIX}-control-plane",
+        ),
     ]
+    identities += [
+        (f'module.processing.aws_ecs_task_definition.processor["{mode}"]', REVISION % (mode, 17))
+        for mode in ("unit", "recovery", "audit")
+    ]
+    return [
+        {"address": address, "fields": {"arn": {"value": arn}}} for address, arn in identities
+    ] + [CLUSTER_OVERRIDE]
 
 
 def _canary_role_seeds(artifacts: Node) -> list[Node]:

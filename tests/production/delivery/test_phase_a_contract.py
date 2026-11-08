@@ -21,7 +21,6 @@ from tests.production.delivery._phase_a_fixtures import (
     _candidate_reference,
     _creator_pin,
     _digest,
-    _graph,
 )
 from tests.production.delivery._phase_a_runtime_fixtures import (
     RuntimeBoundary,
@@ -170,11 +169,13 @@ def test_phase_a_exige_custo_active_sem_selfhash_ou_fallback(mutation):
     "mutation", [None, "expression", "producer", "before", "source", "role_name"]
 )
 def test_unknown_iam_exige_grafo_e_fonte_independentes(role_only, mutation):
-    from scripts.promotion._phase_a_graph import validate_graph
+    from scripts.promotion.phase_a import review_phase_a_plan
+    from tests.production.delivery._phase_a_symbolic_fixtures import symbolic_phase_a
 
-    plan, approved, files = _graph(role_only)
+    plan, context, _, _ = symbolic_phase_a("verifier" if role_only else "seeder")
+    approved, files = context["approved_graph"], context["source_files"]
     if mutation == "expression":
-        module = "runtime_iam" if role_only else "processing"
+        module = "processing" if role_only else "runtime_iam"
         plan["configuration"]["root_module"]["module_calls"][module]["module"]["resources"][0][
             "expressions"
         ]["policy"]["references"] = ["var.arbitrary_role"]
@@ -187,11 +188,11 @@ def test_unknown_iam_exige_grafo_e_fonte_independentes(role_only, mutation):
     elif mutation == "role_name":
         plan["resource_changes"][0]["change"]["after_unknown"]["name"] = True
     if mutation is None:
-        proof = validate_graph(plan, approved, files)
+        proof = review_phase_a_plan(plan, context)
         assert proof["governance_sha256"] == _digest(_bytes(approved) + b"\n")[7:]
     else:
         with pytest.raises(ValueError):
-            validate_graph(plan, approved, files)
+            review_phase_a_plan(plan, context)
 
 
 def test_codec_interrompe_orcamento_utf8_antes_de_expandir_strings():
@@ -352,3 +353,145 @@ def test_fingerprint_normaliza_json_e_recusa_chaves_duplicadas():
     )
     with pytest.raises(ValueError):
         resource_fingerprint("role", {"policy": '{"a":1,"a":1}'})
+
+
+def _expected_symbolic_policy(kind):
+    resource = (
+        f"arn:aws:dynamodb:{REGION}:{ACCOUNT}:table/cnesdata-prod-canary"
+        if kind == "seeder"
+        else f"arn:aws:ecs:{REGION}:{ACCOUNT}:task-definition/cnesdata-prod-processor-audit:2"
+    )
+    condition = (
+        {
+            "ForAllValues:StringEquals": {"dynamodb:LeadingKeys": ["TENANT#_GLOBAL"]},
+            "Null": {"dynamodb:LeadingKeys": "false"},
+        }
+        if kind == "seeder"
+        else {
+            "ArnEquals": {
+                "ecs:cluster": f"arn:aws:ecs:{REGION}:{ACCOUNT}:cluster/cnesdata-prod-processor"
+            }
+        }
+    )
+    return {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": "dynamodb:PutItem" if kind == "seeder" else "ecs:RunTask",
+                "Resource": resource,
+                "Condition": condition,
+            }
+        ],
+    }
+
+
+def _alter_symbolic_policy(policy, mutation):
+    part, operation = mutation.split("-")
+    statement = policy["Statement"][0]
+    if part == "statement":
+        policy["Statement"] = (
+            []
+            if operation == "drop"
+            else policy["Statement"]
+            + [{"Effect": "Allow", "Action": "iam:CreateUser", "Resource": "*"}]
+        )
+    elif part in {"action", "resource"}:
+        field = part.title()
+        statement[field] = [] if operation == "drop" else [statement[field], "*"]
+    elif operation == "drop":
+        statement.pop("Condition")
+    else:
+        statement["Condition"]["StringLike"] = {"aws:PrincipalArn": "*"}
+
+
+@pytest.mark.parametrize("kind", ["seeder", "verifier"])
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        None,
+        "statement-add",
+        "statement-drop",
+        "action-add",
+        "action-drop",
+        "resource-add",
+        "resource-drop",
+        "condition-add",
+        "condition-drop",
+        "state-add",
+    ],
+)
+def test_unknown_policy_resolve_grants_integrais_da_fonte_sem_widening(kind, mutation):
+    from scripts.promotion.phase_a import review_phase_a_plan, verify_delta
+    from tests.production.delivery._phase_a_symbolic_fixtures import (
+        symbolic_phase_a,
+        symbolic_state,
+    )
+
+    plan, context, observed, address = symbolic_phase_a(kind)
+    policy = _expected_symbolic_policy(kind)
+    proof = review_phase_a_plan(plan, context)
+    if mutation and mutation != "state-add":
+        _alter_symbolic_policy(policy, mutation)
+    observed[address]["policy"] = json.dumps(policy)
+    after = context | {"graph_proof": proof, "readback_resources": observed}
+    if mutation is None or mutation == "state-add":
+        verify_delta(plan, after)
+        state = symbolic_state(observed)
+        if mutation == "state-add":
+            row = next(row for row in state["resources"] if row["type"] == "aws_iam_role_policy")
+            changed = json.loads(row["instances"][0]["attributes"]["policy"])
+            _alter_symbolic_policy(changed, "statement-add")
+            row["instances"][0]["attributes"]["policy"] = json.dumps(changed)
+            with pytest.raises(ValueError, match="iam=resolved_policy"):
+                context["iam_resolver"].verify_state(state)
+        else:
+            context["iam_resolver"].verify_state(state)
+    else:
+        with pytest.raises(ValueError):
+            verify_delta(plan, after)
+
+
+@pytest.mark.parametrize("binding", ["input", "output", "producer"])
+def test_resolver_exige_binding_real_e_readback_do_producer_canonico(binding):
+    from scripts.promotion._iam_source import SourceResolver
+    from scripts.promotion.phase_a import review_phase_a_plan, verify_delta
+    from tests.production.delivery._phase_a_symbolic_fixtures import symbolic_phase_a
+
+    plan, context, observed, address = symbolic_phase_a("verifier")
+    observed[address]["policy"] = json.dumps(_expected_symbolic_policy("verifier"))
+    if binding == "producer":
+        proof = review_phase_a_plan(plan, context)
+        observed.pop("module.runtime_iam.aws_iam_role.canary_verifier[0]")
+        with pytest.raises(ValueError):
+            verify_delta(plan, context | {"graph_proof": proof, "readback_resources": observed})
+    else:
+        calls = plan["configuration"]["root_module"]["module_calls"]
+        node = (
+            calls["processing"]["expressions"]["canary_verifier_role_id"]
+            if binding == "input"
+            else calls["runtime_iam"]["module"]["outputs"]["canary_verifier_role_id"]["expression"]
+        )
+        node["references"] = ["aws_iam_role.canary_task"]
+        with pytest.raises(ValueError, match="iam=source_configuration_expression"):
+            SourceResolver(plan, context["source_files"], context).precheck(address)
+
+
+def test_loader_aceita_state_integral_maior_que_documento_normal(github):
+    from scripts.promotion import phase_a
+    from scripts.promotion._canonical import DOCUMENT_LIMIT, STATE_LIMIT, parse_document
+    from tests.production.delivery._phase_a_symbolic_fixtures import (
+        symbolic_phase_a,
+        symbolic_readback_boundary,
+    )
+
+    plan, context, observed, address = symbolic_phase_a()
+    observed[address]["policy"] = json.dumps(_expected_symbolic_policy("seeder"))
+    proof = phase_a.review_phase_a_plan(plan, context)
+    result, bundle, governed = symbolic_readback_boundary(github, (plan, context, observed), proof)
+    assert DOCUMENT_LIMIT < len(bundle["state_after"]) < 128 * 1024**2
+    with pytest.raises(ValueError, match="json=size"):
+        parse_document(bundle["state_after"])
+    phase_a._verify_resource_readbacks(result, bundle, github, governed)
+    with pytest.raises(ValueError, match="state=readback_size"):
+        phase_a._state_readback_size(STATE_LIMIT + 1)

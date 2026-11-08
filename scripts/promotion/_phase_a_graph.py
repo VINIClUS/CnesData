@@ -8,6 +8,7 @@ from typing import Any
 
 from release.verify_candidate import require
 from scripts.promotion._canonical import STATE_LIMIT, canonical_bytes, decode_json, object_hash
+from scripts.promotion._iam_source import SourceResolver
 from scripts.promotion._plan_contract import closed
 from scripts.promotion.verify_task_revisions import verify_role_producer
 
@@ -21,7 +22,8 @@ def _configuration(module: Node, prefix: str = "") -> Node:
     return result
 
 
-def _policy_witness(resource: Node, witness: Node, expressions: Node, changes: Node) -> None:
+def _policy_witness(resource: Node, witness: Node, expressions: Node, scope: Node) -> None:
+    changes = scope["changes"]
     closed(witness, "address references producers before_policy_sha256")
     require(
         sorted(set(expressions["policy"]["references"])) == witness["references"]
@@ -50,11 +52,15 @@ def _policy_witness(resource: Node, witness: Node, expressions: Node, changes: N
     before = change.get("before")
     previous = object_hash(decode_json(before["policy"].encode())) if before else None
     require(previous == witness["before_policy_sha256"], "graph=before_grants")
+    resolver = scope["resolver"]
+    if not isinstance(resolver, SourceResolver):
+        raise ValueError("iam=resolver_missing")
+    require(resolver.precheck(address) == set(witness["producers"]), "iam=source_producers")
     if change["after_unknown"].get("role") is True:
-        verify_role_producer(address, expressions, witness, changes)
+        verify_role_producer(address, expressions | {"source_resolver": resolver}, witness, changes)
 
 
-def validate_graph(plan: Node, approved: Node, source_files: Node) -> Node:
+def validate_graph(plan: Node, approved: Node, source_files: Node, resolver: Any = None) -> Node:
     """Returns: prova de fonte/configuração independente para IAM conhecido e simbólico."""
     closed(approved, "source_files configuration_sha256 unknown_policies known_policies")
     _validate_source_files(approved, source_files)
@@ -79,19 +85,16 @@ def validate_graph(plan: Node, approved: Node, source_files: Node) -> Node:
         if item["type"] != "aws_iam_role_policy":
             continue
         change = item["change"]
-        unknown = change.get("after_unknown", {})
-        require(
-            not any(
-                value
-                for key, value in unknown.items()
-                if key not in {"id", "policy", "role", "name_prefix"}
-            ),
-            "graph=unknown_field",
-        )
+        unknown = _policy_unknown(change)
         if unknown.get("policy") is True or unknown.get("role") is True:
             require(address in witnesses, "graph=missing_witness")
             local = re.sub(r"\[[^]]+\]", "", address)
-            _policy_witness(item, witnesses[address], configuration[local]["expressions"], changes)
+            _policy_witness(
+                item,
+                witnesses[address],
+                configuration[local]["expressions"],
+                {"changes": changes, "resolver": resolver},
+            )
             seen.add(address)
         if unknown.get("policy") is True:
             require(change["after"].get("policy") is None, "graph=unknown_policy_value")
@@ -128,7 +131,7 @@ def redacted_plan(plan_json: Node, source_sha: str, json_sha256: str) -> Node:
     """Returns: vista pública sem values, outputs, ARNs ou chaves de instâncias."""
     changes = [
         {
-            "address_shape": re.sub(r"\[[^]]*\]", "[redacted]", item["address"]),
+            "address_shape": _redacted_address(item["address"]),
             "address_sha256": hashlib.sha256(item["address"].encode()).hexdigest(),
             "type": item["type"],
             "actions": item["change"]["actions"],
@@ -151,3 +154,68 @@ def redacted_plan(plan_json: Node, source_sha: str, json_sha256: str) -> Node:
         "redacted=private_value",
     )
     return value
+
+
+def review_graph(plan: Node, context: Node) -> Node:
+    unknown = any(
+        item["type"] == "aws_iam_role_policy"
+        and any(
+            item["change"].get("after_unknown", {}).get(key) is True for key in ("policy", "role")
+        )
+        for item in plan["resource_changes"]
+    )
+    resolver = SourceResolver(plan, context["source_files"], context) if unknown else None
+    if resolver is not None:
+        context["iam_resolver"] = resolver
+    return validate_graph(plan, context["approved_graph"], context["source_files"], resolver)
+
+
+def resolved_change(resource: Node, context: Node, unknown: set[str]) -> Node | None:
+    require("approved_graph" in context and "graph_proof" in context, "delta=graph_required")
+    require(
+        context["graph_proof"]
+        == context["approved_graph"]
+        | {"governance_sha256": object_hash(context["approved_graph"])},
+        "delta=graph_required",
+    )
+    require(unknown <= {"policy", "role"}, "delta=unknown_functional")
+    resolver = context.get("iam_resolver")
+    if not isinstance(resolver, SourceResolver):
+        raise ValueError("iam=resolver_missing")
+    if "readback_resources" not in context:
+        return None
+    if resolver.readbacks is None:
+        resolver.bind(context["readback_resources"])
+    address, change = resource["address"], resource["change"]
+    after = context["readback_resources"][address]
+    known = {
+        key: value
+        for key, value in change["after"].items()
+        if key not in unknown | {"arn", "id", "name_prefix", "tags_all"}
+    }
+    require(all(after.get(key) == value for key, value in known.items()), "delta=known_readback")
+    resolver.verify(address, after)
+    return after
+
+
+def _redacted_address(address: str) -> str:
+    pattern = r'\[(?:"(?:\\.|[^"\\])*"|[0-9]+)\]'
+    shape = re.sub(pattern, "[redacted]", address)
+    require(
+        bool(re.fullmatch(r"[A-Za-z0-9_.-]+(?:\[redacted\][A-Za-z0-9_.-]*)*", shape)),
+        "redacted=address_shape",
+    )
+    return shape
+
+
+def _policy_unknown(change: Node) -> Node:
+    unknown = change.get("after_unknown", {})
+    require(
+        not any(
+            value
+            for key, value in unknown.items()
+            if key not in {"id", "policy", "role", "name_prefix"}
+        ),
+        "graph=unknown_field",
+    )
+    return unknown

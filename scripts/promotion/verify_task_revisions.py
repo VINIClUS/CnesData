@@ -362,9 +362,14 @@ def wait_for_iam(readback: Any, clock: Clock, expected: Node) -> Node:
         interval = min(interval * 2, 10.0)
 
 
-def verify_role_producer(address: str, expression: Node, witness: Node, changes: Node) -> None:
+def verify_role_producer(address: str, expression: Node, witness: Node, changes: Node) -> str:
     """Raises: ValueError sem produtor canônico conhecido para role.id simbólico."""
     module = address.split(".aws_iam_role_policy.", maxsplit=1)[0]
+    resolver = expression.get("source_resolver")
+    if resolver is not None:
+        producer = resolver.role_producer(address)
+        require(producer in witness["producers"] and producer in changes, "graph=role_producer")
+        return producer
     references = expression["role"]["references"]
     pattern = r"(aws_iam_role\.[A-Za-z0-9_]+\[0\])(?:\.[A-Za-z0-9_]+)?"
     targets = {
@@ -386,6 +391,7 @@ def verify_role_producer(address: str, expression: Node, witness: Node, changes:
         and not change.get("after_unknown", {}).get("name"),
         "graph=role_name",
     )
+    return producer
 
 
 def _prove_iam(result: Node, api: Any, governed: Node) -> Node:

@@ -96,3 +96,46 @@ def test_raiz_liga_grant_run_task_do_verifier(canary_plan):
             "Condition": {"ArnEquals": {"ecs:cluster": CLUSTER_ARN}},
         }
     ]
+
+
+def test_resolver_prova_cadeia_real_e_policy_integra_do_canary(canary_plan):
+    from scripts.promotion._iam_source import SourceResolver
+    from tests.production.delivery._phase_a_symbolic_fixtures import _symbolic_sources
+    from tests.production.infra._athena_root_plan import ACCOUNT
+
+    inputs = {
+        "image_digest": "sha256:" + "a" * 64,
+        "canary_release_id": CANARY_ID,
+        "canary_trusted_principal_arn": CANARY_PRINCIPAL,
+        "canary_storage_enabled": True,
+        "processor_active_unit_task_definition_arn": None,
+        "processor_retained_unit_task_definition_arns": [],
+    }
+    resolver = SourceResolver(
+        canary_plan,
+        _symbolic_sources(),
+        {
+            "generated_inputs": inputs,
+            "account_id": ACCOUNT,
+            "region": "us-east-2",
+        },
+    )
+    profiles = {
+        f"module.runtime_iam.aws_iam_role_policy.{name}[0]": name
+        for name in (
+            "canary_task",
+            "canary_execution",
+            "canary_seeder",
+            "canary_verifier",
+            "promotion_fence_operator",
+        )
+    }
+    profiles |= {
+        "module.processing.aws_iam_role_policy.step_functions_ecs[0]": "step_functions",
+        "module.processing.aws_iam_role_policy.canary_verifier_run_task[0]": "canary_verifier",
+    }
+    for policy, role in profiles.items():
+        resolver.precheck(policy)
+        assert resolver.role_producer(policy) == f"module.runtime_iam.aws_iam_role.{role}[0]"
+        expected = json.loads(after_of(canary_plan, policy)["policy"])
+        assert resolver.policy(policy) == expected

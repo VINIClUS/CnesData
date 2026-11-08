@@ -19,8 +19,9 @@ from scripts.promotion._phase_a_evidence import (
     build_evidence,
     validate_evidence,
 )
-from scripts.promotion._phase_a_graph import redacted_plan, validate_graph
+from scripts.promotion._phase_a_graph import redacted_plan, resolved_change, review_graph
 from scripts.promotion._plan_contract import (
+    STATE_LIMIT,
     canonical_bytes,
     canonical_state,
     closed,
@@ -233,28 +234,10 @@ def _changed_resource(resource: Node, context: Node) -> None:
         if value and key not in COMPUTED
     }
     if unknown:
-        require("approved_graph" in context and "graph_proof" in context, "delta=graph_required")
-        require(
-            context.get("graph_proof")
-            == context.get("approved_graph", {})
-            | {"governance_sha256": object_hash(context["approved_graph"])},
-            "delta=graph_required",
-        )
-        require(unknown <= {"policy", "role"}, "delta=unknown_functional")
-        if "readback_resources" not in context:
+        resolved = resolved_change(resource, context, unknown)
+        if resolved is None:
             return
-        after = context["readback_resources"][address]
-        known = {
-            key: value for key, value in _functional(change["after"]).items() if key not in unknown
-        }
-        require(
-            all(after.get(key) == value for key, value in known.items()), "delta=known_readback"
-        )
-        if "role" in unknown:
-            role = address.replace(".aws_iam_role_policy.", ".aws_iam_role.")
-            require(
-                after["role"] == context["readback_resources"][role]["name"], "delta=role_readback"
-            )
+        after = resolved
     if kind == "task":
         _task_delta(before, after, context)
     elif kind == "sfn":
@@ -283,7 +266,7 @@ def verify_delta(plan: Node, context: Node) -> None:
 
 def review_phase_a_plan(plan: Node, context: Node) -> Node:
     """Returns: prova pré-apply; unknowns só passam sob fonte e produtores já aprovados."""
-    proof = validate_graph(plan, context["approved_graph"], context["source_files"])
+    proof = review_graph(plan, context)
     verify_delta(plan, context | {"graph_proof": proof})
     return proof
 
@@ -399,9 +382,10 @@ def _load_application(references: Node, api: Any, governed: Node) -> Node:
 
 def _verify_resource_readbacks(result: Node, bundle: Node, api: Any, governed: Node) -> None:
     graph_context = governed["delta"] | {
+        **{key: governed[key] for key in ("generated_inputs", "account_id", "region")},
         "source_files": authenticate_sources(
             governed["delta"]["approved_graph"]["source_files"], api, governed["source_sha"]
-        )
+        ),
     }
     graph = review_phase_a_plan(result["plan_json"], graph_context)
     report = json.loads(bundle["reports"][result["plan"]["policy"]["evidence_sha256"]])
@@ -422,6 +406,8 @@ def _verify_resource_readbacks(result: Node, bundle: Node, api: Any, governed: N
     verify_delta(
         result["plan_json"], graph_context | {"graph_proof": graph, "readback_resources": resources}
     )
+    if "iam_resolver" in graph_context:
+        graph_context["iam_resolver"].verify_state(_readback_state(bundle["state_after"]))
 
 
 def finalize_phase_a(promotion: Node, references: Node, api: Any, governed: Node) -> Node:
@@ -491,3 +477,12 @@ def _verify_promotion(promotion: Node, api: Any, governed: Node) -> None:
     context |= {key: governed[key] for key in ("account_id", "region")}
     context |= {**promotion["candidate"]["images"]["data_processor"], "scan": promotion["scan"]}
     verify_promoted_image(context, api.registry)
+
+
+def _readback_state(data: bytes) -> Node:
+    _state_readback_size(len(data))
+    return decode_json(data, state=True, limit=STATE_LIMIT)
+
+
+def _state_readback_size(size: int) -> None:
+    require(type(size) is int and 0 < size <= STATE_LIMIT, "state=readback_size")

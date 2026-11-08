@@ -458,3 +458,40 @@ def test_recusa_codigo_creator_r2_nao_aprovado_antes_de_copiar(github):
     with pytest.raises(ValueError, match="creator"):
         promote_candidate(reference, github, registry, governed)
     assert registry.copied == []
+
+
+@pytest.mark.parametrize(
+    "address",
+    [
+        'module.processing.aws_s3_bucket.canary["tenant]PRIVATE_TOKEN"]',
+        'module.root["private]suffix"].aws_example.test["private\\"quote]suffix"]',
+    ],
+)
+def test_redacao_consume_indice_json_com_colchetes_e_aspas(address):
+    from scripts.promotion._phase_a_graph import redacted_plan
+
+    plan = {
+        "resource_changes": [
+            {"address": address, "type": "aws_s3_bucket", "change": {"actions": ["create"]}}
+        ]
+    }
+    view = redacted_plan(plan, SHA, "b" * 64)
+    shape = view["changes"][0]["address_shape"]
+    assert shape in {
+        "module.processing.aws_s3_bucket.canary[redacted]",
+        "module.root[redacted].aws_example.test[redacted]",
+    }
+    assert view["changes"][0]["address_sha256"] == _digest(address.encode())[7:]
+
+
+def test_gramatica_iam_recusa_funcoes_externas_e_limita_operacao_inteira():
+    from scripts.promotion._iam_expression import Budget, parse
+
+    for source in ('file("x")', "toset([])", "var.x[1]", "{ [ = 1 }"):
+        with pytest.raises(ValueError):
+            parse(source, Budget())
+    budget = Budget()
+    for _ in range(4096):
+        parse("0", budget)
+    with pytest.raises(ValueError, match="iam=budget_nodes"):
+        parse("0", budget)
