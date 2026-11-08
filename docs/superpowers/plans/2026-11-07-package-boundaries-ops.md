@@ -65,7 +65,7 @@ composição externa em Runtime. Billing e control plane preservam transações.
 Código diretamente em packages/cnes_*, junto de tests/ e pyproject.toml, sem
 níveis src/cnes_*; wheel prefix mapping mantém imports e recursos públicos.
 
-Integrar develop db4ebd78 e preservar suas mudanças recentes antes de renovar
+Integrar develop 7ebc0e3d e preservar suas mudanças recentes antes de renovar
 checks e auditoria. Ops e Infra ficam separados na raiz; infra/opentofu mantém
 seu caminho e os destinos dos legados constam na spec atualizada.
 
@@ -74,4 +74,15 @@ seu caminho e os destinos dos legados constam na spec atualizada.
 - [x] Provar RED para o inventário restrito de regras/transformações CNES/SUS.
 - [x] Mover responsabilidades operacionais e seus testes aos donos da spec.
 - [x] Compartilhar somente DTOs/erros necessários e usar interfaces estreitas.
-- [ ] Renovar checks, contratos, wheels e auditoria do SHA final antes do push.
+- [x] Renovar checks, contratos e wheels após o recorte final.
+- [ ] Auditar o SHA final antes do push.
+
+## Evidências locais antes da auditoria
+
+- Ruff sem erros; Pyright sem erros, incluindo model, public_leads e artifacts.
+- Suíte ampla serial: 9.755 passaram, 11 skips e 162 deselecionados.
+- Após os ajustes finais: 4.931 passaram, 7 skips; regressão dos paths RED→GREEN.
+- Oito wheels instalados isoladamente, sem editable paths, com recursos Alembic.
+- OpenAPI e 28 JSON Schemas idênticos; 20 revisions e versões externas preservadas.
+- Compose válido sem serviços; infra/opentofu sem delta em relação à develop.
+- Integrações, cobertura e imagens ficam nos workflows CI/Trivy da branch.

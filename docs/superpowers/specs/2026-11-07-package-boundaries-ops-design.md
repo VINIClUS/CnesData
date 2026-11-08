@@ -75,7 +75,7 @@ Gates preservados: packages 100% branch; apps 90% line. Wheels, migrações,
 integrações e imagens são verificados no CI, sem deploy ou Stripe real.
 
 Branch codex/package-boundaries-ops foi iniciada em bd6b730 e integra develop
-db4ebd78 por orientação posterior do usuário; PR para develop. Implementação
+7ebc0e3d por orientação posterior do usuário; PR para develop. Implementação
 nesta sessão; auditoria read-only em outro chat com contexto independente sobre
 SHA congelado antes de qualquer push. Correções exigem reauditoria antes do
 próximo push. Depois executar CI/Trivy na feature; abrir um PR somente com gates
