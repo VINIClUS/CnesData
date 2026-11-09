@@ -212,6 +212,7 @@ def _run_request(contract: Node) -> Node:
         "AWS_CONTROL_PLANE_TABLE": contract["table"],
         "AWS_AUDIT_BUCKET": contract["bucket"],
         "AWS_AUDIT_RETENTION_DAYS": "1",
+        "AWS_PRODUCTION_POLICY": "false",
     }
     network = contract["network"]
     return {

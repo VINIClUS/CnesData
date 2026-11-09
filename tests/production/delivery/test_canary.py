@@ -218,17 +218,8 @@ def test_orcamento_inclui_duracao_das_chamadas(case):
 @pytest.mark.parametrize(
     "mutation",
     [
-        "governance",
-        "expired",
-        "old",
-        "body",
-        "version",
-        "retention",
-        "marker",
-        "query",
-        "extra-index",
-        "base-mixed",
-        "duplicate-json",
+        *("governance", "expired", "old", "body", "version"),
+        *("retention", "marker", "query", "extra-index", "base-mixed", "duplicate-json"),
     ],
 )
 def test_exige_retencao_compliance_e_marcador_da_release(case, mutation):
@@ -290,17 +281,7 @@ def test_entrada_publica_exige_activation_autenticada():
 
 def test_runner_so_passa_roles_recursos_e_revisao_canary(case):
     contract, api, clock, _ = case
-    task = "arn:aws:ecs:us-east-2:123456789012:task/cnesdata-prod-processor/abc"
-    api.responses["run_task"] = {
-        "tasks": [
-            {
-                "taskArn": task,
-                "taskDefinitionArn": contract["revisions"]["audit"],
-                "clusterArn": contract["cluster"],
-                "createdAt": NOW,
-            }
-        ]
-    }
+    task = api.responses["run_task"]["tasks"][0]["taskArn"]
     result = runner.run_canary(contract, api, clock)
     request = api.calls[0][2]
     assert result["task_arn"] == task
@@ -313,24 +294,16 @@ def test_runner_so_passa_roles_recursos_e_revisao_canary(case):
         "AWS_CONTROL_PLANE_TABLE": "cnesdata-prod-canary",
         "AWS_AUDIT_BUCKET": "cnesdata-prod-canary",
         "AWS_AUDIT_RETENTION_DAYS": "1",
+        "AWS_PRODUCTION_POLICY": "false",
     }
 
 
 @pytest.mark.parametrize(
     "field",
     [
-        "table",
-        "index",
-        "bucket",
-        "cluster",
-        "task_role",
-        "execution_role",
-        "seeder_role",
-        "verifier_role",
-        "release_id",
-        "candidate_sha256",
-        "binding_sha256",
-        "canary_id",
+        *("table", "index", "bucket", "cluster"),
+        *("task_role", "execution_role", "seeder_role", "verifier_role"),
+        *("release_id", "candidate_sha256", "binding_sha256", "canary_id"),
     ],
 )
 def test_recusa_release_ou_role_de_outra_ativacao(case, field):
@@ -353,19 +326,8 @@ def test_retencao_e_da_mesma_versao_lida(case):
     assert all(request.get("VersionId") == "v-current" for request in reads)
 
 
-def test_replay_apos_delivered_preserva_origem_real_da_task(case):
+def test_replay_com_resposta_completa_preserva_origem_da_task(case):
     contract, api, clock, _ = case
-    task = "arn:aws:ecs:us-east-2:123456789012:task/cnesdata-prod-processor/abc"
-    api.responses["run_task"] = {
-        "tasks": [
-            {
-                "taskArn": task,
-                "createdAt": NOW,
-                "taskDefinitionArn": contract["revisions"]["audit"],
-                "clusterArn": contract["cluster"],
-            }
-        ]
-    }
     api.responses["put_item"] = ClientError(
         {"Error": {"Code": "ConditionalCheckFailedException"}}, "PutItem"
     )
@@ -414,6 +376,38 @@ def native_runtime(case, tmp_path_factory):
     return contract, context, root, plan
 
 
+def assert_dispatch_settings(plan, contract):
+    from cnes_infra.aws.processor_settings import AwsAuditDispatchSettings
+    from tests.production.infra import test_canary_fence_iam as iam
+
+    task = iam.resource_at(plan, 'module.subject.aws_ecs_task_definition.processor["audit"]')
+    container = json.loads(task["change"]["after"]["container_definitions"])[0]
+    assert container["command"] == ["dispatch-outbox-once"]
+    production = {e["name"]: e["value"] for e in container["environment"]}
+    baseline = AwsAuditDispatchSettings.from_mapping(production)
+    assert baseline.production_policy is True
+    assert baseline.audit_retention_days == 365
+    request = runner._run_request(contract)
+    roles = request["overrides"]
+    assert (roles["taskRoleArn"], roles["executionRoleArn"]) == (
+        contract["task_role"],
+        contract["execution_role"],
+    )
+    overrides = roles["containerOverrides"][0]["environment"]
+    canary = AwsAuditDispatchSettings.from_mapping(
+        production | {e["name"]: e["value"] for e in overrides}
+    )
+    assert canary.production_policy is False
+    assert canary.region == contract["region"]
+    assert canary.audit_retention_days == 1
+    assert (canary.control_plane_table, canary.audit_bucket) == (
+        contract["table"],
+        contract["bucket"],
+    )
+    assert canary.dynamodb_endpoint_url is None
+    assert canary.service_endpoint_url is None
+
+
 def test_politicas_renderizadas_negam_scan_recursos_e_roles_alheios(case, tmp_path_factory):
     from fnmatch import fnmatchcase
 
@@ -458,6 +452,7 @@ def test_politicas_renderizadas_negam_scan_recursos_e_roles_alheios(case, tmp_pa
         overrides,
     )
     plan = iam._plan(iam._execute(context, request, iam.PROCESSING_BASE, {"ativo": {}}), "ativo")
+    assert_dispatch_settings(plan, contract)
     policy = iam.resource_at(plan, "module.subject.aws_iam_role_policy.canary_verifier_run_task[0]")
     assert iam.policy_grants(policy["change"]["after"]["policy"]) == iam.literal_grants(
         ("ecs:RunTask",),
