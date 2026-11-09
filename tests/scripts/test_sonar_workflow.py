@@ -43,6 +43,7 @@ class _SonarDouble(BaseHTTPRequestHandler):
     branches: ClassVar[list[dict[str, Any]]] = []
     rename_result: ClassVar[list[dict[str, Any]] | None] = None
     post_status: ClassVar[int] = 200
+    empty_mutation: ClassVar[bool] = False
     close_mutation: ClassVar[bool] = False
     requests: ClassVar[list[tuple[str, str, bytes, str | None]]] = []
 
@@ -56,6 +57,11 @@ class _SonarDouble(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def _write_empty(self, status: int) -> None:
+        self.send_response(status)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def do_GET(self) -> None:
         self.__class__.requests.append(("GET", self.path, b"", self.headers.get("Authorization")))
@@ -75,7 +81,7 @@ class _SonarDouble(BaseHTTPRequestHandler):
             self.connection.shutdown(2)
             self.connection.close()
             return
-        if self.__class__.post_status != 200:
+        if not 200 <= self.__class__.post_status < 300:
             self._write(self.__class__.post_status, {"errors": [{"msg": "denied"}]})
             return
         params = parse_qs(body.decode())
@@ -92,6 +98,9 @@ class _SonarDouble(BaseHTTPRequestHandler):
         else:
             self._write(404, {"errors": [{"msg": "not found"}]})
             return
+        if self.__class__.empty_mutation:
+            self._write_empty(self.__class__.post_status)
+            return
         self._write(200, {})
 
 
@@ -100,6 +109,7 @@ class _Server:
         _SonarDouble.branches = branches
         _SonarDouble.rename_result = kwargs.pop("rename_result", None)
         _SonarDouble.post_status = kwargs.pop("post_status", 200)
+        _SonarDouble.empty_mutation = kwargs.pop("empty_mutation", False)
         _SonarDouble.close_mutation = kwargs.pop("close_mutation", False)
         _SonarDouble.requests = []
         self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), _SonarDouble)
@@ -152,7 +162,7 @@ def _run_admin(server: _Server | None, **overrides: str) -> subprocess.Completed
     )
 
 
-def test_workflow_routes_source_analysis_to_develop_and_keeps_prs() -> None:
+def test_workflow_direciona_analise_de_source_para_develop_e_mantem_prs() -> None:
     triggers = _triggers(_workflow())
     assert triggers["pull_request"]["branches"] == ["main", "develop"]
     assert triggers["push"]["branches"] == ["develop"]
@@ -165,13 +175,13 @@ def test_workflow_routes_source_analysis_to_develop_and_keeps_prs() -> None:
     }
 
 
-def test_concurrency_is_global_and_non_cancelling() -> None:
+def test_concorrencia_e_global_e_nao_cancela_execucoes() -> None:
     concurrency = _workflow()["concurrency"]
     assert concurrency["group"] == "sonar-${{ github.repository }}"
     assert concurrency["cancel-in-progress"] is False
 
 
-def test_admin_is_manual_opt_in_and_never_scans_source() -> None:
+def test_admin_e_manual_opt_in_e_nunca_analisa_source() -> None:
     jobs = _workflow()["jobs"]
     admin = jobs["sonar-admin"]
     assert "workflow_dispatch" in admin["if"]
@@ -182,7 +192,26 @@ def test_admin_is_manual_opt_in_and_never_scans_source() -> None:
     assert "SONAR_TOKEN" in admin["steps"][0]["env"]
 
 
-def test_admin_aligns_main_after_removing_only_exact_secondary_develop() -> None:
+def test_actions_usam_commits_imutaveis_das_mesmas_tags_oficiais() -> None:
+    steps = _workflow()["jobs"]["sonar"]["steps"]
+    expected = {
+        "actions/checkout": "11d5960a326750d5838078e36cf38b85af677262",
+        "actions/setup-python": "a26af69be951a213d495a4c3e4e4022e16d87065",
+        "astral-sh/setup-uv": "cec208311dfd045dd5311c1add060b2062131d57",
+        "actions/setup-go": "40f1582b2485089dde7abd97c1529aa768e1baff",
+        "oven-sh/setup-bun": "0c5077e51419868618aeaa5fe8019c62421857d6",
+        "SonarSource/sonarqube-scan-action": "22918119ff8e1ca75a623e15c8296b6ea4fbe28f",
+    }
+    actual = {
+        step["uses"].split("@")[0]: step["uses"].split("@")[1].split()[0]
+        for step in steps
+        if "uses" in step
+    }
+    assert actual == expected
+    assert all(len(commit) == 40 for commit in actual.values())
+
+
+def test_admin_alinha_main_apos_remover_apenas_develop_secundario_exato() -> None:
     branches = [
         {"name": "main", "isMain": True, "type": "LONG"},
         {"name": "develop", "isMain": False, "type": "SHORT"},
@@ -205,7 +234,7 @@ def test_admin_aligns_main_after_removing_only_exact_secondary_develop() -> None
     assert TOKEN not in result.stdout + result.stderr
 
 
-def test_admin_fails_closed_for_tampered_state_and_does_not_mutate() -> None:
+def test_admin_falha_fechado_para_estado_adulterado_e_nao_muta() -> None:
     with _Server([{"name": "develop", "isMain": False, "type": "SHORT"}]) as server:
         result = _run_admin(server)
     assert result.returncode != 0
@@ -225,13 +254,13 @@ def test_admin_fails_closed_for_tampered_state_and_does_not_mutate() -> None:
         ("INPUT_ALIGN_PRIMARY_BRANCH", "false"),
     ],
 )
-def test_admin_refuses_untrusted_dispatch_context(key: str, value: str) -> None:
+def test_admin_recusa_contexto_de_dispatch_nao_confiavel(key: str, value: str) -> None:
     result = _run_admin(None, **{key: value})
     assert result.returncode != 0
     assert "SONAR_TOKEN" not in result.stdout + result.stderr
 
 
-def test_admin_reports_missing_permission_without_retry() -> None:
+def test_admin_reporta_permissao_ausente_sem_repetir() -> None:
     with _Server([{"name": "main", "isMain": True, "type": "LONG"}], post_status=403) as server:
         result = _run_admin(server)
     assert result.returncode != 0
@@ -240,7 +269,7 @@ def test_admin_reports_missing_permission_without_retry() -> None:
     assert TOKEN not in result.stdout + result.stderr
 
 
-def test_admin_does_not_retry_an_uncertain_mutation() -> None:
+def test_admin_nao_repete_mutacao_incerta() -> None:
     with _Server([{"name": "main", "isMain": True, "type": "LONG"}], close_mutation=True) as server:
         result = _run_admin(server)
     assert result.returncode != 0
@@ -248,14 +277,89 @@ def test_admin_does_not_retry_an_uncertain_mutation() -> None:
     assert TOKEN not in result.stdout + result.stderr
 
 
-def test_admin_rejects_malformed_branch_payload() -> None:
+@pytest.mark.parametrize("status", [200, 204])
+def test_admin_aceita_mutacao_2xx_vazia_e_confirma_por_leitura(status: int) -> None:
+    with _Server(
+        [
+            {"name": "main", "isMain": True, "type": "LONG"},
+            {"name": "develop", "isMain": False, "type": "SHORT"},
+        ],
+        post_status=status,
+        empty_mutation=True,
+    ) as server:
+        result = _run_admin(server)
+    assert result.returncode == 0, result.stderr
+    assert [request[0] for request in server.requests] == [
+        "GET",
+        "POST",
+        "GET",
+        "POST",
+        "GET",
+    ]
+
+
+def test_admin_rejeita_dois_primarios_no_readback() -> None:
+    with _Server(
+        [{"name": "main", "isMain": True, "type": "LONG"}],
+        rename_result=[
+            {"name": "main", "isMain": True, "type": "LONG"},
+            {"name": "develop", "isMain": True, "type": "LONG"},
+        ],
+    ) as server:
+        result = _run_admin(server)
+    assert result.returncode != 0
+    assert [request[0] for request in server.requests] == ["GET", "POST", "GET"]
+    assert "primary" in result.stderr.lower()
+
+
+def test_admin_rejeita_nomes_de_branch_duplicados_antes_de_delete() -> None:
+    with _Server(
+        [
+            {"name": "main", "isMain": True, "type": "LONG"},
+            {"name": "develop", "isMain": False, "type": "SHORT"},
+            {"name": "develop", "isMain": False, "type": "SHORT"},
+        ]
+    ) as server:
+        result = _run_admin(server)
+    assert result.returncode != 0
+    assert len(server.requests) == 1
+    assert "duplicate" in result.stderr.lower()
+
+
+@pytest.mark.parametrize("branch_type", ["LONG", "UNKNOWN"])
+def test_admin_rejeita_tipo_nao_aprovado_antes_de_delete(branch_type: str) -> None:
+    with _Server(
+        [
+            {"name": "main", "isMain": True, "type": "LONG"},
+            {"name": "develop", "isMain": False, "type": branch_type},
+        ]
+    ) as server:
+        result = _run_admin(server)
+    assert result.returncode != 0
+    assert len(server.requests) == 1
+    assert "unexpected" in result.stderr.lower()
+
+
+def test_admin_rejeita_tipo_ausente_antes_de_delete() -> None:
+    with _Server(
+        [
+            {"name": "main", "isMain": True, "type": "LONG"},
+            {"name": "develop", "isMain": False},
+        ]
+    ) as server:
+        result = _run_admin(server)
+    assert result.returncode != 0
+    assert len(server.requests) == 1
+
+
+def test_admin_rejeita_payload_de_branch_malformado() -> None:
     with _Server([{"name": "main", "type": "LONG"}]) as server:
         result = _run_admin(server)
     assert result.returncode != 0
     assert len(server.requests) == 1
 
 
-def test_admin_rejects_tampered_rename_readback_without_second_write() -> None:
+def test_admin_rejeita_readback_de_rename_adulterado_sem_segunda_escrita() -> None:
     with _Server(
         [{"name": "main", "isMain": True, "type": "LONG"}],
         rename_result=[{"name": "develop", "isMain": False, "type": "SHORT"}],
@@ -266,7 +370,7 @@ def test_admin_rejects_tampered_rename_readback_without_second_write() -> None:
     assert "readback" in result.stderr.lower()
 
 
-def test_admin_source_has_no_redirect_or_retry_or_secret_dump() -> None:
+def test_fonte_admin_nao_tem_redirect_repeticao_ou_dump_de_segredo() -> None:
     source = _admin_source()
     assert "HTTPRedirectHandler" in source
     assert "Authorization" in source
