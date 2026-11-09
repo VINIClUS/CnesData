@@ -77,11 +77,13 @@ Preparar um arquivo privado de inputs do smoke, a partir do handoff da release:
 
 - Raiz: `demo_user`, `demo_tenant`, `other_tenant` (diferente e sem membership).
 - `cognito`: `domain` AWS-managed prefix, `issuer`, `client_id`, `redirect_uri`,
-  `logout_uri` exatos de prod. Grants `primary`, `without_resource`, `wrong_verifier`,
+  `logout_uri` exatos de prod (`https://cnesdata.com.br`, sem barra final; callback
+  `https://cnesdata.com.br/auth/callback`). Grants `primary`, `without_resource`, `wrong_verifier`,
   cada um com `authorize_url`, `code`, `verifier`, `callback_state`.
 - `serving`: `bucket`, `version_id`, `body_sha256` da publicação sintética aprovada.
 - `sfn`: `state_machine_arn`, `role_arn`, `definition`, `role_policies` (mapa
-  nome→documento), `execution_arn`, `task_definition_arn`, `task_parameters` governados.
+  nome→documento), `execution_arn`, `task_definition_arn` e `execution_input` governados. O input exato
+  contém `tenant_id`, `run_id`, `wave_id`, `dispatch_id`, `unit_ids`, `max_concurrency`.
 - `object_lock`: `audit_bucket`; fixture aprovado: `approved_synthetic_fixture=true`,
   `bucket`, `key`, `version_id`.
 - `roles_anywhere`: `crl_id`, `crl_sha256`, `trust_anchor_arn`, `profile_arn`, `role_arn`,
@@ -107,7 +109,11 @@ cookies, tenant ou referrer, recusa redirect e valida hash/tenant/run do corpo s
 
 SFN lê trust exato account/state-machine, todas as inline policies e nenhuma managed
 policy extra, definição e histórico da execução SUCCEEDED de até uma hora. Cada task
-agendada deve usar os parâmetros e revisão aprovados. Isso não substitui as negações
+agendada deve usar os parâmetros e revisão aprovados: resolver os overrides da ASL
+aprovada por unidade/contexto do `execution_input`, que deve coincidir com DescribeExecution.
+Todas as unidades aprovadas devem aparecer; retries da mesma unidade são aceitos com
+os mesmos parâmetros exatos. Unidade/contexto/rede/override divergente falha. Não usar
+um único objeto de parâmetros resolvidos para todas as unidades. Isso não substitui as negações
 reais RunTask/PassRole de D5, descritas em [cloudfront-free.md](cloudfront-free.md).
 
 COMPLIANCE: lê configuração audit de 365 dias e usa **somente** versão sintética já

@@ -8,6 +8,7 @@ import re
 import shlex
 import sys
 from collections.abc import Callable, Mapping
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
@@ -144,7 +145,8 @@ class ProductionSmoke:
             is not None
         )
         _https(cfg["issuer"])
-        _require(cfg["redirect_uri"].startswith(WEB + "/"))
+        _require(cfg["redirect_uri"] == WEB + "/auth/callback")
+        _require(cfg["logout_uri"] == WEB)
         discovery = self.http.get(cfg["issuer"] + "/.well-known/openid-configuration")
         _require(discovery.status_code == 200)
         doc = discovery.json()
@@ -168,7 +170,6 @@ class ProductionSmoke:
             cfg["domain"] + "/logout",
             params={"client_id": cfg["client_id"], "logout_uri": cfg["logout_uri"]},
         )
-        _require(cfg["logout_uri"].startswith(WEB + "/"))
         _require(logout.status_code == 302 and logout.headers["location"] == cfg["logout_uri"])
         self.access = access
         return True
@@ -286,17 +287,7 @@ class ProductionSmoke:
         _require(timedelta(0) <= datetime.now(UTC) - execution["stopDate"] <= timedelta(hours=1))
         history = sfn.get_execution_history(executionArn=cfg["execution_arn"], maxResults=1000)
         _require(not history.get("nextToken"))
-        scheduled = [
-            x["taskScheduledEventDetails"]
-            for x in history["events"]
-            if x["type"] == "TaskScheduled"
-        ]
-        _require(bool(scheduled))
-        for event in scheduled:
-            _require(event["resourceType"] == "ecs" and event["resource"] == "runTask.sync")
-            params = json.loads(event["parameters"])
-            _require(params["TaskDefinition"] == cfg["task_definition_arn"])
-            _require(params == cfg["task_parameters"])
+        _map_tasks(history, cfg, execution)
         return True
 
     def object_lock(self) -> bool:
@@ -372,6 +363,46 @@ class ProductionSmoke:
                 strict=True,
             )
         )
+
+
+def _unit_parameters(cfg: dict[str, Any], unit: str) -> dict[str, Any]:
+    parameters = deepcopy(
+        cfg["definition"]["States"]["RunUnits"]["ItemProcessor"]["States"]["RunProcessor"][
+            "Parameters"
+        ]
+    )
+    _require(parameters["TaskDefinition"] == cfg["task_definition_arn"])
+    context = {
+        "$." + key: cfg["execution_input"][key]
+        for key in ("tenant_id", "run_id", "wave_id", "dispatch_id")
+    }
+    _require(all(isinstance(value, str) and bool(value) for value in context.values()))
+    context |= {"$.unit_id": unit, "$$.Execution.Id": cfg["execution_arn"]}
+    for variable in parameters["Overrides"]["ContainerOverrides"][0]["Environment"]:
+        if "Value.$" in variable:
+            variable["Value"] = context[variable.pop("Value.$")]
+    return parameters
+
+
+def _map_tasks(history: dict[str, Any], cfg: dict[str, Any], execution: dict[str, Any]) -> None:
+    _require(json.loads(execution["input"]) == cfg["execution_input"])
+    units = cfg["execution_input"]["unit_ids"]
+    _require(isinstance(units, list) and bool(units))
+    _require(all(isinstance(unit, str) and bool(unit) for unit in units))
+    _require(len(set(units)) == len(units))
+    seen = set()
+    for event in history["events"]:
+        if event["type"] != "TaskScheduled":
+            continue
+        detail = event["taskScheduledEventDetails"]
+        _require(detail["resourceType"] == "ecs" and detail["resource"] == "runTask.sync")
+        params = json.loads(detail["parameters"])
+        environment = params["Overrides"]["ContainerOverrides"][0]["Environment"]
+        unit = [entry["Value"] for entry in environment if entry["Name"] == "UNIT_ID"]
+        _require(len(unit) == 1 and unit[0] in units)
+        _require(params == _unit_parameters(cfg, unit[0]))
+        seen.add(unit[0])
+    _require(seen == set(units))
 
 
 def _role_policies(iam: Any, cfg: dict[str, Any]) -> None:

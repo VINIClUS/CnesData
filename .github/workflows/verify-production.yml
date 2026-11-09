@@ -63,6 +63,10 @@ jobs:
       - uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8.0.0
         with:
           version: "0.9.26"
+      - uses: opentofu/setup-opentofu@9d84900f3238fab8cd84ce47d658d25dd008be2f # v1.0.8
+        with:
+          tofu_version: "1.13.2"
+          tofu_wrapper: false
       - name: Install actionlint
         env:
           ACTIONLINT_VERSION: "1.7.7"
@@ -79,7 +83,11 @@ jobs:
           echo "${RUNNER_TEMP}/actionlint-bin" >> "${GITHUB_PATH}"
       - run: uv sync --locked --all-packages
       - name: Delivery contracts and CND/AWS runtime boundaries
+        env:
+          PROCESSING_SOURCE_BINDINGS: ${{ runner.temp }}/processing-source-bindings.json
         run: |
+          uv run --no-build python -I tests/production/infra/bind_processing_sources.py \
+            "${PROCESSING_SOURCE_BINDINGS}"
           uv run --no-build pytest -q tests/production/delivery -k 'not test_dist_' \
             --junitxml=delivery.xml
           uv run --no-build python -c "import runpy; from pathlib import Path; \

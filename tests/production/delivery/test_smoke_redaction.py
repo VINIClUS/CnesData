@@ -1,7 +1,6 @@
 """Evidência fechada nunca serializa dados de probes ou exceções."""
 
 import json
-from base64 import urlsafe_b64encode
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
@@ -23,6 +22,7 @@ from scripts.promotion.smoke_production import (
     evidence,
     run_smoke,
 )
+from tests.production.delivery._smoke_fixtures import jwt_materials, login_fixture, sfn_fixture
 
 RELEASE = "a" * 64
 NOW = datetime(2026, 11, 9, tzinfo=UTC)
@@ -68,28 +68,7 @@ def test_recusa_rotulos_ou_hash_nao_revisados(release, name):
 
 @pytest.fixture(scope="module")
 def jwt_material():
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    public = key.public_key().public_numbers()
-
-    def number(value):
-        return (
-            urlsafe_b64encode(value.to_bytes((value.bit_length() + 7) // 8, "big"))
-            .rstrip(b"=")
-            .decode()
-        )
-
-    jwk = {
-        "kty": "RSA",
-        "kid": "demo",
-        "alg": "RS256",
-        "use": "sig",
-        "n": number(public.n),
-        "e": number(public.e),
-    }
-    pem = key.private_bytes(
-        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
-    )
-    return pem, jwk
+    return jwt_materials()
 
 
 @pytest.mark.parametrize(
@@ -282,75 +261,19 @@ def test_object_lock_nao_confunde_governance_com_compliance():
     s3.delete_object.assert_not_called()
 
 
-def _sfn_trust(cfg):
-    return {
-        "Role": {
-            "Arn": cfg["role_arn"],
-            "AssumeRolePolicyDocument": {
-                "Version": "2012-10-17",
-                "Statement": [
-                    {
-                        "Effect": "Allow",
-                        "Action": "sts:AssumeRole",
-                        "Principal": {"Service": "states.amazonaws.com"},
-                        "Condition": {
-                            "StringEquals": {
-                                "aws:SourceAccount": "123456789012",
-                                "aws:SourceArn": cfg["state_machine_arn"],
-                            }
-                        },
-                    }
-                ],
-            },
-        }
-    }
-
-
-def sfn_fixture():
-    account = "123456789012"
-    machine = f"arn:aws:states:us-east-2:{account}:stateMachine:synthetic"
-    role = f"arn:aws:iam::{account}:role/step-functions"
-    parameters = {"TaskDefinition": "arn:aws:ecs:us-east-2:123456789012:task-definition/demo:1"}
-    cfg = {
-        "state_machine_arn": machine,
-        "role_arn": role,
-        "definition": {"States": {}},
-        "execution_arn": "synthetic",
-        "task_definition_arn": parameters["TaskDefinition"],
-        "task_parameters": parameters,
-        "role_policies": {"unit": {"Statement": []}},
-    }
-    iam, sfn, session = Mock(), Mock(), Mock()
-    session.client.side_effect = lambda name, **kw: iam if name == "iam" else sfn
-    iam.get_role.return_value = _sfn_trust(cfg)
-    iam.list_role_policies.return_value = {"PolicyNames": ["unit"], "IsTruncated": False}
-    iam.list_attached_role_policies.return_value = {"AttachedPolicies": [], "IsTruncated": False}
-    iam.get_role_policy.return_value = {"PolicyDocument": {"Statement": []}}
-    sfn.describe_state_machine.return_value = {"roleArn": role, "definition": '{"States":{}}'}
-    sfn.describe_execution.return_value = {
-        "stateMachineArn": machine,
-        "status": "SUCCEEDED",
-        "stopDate": datetime.now(UTC),
-    }
-    sfn.get_execution_history.return_value = {
-        "events": [
-            {
-                "type": "TaskScheduled",
-                "taskScheduledEventDetails": {
-                    "resourceType": "ecs",
-                    "resource": "runTask.sync",
-                    "parameters": json.dumps(parameters),
-                },
-            }
-        ]
-    }
-    return cfg, session, iam, sfn
-
-
-@pytest.mark.parametrize("drift", [None, "trust", "revision", "policy", "empty", "partial"])
+@pytest.mark.parametrize(
+    "drift", [None, "single", "retry", "trust", "revision", "policy", "empty", "partial"]
+)
 def test_sfn_exige_trust_policy_e_task_exatas(drift):
     cfg, session, iam, sfn = sfn_fixture()
-    if drift == "trust":
+    if drift == "single":
+        cfg["execution_input"]["unit_ids"].pop()
+        sfn.describe_execution.return_value["input"] = json.dumps(cfg["execution_input"])
+        sfn.get_execution_history.return_value["events"].pop()
+    elif drift == "retry":
+        events = sfn.get_execution_history.return_value["events"]
+        events.extend(events[:1])
+    elif drift == "trust":
         iam.get_role.return_value["Role"]["AssumeRolePolicyDocument"]["Statement"][0][
             "Principal"
         ] = "*"
@@ -364,7 +287,7 @@ def test_sfn_exige_trust_policy_e_task_exatas(drift):
         sfn.get_execution_history.return_value["nextToken"] = "next"
     with httpx.Client() as http:
         probe = ProductionSmoke({"sfn": cfg}, http, session)
-        if drift is None:
+        if drift in {None, "single", "retry"}:
             assert probe.sfn()
         else:
             with pytest.raises(ValueError):
@@ -493,3 +416,76 @@ def test_roles_anywhere_verifica_crl_serial_profiles_e_negacao(tmp_path, monkeyp
         cfg["revoked_serial"] = "3"
         with pytest.raises(ValueError):
             probe.roles_anywhere()
+
+
+@pytest.mark.parametrize(
+    "drift", [None, "logout_slash", "logout_path", "logout_host", "location", "callback"]
+)
+def test_login_completo_aceita_logout_exato_e_recusa_deriva(jwt_material, drift):
+    cfg, handler, replies = login_fixture(jwt_material)
+    if drift == "logout_slash":
+        cfg["cognito"]["logout_uri"] += "/"
+    elif drift == "logout_path":
+        cfg["cognito"]["logout_uri"] += "/unregistered"
+    elif drift == "logout_host":
+        cfg["cognito"]["logout_uri"] = "https://invalid.example"
+    elif drift == "location":
+        replies["logout"] += "/unregistered"
+    elif drift == "callback":
+        cfg["cognito"]["redirect_uri"] += "/unregistered"
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http:
+        probe = ProductionSmoke(cfg, http, None)
+        if drift is None:
+            assert probe.login()
+            assert probe.refresh()
+        else:
+            with pytest.raises(ValueError):
+                probe.login()
+            assert not probe.access
+
+
+@pytest.mark.parametrize(
+    "drift",
+    [
+        "unit",
+        "context",
+        "run",
+        "wave",
+        "dispatch",
+        "owner",
+        "lease",
+        "network",
+        "missing_unit",
+        "actual_input",
+    ],
+)
+def test_map_recusa_unidade_contexto_e_parametros_estaticos_nao_aprovados(drift):
+    cfg, session, _, sfn = sfn_fixture()
+    events = sfn.get_execution_history.return_value["events"]
+    detail = events[1]["taskScheduledEventDetails"]
+    params = json.loads(detail["parameters"])
+    env = params["Overrides"]["ContainerOverrides"][0]["Environment"]
+    names = {
+        "unit": "UNIT_ID",
+        "context": "TENANT_ID",
+        "run": "RUN_ID",
+        "wave": "WAVE_ID",
+        "dispatch": "DISPATCH_ID",
+        "owner": "EXECUTION_OWNER",
+        "lease": "LEASE_SECONDS",
+    }
+    if drift in names:
+        name = names[drift]
+        next(x for x in env if x["Name"] == name)["Value"] = "unapproved"
+    elif drift == "network":
+        params["NetworkConfiguration"]["AwsvpcConfiguration"]["Subnets"] = ["unapproved"]
+    elif drift == "missing_unit":
+        events.pop()
+    else:
+        sfn.describe_execution.return_value["input"] = json.dumps(
+            cfg["execution_input"] | {"run_id": "other"}
+        )
+    detail["parameters"] = json.dumps(params)
+    with httpx.Client() as http:
+        with pytest.raises(ValueError):
+            ProductionSmoke({"sfn": cfg}, http, session).sfn()
