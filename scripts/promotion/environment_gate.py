@@ -107,6 +107,7 @@ class PersistedMembershipSource:
             if (
                 canceled.get("state") != "TERMINAL"
                 or canceled.get("terminal_outcome") != "CANCELED"
+                or canceled.get("canceled_before_send") is not True
                 or canceled.get("dispatch_id") != receipt["dispatch_id"]
                 or claim.get("permit_token") != receipt["token"]
                 or claim.get("generation") != receipt["generation"]

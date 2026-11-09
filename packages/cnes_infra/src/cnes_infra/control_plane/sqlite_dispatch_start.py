@@ -123,6 +123,7 @@ def cancel_reserved(
             update={
                 "state": DispatchState.TERMINAL,
                 "terminal_outcome": DispatchOutcome.CANCELED,
+                "canceled_before_send": True,
                 "start_claim": command.claim,
             }
         )

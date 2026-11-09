@@ -246,3 +246,62 @@ class RecordingStartClient:
         self.calls.append(request)
         return {"executionArn": "arn:aws:states:us-east-1:123456789012:execution:processor:abc"}
 
+
+def test_release_cancel_before_send_recusa_claim_starting(ddb):
+    adapter, _ = ddb
+    _, _, permit, claim, command = seed(adapter)
+    assert adapter.claim_run_dispatch_start(command) is not None
+    assert not adapter.release_unit_permit(
+        ReleaseUnitPermit(
+            "prod",
+            permit.token,
+            NOW,
+            NOW,
+            claim.generation,
+            "CANCEL_BEFORE_SEND",
+            b'{"resolution":"CANCEL_BEFORE_SEND"}',
+        )
+    )
+    assert adapter.observe_environment_gate("prod").permit is not None
+    assert adapter.observe_environment_gate("prod").settlement is None
+
+
+def test_sqlite_cancelamento_reserved_registra_prova_distinta(tmp_path):
+    from cnes_domain.control_plane.commands import CancelReservedRunDispatch
+
+    adapter = SQLiteControlPlane(tmp_path / "cancel.sqlite", lambda: NOW)
+    adapter.initialize()
+    dispatch = _prepare_unit(adapter, MutableClock(NOW))
+    claim = DispatchStartClaim(
+        dispatch_id=dispatch.dispatch_id,
+        generation=dispatch.generation,
+        permit_token=1,
+        fence_version=0,
+        request_sha256="a" * 64,
+    )
+    canceled = adapter.cancel_reserved_run_dispatch(
+        CancelReservedRunDispatch(
+            tenant_id=dispatch.tenant_id,
+            run_id=dispatch.run_id,
+            dispatch_id=dispatch.dispatch_id,
+            claim=claim,
+            canceled_at=NOW,
+        )
+    )
+    assert canceled.canceled_before_send is True
+    assert (
+        adapter.get_run_dispatch(dispatch.tenant_id, dispatch.run_id).canceled_before_send is True
+    )
+    assert (
+        adapter.claim_run_dispatch_start(
+            ClaimRunDispatchStart(
+                tenant_id=dispatch.tenant_id,
+                run_id=dispatch.run_id,
+                dispatch_id=dispatch.dispatch_id,
+                claim=claim,
+                now=NOW,
+                lease_seconds=300,
+            )
+        )
+        is None
+    )

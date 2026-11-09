@@ -101,14 +101,12 @@ def require_unique_refs(refs: tuple[ManifestRef, ...]) -> None:
         raise ValueError("duplicate_manifest_ref")
 class ControlPlaneModel(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
-
 class Tenant(ControlPlaneModel):
     tenant_id: str
     municipality_name: str
     created_at: datetime
     _strings = field_validator("tenant_id", "municipality_name")(require_non_blank)
     _created_utc = field_validator("created_at")(require_utc)
-
 class Membership(ControlPlaneModel):
     tenant_id: str
     user_id: str
@@ -118,7 +116,6 @@ class Membership(ControlPlaneModel):
     _strings = field_validator("tenant_id", "user_id", "role")(require_non_blank)
     _oidc_issuer = field_validator("oidc_issuer")(optional_non_blank)
     _created_utc = field_validator("created_at")(require_utc)
-
 class Agent(ControlPlaneModel):
     tenant_id: str
     agent_id: str
@@ -130,7 +127,6 @@ class Agent(ControlPlaneModel):
     _strings = field_validator("tenant_id", "agent_id", "version")(require_non_blank)
     _fingerprint = field_validator("certificate_fingerprint")(require_sha256)
     _datetimes = field_validator("last_seen_at", "created_at")(_optional_utc)
-
 class Job(ControlPlaneModel):
     tenant_id: str
     job_id: str
@@ -185,13 +181,11 @@ class Job(ControlPlaneModel):
             raise ValueError("invalid_result_manifest_key")
         if parts[-1] != "manifest.json":
             raise ValueError("invalid_result_manifest_key")
-
 class RunDependency(ControlPlaneModel):
     source_type: str
     file_subtype: str
     required: bool
     _components = field_validator("source_type", "file_subtype")(require_key_component)
-
 class Run(ControlPlaneModel):
     tenant_id: str
     run_id: str
@@ -217,7 +211,6 @@ class Run(ControlPlaneModel):
         if len(identities) != len(self.dependencies):
             raise ValueError("duplicate_dependency")
         return self
-
 class ManifestRef(ControlPlaneModel):
     manifest_id: str
     manifest_key: str
@@ -361,6 +354,7 @@ class RunDispatch(ControlPlaneModel):
     execution_ref: str | None = None
     terminal_outcome: DispatchOutcome | None = None
     start_claim: DispatchStartClaim | None = None
+    canceled_before_send: bool = False
     _strings = field_validator("tenant_id", "run_id")(require_non_blank)
     _lease_utc = field_validator("lease_until")(require_utc)
     _execution_ref_value = field_validator("execution_ref")(optional_non_blank)
@@ -379,6 +373,12 @@ class RunDispatch(ControlPlaneModel):
         unique_non_blank(self.unit_ids, "duplicate_unit_id")
         if self.unit_ids != tuple(sorted(self.unit_ids)):
             raise ValueError("unit_ids_not_ordered")
+        if self.canceled_before_send and (
+            self.state is not DispatchState.TERMINAL
+            or self.terminal_outcome is not DispatchOutcome.CANCELED
+            or self.start_claim is None
+        ):
+            raise ValueError("cancel_before_send_requires_terminal_claim")
         if self.state is DispatchState.STARTING and self.start_claim is None:
             raise ValueError("start_claim_required")
         if self.state is DispatchState.STARTED and not self.execution_ref:

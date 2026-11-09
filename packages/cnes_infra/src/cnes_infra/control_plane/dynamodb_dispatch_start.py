@@ -74,6 +74,7 @@ def cancel_reserved(
         update={
             "state": DispatchState.TERMINAL,
             "terminal_outcome": DispatchOutcome.CANCELED,
+            "canceled_before_send": True,
             "start_claim": command.claim,
         }
     )
@@ -87,6 +88,7 @@ def cancel_reserved(
         "holder_run_id": {"S": command.run_id},
         "generation": {"N": str(command.claim.generation)},
         "request_sha256": {"S": command.claim.request_sha256},
+        "start_state": {"S": DispatchState.RESERVED.value},
     }
     if any(semaphore.get(key) != value for key, value in expected.items()):
         return None

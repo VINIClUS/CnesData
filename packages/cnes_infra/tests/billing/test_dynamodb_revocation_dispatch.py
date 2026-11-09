@@ -142,19 +142,20 @@ def test_revogacao_preserva_claim_e_permit_ate_reconciliacao_nativa(env, bound):
             lease_seconds=300,
         )
     )
+    reference = f"arn:aws:states:us-east-1:123456789012:execution:processor:{dispatch.dispatch_id}"
     if bound:
         env.plane.bind_run_dispatch(
             BindRunDispatch(
                 tenant_id=TENANT,
                 run_id=RUN_ID,
                 dispatch_id=dispatch.dispatch_id,
-                execution_ref="exec-1",
+                execution_ref=reference,
                 now=env.clock.now(),
                 lease_seconds=300,
                 claim=claim,
             )
         )
-        env.plane.bind_run_execution(bind_command(env, dispatch, "exec-1", None))
+        env.plane.bind_run_execution(bind_command(env, dispatch, reference, None))
     executor = RecordingExecutor()
     build_service(env, executor).revoke(COMMAND)
     settled = env.plane.get_run_dispatch(TENANT, RUN_ID)
@@ -162,3 +163,52 @@ def test_revogacao_preserva_claim_e_permit_ate_reconciliacao_nativa(env, bound):
     assert settled.state is DispatchState.TERMINAL
     assert env.plane.observe_environment_gate("prod").permit is not None
     assert env.plane.observe_environment_gate("prod").settlement is None
+
+
+@pytest.mark.parametrize("bound", [False, True])
+def test_billing_seguido_de_ausencia_retem_permit_ate_terminal_real(env, bound):
+    from botocore.exceptions import ClientError
+
+    from cnes_domain.control_plane.environment_gate import ClosePromotionFence
+    from cnes_domain.orchestration.dispatch_admission import EnvironmentAdmission
+    from cnes_infra.executor.step_functions import StepFunctionsExecutionProbe
+
+    test_revogacao_preserva_claim_e_permit_ate_reconciliacao_nativa(env, bound)
+    if bound:
+        from cnes_domain.control_plane.environment_gate import BindUnitPermit
+
+        current = env.plane.observe_environment_gate("prod").permit
+        dispatch = env.plane.get_run_dispatch(TENANT, RUN_ID)
+        env.plane.bind_unit_permit(
+            BindUnitPermit("prod", current.token, dispatch.execution_ref, env.clock.now())
+        )
+    before = env.plane.observe_environment_gate("prod")
+    assert env.plane.close_promotion_fence(
+        ClosePromotionFence("prod", "release-n1", env.clock.now())
+    )
+
+    class NativeClient:
+        terminal = False
+
+        def describe_execution(self, **request):
+            if not self.terminal:
+                raise ClientError({"Error": {"Code": "ExecutionDoesNotExist"}}, "DescribeExecution")
+            return {"executionArn": request["executionArn"], "status": "ABORTED"}
+
+    client = NativeClient()
+    probe = StepFunctionsExecutionProbe(
+        client, "arn:aws:states:us-east-1:123456789012:stateMachine:processor"
+    )
+    admission = EnvironmentAdmission(env.plane, probe, "prod", 300, env.plane)
+    env.clock.advance(timedelta(hours=2))
+    admission.reconcile(env.clock.now())
+    after = env.plane.observe_environment_gate("prod")
+    assert after.permit == before.permit
+    assert after.settlement is None
+    assert after.fence.closed_membership[0]["dispatch_id"] == before.permit.holder.dispatch_id
+    assert env.plane.get_run_dispatch(TENANT, RUN_ID).canceled_before_send is False
+    client.terminal = True
+    admission.reconcile(env.clock.now())
+    terminal = env.plane.observe_environment_gate("prod")
+    assert terminal.permit is None
+    assert b'"resolution":"TERMINAL"' in terminal.settlement

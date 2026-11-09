@@ -411,7 +411,7 @@ class EnvironmentAdmission:
         self._gate.renew_unit_permit(renew)
 
     def _cancel_reserved(self, permit: UnitPermit, now: datetime) -> bool:
-        if self._control_plane is None:
+        if self._control_plane is None or permit.start_state != "RESERVED":
             return False
         dispatch = self._control_plane.get_run_dispatch(
             permit.holder.tenant_id, permit.holder.run_id
@@ -435,6 +435,7 @@ class EnvironmentAdmission:
             return (
                 dispatch.terminal_outcome is DispatchOutcome.CANCELED
                 and dispatch.start_claim == claim
+                and dispatch.canceled_before_send
             )
         canceled = self._control_plane.cancel_reserved_run_dispatch(
             CancelReservedRunDispatch(

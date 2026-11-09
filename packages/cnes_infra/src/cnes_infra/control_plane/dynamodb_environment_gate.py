@@ -272,6 +272,9 @@ def _release(command: ReleaseUnitPermit) -> _Update:
     if command.proof is None:
         condition += " AND (attribute_not_exists(#generation) OR #start = :reserved)"
         values[":reserved"] = _text("RESERVED")
+    if command.resolution == "CANCEL_BEFORE_SEND":
+        condition += f" AND #start = :reserved AND {_UNBOUND_CONDITION}"
+        values[":reserved"] = _text("RESERVED")
     sets = "#updated = :now"
     if command.generation is not None:
         condition += " AND #generation = :generation"
