@@ -202,5 +202,12 @@ locals {
       module.athena.cutoff_role_name,
     ],
     module.schedulers.freeze_excluded_role_names,
+    var.canary_release_id == null ? [] : [
+      "${local.name_prefix}-canary-task",
+      "${local.name_prefix}-canary-execution",
+      "${local.name_prefix}-canary-seeder",
+      "${local.name_prefix}-canary-verifier",
+      "${local.name_prefix}-promotion-fence-operator",
+    ],
   ) : "${local.role_arn_prefix}${name}"])
 }

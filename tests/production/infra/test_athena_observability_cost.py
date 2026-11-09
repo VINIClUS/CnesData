@@ -138,7 +138,7 @@ def test_manifest_do_produto_ate_8_e_agregado_ate_15() -> None:
     assert computed["product"]["min"] <= computed["product"]["base"] <= computed["product"]["max"]
 
 
-def test_freeze_preserva_audit_e_backup(bootstrap_plan: Node) -> None:
+def test_freeze_preserva_audit_e_backup(bootstrap_plan: Node, canary_plan: Node) -> None:
     target = set(output_value(bootstrap_plan, "freeze_target_role_arns"))
     excluded = set(output_value(bootstrap_plan, "freeze_excluded_role_arns"))
     roles = {
@@ -153,6 +153,25 @@ def test_freeze_preserva_audit_e_backup(bootstrap_plan: Node) -> None:
     assert {f"arn:aws:iam::{ACCOUNT}:role/{name}" for name in scheduler_targets} <= target
     assert output_value(bootstrap_plan, "freeze_target_role_arns") == sorted(target)
     assert output_value(bootstrap_plan, "freeze_excluded_role_arns") == sorted(excluded)
+    canary_target = set(output_value(canary_plan, "freeze_target_role_arns"))
+    canary_excluded = set(output_value(canary_plan, "freeze_excluded_role_arns"))
+    canary_roles = {
+        f"arn:aws:iam::{ACCOUNT}:role/cnesdata-prod-{name}"
+        for name in (
+            "canary-task",
+            "canary-execution",
+            "canary-seeder",
+            "canary-verifier",
+            "promotion-fence-operator",
+        )
+    }
+    all_canary_roles = {
+        f"arn:aws:iam::{ACCOUNT}:role/{item['change']['after']['name']}"
+        for item in of_type(canary_plan, "aws_iam_role")
+    }
+    assert canary_roles <= canary_excluded
+    assert canary_target & canary_excluded == set()
+    assert canary_target | canary_excluded == all_canary_roles | target | excluded
 
 
 def test_plan_agenda_workgroup_e_alarmes(
