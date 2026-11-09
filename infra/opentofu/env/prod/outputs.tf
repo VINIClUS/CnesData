@@ -1,3 +1,8 @@
+output "demo_seed_iam_contract" {
+  description = "Unmodified dedicated demo seed IAM contract, or null."
+  value       = module.runtime_iam.demo_seed_iam_contract
+}
+
 output "cloudfront_domain_name" {
   description = "CloudFront distribution hostname for the static web product."
   value       = module.static_web.distribution_domain_name

@@ -1,3 +1,13 @@
+variable "demo_seed" {
+  description = "Exact tenant and governed principal for optional demo seed IAM."
+  type = object({
+    tenant_partition_key  = string
+    trusted_principal_arn = string
+  })
+  default  = null
+  nullable = true
+}
+
 variable "shared_outputs" {
   description = "Versioned outputs consumed from the shared personal-infra state."
   type = object({
