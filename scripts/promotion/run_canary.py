@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import copy
 import json
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from queue import Empty, Queue
 from threading import Thread
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import boto3
 from botocore.config import Config
@@ -243,45 +246,135 @@ def _run_request(contract: Node) -> Node:
     }
 
 
-def run_canary(contract: Node, session: Any, clock: Any) -> RunObservation:
-    """Returns: tentativa vinculada; falha parcial não gera prova de execução."""
-    validate_contract(contract)
-    started = clock.utcnow()
-    require(timestamp(contract["event"]["created_at"]) <= started, "canary=event_future")
-    response = call(
-        session, clock, clock.monotonic() + 60, ("ecs", "run_task", _run_request(contract))
+def task_arn(contract: Node, value: Any) -> str:
+    """Returns: ARN longo de task no account/region/cluster próprios, sem wildcard."""
+    prefix = contract["cluster"].replace(":cluster/", ":task/") + "/"
+    require(
+        type(value) is str and re.fullmatch(re.escape(prefix) + r"[0-9a-f]{32}", value),
+        "canary=task_arn",
     )
+    return value
+
+
+def _only_task(response: Node) -> Node:
     tasks = response.get("tasks", [])
-    require(not response.get("failures") and len(tasks) == 1, "canary=run_partial")
-    task = tasks[0]
+    require(
+        not response.get("failures")
+        and type(tasks) is list
+        and len(tasks) == 1
+        and type(tasks[0]) is dict,
+        "canary=run_partial",
+    )
+    return cast("Node", tasks[0])
+
+
+def _environment(container: Node) -> None:
+    values = container.get("environment", [])
+    require(
+        type(values) is list
+        and all(
+            type(v) is dict
+            and set(v) == {"name", "value"}
+            and type(v["name"]) is str
+            and type(v["value"]) is str
+            for v in values
+        ),
+        "canary=run_environment",
+    )
+    values = cast("list[Node]", values)
+    require(len({v["name"] for v in values}) == len(values), "canary=duplicate_environment")
+    container["environment"] = sorted(values, key=lambda value: value["name"])
+
+
+def _task_binding(contract: Node, task: Node, clock: Any) -> None:
+    require(
+        set(task)
+        >= {"taskArn", "createdAt", "clusterArn", "taskDefinitionArn", "startedBy", "overrides"},
+        "canary=task_origin",
+    )
+    task_arn(contract, task["taskArn"])
     created = task["createdAt"]
     require(
-        timestamp(contract["event"]["created_at"]) <= created <= clock.utcnow(),
+        isinstance(created, datetime)
+        and created.tzinfo is not None
+        and created.utcoffset() is not None
+        and timestamp(contract["event"]["created_at"]) <= created <= clock.utcnow(),
         "canary=task_origin",
     )
     require(
         task["taskDefinitionArn"] == contract["revisions"]["audit"]
         and task["clusterArn"] == contract["cluster"]
-        and task["taskArn"].startswith(contract["cluster"].replace(":cluster/", ":task/") + "/"),
+        and task["startedBy"] == contract["canary_id"],
         "canary=run_identity",
     )
+    overrides = copy.deepcopy(task["overrides"])
+    require(type(overrides) is dict, "canary=run_overrides")
+    containers = overrides.get("containerOverrides", [])
+    require(
+        type(containers) is list and len(containers) == 1 and type(containers[0]) is dict,
+        "canary=run_container",
+    )
+    containers = cast("list[Node]", containers)
+    if containers[0].get("cpu") == 0:
+        del containers[0]["cpu"]
+    _environment(containers[0])
+    expected = _run_request(contract)["overrides"]
+    _environment(expected["containerOverrides"][0])
+    require(overrides == expected, "canary=run_overrides")
+
+
+def _observe_task(contract: Node, task: Node, operation: tuple[Any, float, Any]) -> Node:
+    clock, deadline, reader = operation
+    arn = task_arn(contract, task.get("taskArn"))
+    minimal = (
+        set(task) == {"taskArn", "lastStatus", "desiredStatus"}
+        and task["lastStatus"] == task["desiredStatus"] == "STOPPED"
+    )
+    if not minimal:
+        _task_binding(contract, task, clock)
+    read_session = None if reader is None else bounded(lambda: reader(arn), clock, deadline)
+    if minimal:
+        require(read_session is not None, "canary=readback_required")
+        task = _only_task(
+            call(
+                read_session,
+                clock,
+                deadline,
+                ("ecs", "describe_tasks", {"cluster": contract["cluster"], "tasks": [arn]}),
+            )
+        )
+        require(task.get("taskArn") == arn, "canary=readback_task")
+        _task_binding(contract, task, clock)
+    return task
+
+
+def run_canary(contract: Node, session: Any, clock: Any, reader: Any = None) -> RunObservation:
+    """Returns: origem nativa conferida; replay sem histórico ECS falha fechado."""
+    validate_contract(contract)
+    require(timestamp(contract["event"]["created_at"]) <= clock.utcnow(), "canary=event_future")
+    deadline = clock.monotonic() + 60
+    response = call(session, clock, deadline, ("ecs", "run_task", _run_request(contract)))
+    task = _observe_task(contract, _only_task(response), (clock, deadline, reader))
     facts = {
         "binding_sha256": contract["binding_sha256"],
         "event_sha256": sha(canonical(contract["event"])),
         "task_arn": task["taskArn"],
-        "started_at": created.isoformat().replace("+00:00", "Z"),
+        "started_at": task["createdAt"].astimezone(UTC).isoformat().replace("+00:00", "Z"),
     }
     return RunObservation(canonical(facts), _RUN_AUTHORITY)
 
 
-def assume_canary(contract: Node, sts: Any, actor: str) -> Any:
+def assume_canary(contract: Node, sts: Any, actor: str, task: str | None = None) -> Any:
     """Returns: sessão efêmera do principal canary exato, sem persistir credenciais."""
-    require(actor in {"seeder", "verifier"}, "canary=actor")
+    from scripts.promotion.verify_canary import session_policy
+
     validate_contract(contract)
+    policy = session_policy(contract, actor, task)
     response = sts.assume_role(
         RoleArn=contract[actor + "_role"],
         RoleSessionName=f"canary-{actor}-{contract['canary_id']}",
         DurationSeconds=900,
+        Policy=policy,
     )
     credentials = response["Credentials"]
     return boto3.Session(
@@ -301,6 +394,13 @@ def execute_canary(reference: Node, services: Node, governed: Node) -> Node:
     contract = authenticate_canary(reference, services, governed | {"now": clock.utcnow()})
     seed_session = assume_canary(contract, services["sts"], "seeder")
     seed_canary(contract, seed_session, clock)
-    verifier_session = assume_canary(contract, services["sts"], "verifier")
-    run = run_canary(contract, verifier_session, clock)
-    return verify_canary(contract, verifier_session, clock, run)
+    launch = assume_canary(contract, services["sts"], "verifier")
+    sessions: Node = {}
+
+    def reader(arn: str) -> Any:
+        if arn not in sessions:
+            sessions[arn] = assume_canary(contract, services["sts"], "verifier", arn)
+        return sessions[arn]
+
+    run = run_canary(contract, launch, clock, reader)
+    return verify_canary(contract, reader(run["task_arn"]), clock, run)

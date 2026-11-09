@@ -86,6 +86,11 @@ class Client:
                 result = result(kwargs)
             if isinstance(result, Exception):
                 raise result
+            if self.service == "ecs":
+                output = model.operation_model(operation).output_shape
+                assert output is not None
+                assert isinstance(result, dict)
+                validate_parameters(result, output)
             return copy.deepcopy(result)
 
         return invoke
@@ -122,7 +127,9 @@ def case(activation):
     item = seeder.pending_item(contract)
     delivered = copy.deepcopy(item)
     event = json.loads(delivered["payload"]["S"])
-    event["delivered_at"] = (NOW + timedelta(seconds=1)).isoformat().replace("+00:00", "Z")
+    event["delivered_at"] = (
+        (NOW + timedelta(seconds=1, microseconds=654321)).isoformat().replace("+00:00", "Z")
+    )
     delivered["payload"] = {"S": json.dumps(event, separators=(",", ":"))}
     for key in ("gsi6pk", "gsi6sk"):
         del delivered[key]
@@ -134,16 +141,18 @@ def case(activation):
     boundary.responses["run_task"] = {
         "tasks": [
             {
-                "taskArn": "arn:aws:ecs:us-east-2:123456789012:task/cnesdata-prod-processor/abc",
+                "taskArn": "arn:aws:ecs:us-east-2:123456789012:task/cnesdata-prod-processor/"
+                + "a" * 32,
                 "taskDefinitionArn": contract["revisions"]["audit"],
                 "clusterArn": contract["cluster"],
-                "createdAt": NOW,
+                "createdAt": NOW + timedelta(microseconds=123456),
+                "startedBy": contract["canary_id"],
+                "overrides": copy.deepcopy(runner._run_request(contract)["overrides"]),
             }
         ]
     }
     run = runner.run_canary(contract, boundary, clock)
     boundary.calls.clear()
-
     boundary.responses["get_object"] = lambda request: object_response(contract)
     boundary.responses["get_object_retention"] = {
         "Retention": {"Mode": "COMPLIANCE", "RetainUntilDate": NOW + timedelta(days=1)}
@@ -377,35 +386,9 @@ def native_runtime(case, tmp_path_factory):
 
 
 def assert_dispatch_settings(plan, contract):
-    from cnes_infra.aws.processor_settings import AwsAuditDispatchSettings
-    from tests.production.infra import test_canary_fence_iam as iam
+    from tests.production.delivery.test_canary_replay import assert_dispatch_composition
 
-    task = iam.resource_at(plan, 'module.subject.aws_ecs_task_definition.processor["audit"]')
-    container = json.loads(task["change"]["after"]["container_definitions"])[0]
-    assert container["command"] == ["dispatch-outbox-once"]
-    production = {e["name"]: e["value"] for e in container["environment"]}
-    baseline = AwsAuditDispatchSettings.from_mapping(production)
-    assert baseline.production_policy is True
-    assert baseline.audit_retention_days == 365
-    request = runner._run_request(contract)
-    roles = request["overrides"]
-    assert (roles["taskRoleArn"], roles["executionRoleArn"]) == (
-        contract["task_role"],
-        contract["execution_role"],
-    )
-    overrides = roles["containerOverrides"][0]["environment"]
-    canary = AwsAuditDispatchSettings.from_mapping(
-        production | {e["name"]: e["value"] for e in overrides}
-    )
-    assert canary.production_policy is False
-    assert canary.region == contract["region"]
-    assert canary.audit_retention_days == 1
-    assert (canary.control_plane_table, canary.audit_bucket) == (
-        contract["table"],
-        contract["bucket"],
-    )
-    assert canary.dynamodb_endpoint_url is None
-    assert canary.service_endpoint_url is None
+    assert_dispatch_composition(plan, contract)
 
 
 def test_politicas_renderizadas_negam_scan_recursos_e_roles_alheios(case, tmp_path_factory):
@@ -414,6 +397,9 @@ def test_politicas_renderizadas_negam_scan_recursos_e_roles_alheios(case, tmp_pa
     from tests.production.infra import test_canary_fence_iam as iam
 
     contract, context, root, plan = native_runtime(case, tmp_path_factory)
+    runtime = iam.resource_at(plan, "module.subject.aws_iam_role_policy.canary_verifier[0]")[
+        "change"
+    ]["after"]
     seeder_grants = iam._observed(plan, "canary_seeder")
     verifier_grants = iam._observed(plan, "canary_verifier")
     assert seeder_grants == iam.literal_grants(
@@ -444,21 +430,13 @@ def test_politicas_renderizadas_negam_scan_recursos_e_roles_alheios(case, tmp_pa
         == {"StringEquals": {"iam:PassedToService": "ecs-tasks.amazonaws.com"}}
         for _, condition in roles
     )
-    overrides = iam._processing_overrides().replace(iam.AUDIT_TASK, contract["revisions"]["audit"])
-    request = (
-        tmp_path_factory.mktemp("delivery-canary-ecs"),
-        root,
-        ("../../modules/processing", "delivery-canary-ecs"),
-        overrides,
+    from tests.production.delivery.test_canary_replay import (
+        assert_native_processing_policy,
+        native_processing,
     )
-    plan = iam._plan(iam._execute(context, request, iam.PROCESSING_BASE, {"ativo": {}}), "ativo")
-    assert_dispatch_settings(plan, contract)
-    policy = iam.resource_at(plan, "module.subject.aws_iam_role_policy.canary_verifier_run_task[0]")
-    assert iam.policy_grants(policy["change"]["after"]["policy"]) == iam.literal_grants(
-        ("ecs:RunTask",),
-        (contract["revisions"]["audit"],),
-        {"ArnEquals": {"ecs:cluster": contract["cluster"]}},
-    )
+
+    plan = native_processing(contract, context, root, tmp_path_factory)
+    assert_native_processing_policy(plan, contract, runtime)
 
 
 @pytest.mark.parametrize("mutation", ["partial", "revision", "origin"])

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+from typing import Any
 
 import pytest
 
@@ -29,7 +30,6 @@ github = candidate_fixtures.github
 @pytest.mark.parametrize("mutation", ["repository", "digest"])
 def test_recusa_repositorio_errado_e_digest_divergente(mutation):
     from scripts.promotion.promote_ecr import promote_image
-
     registry = RegistryBoundary()
     context = _promotion(registry)
     if mutation == "repository":
@@ -44,7 +44,6 @@ def test_recusa_repositorio_errado_e_digest_divergente(mutation):
 @pytest.mark.parametrize("mutation", ["mutable", "media"])
 def test_recusa_destino_mutavel_e_media_type_errado(mutation):
     from scripts.promotion.promote_ecr import promote_image
-
     registry = RegistryBoundary()
     if mutation == "mutable":
         registry.repository["image_tag_mutability"] = "MUTABLE"
@@ -57,9 +56,11 @@ def test_recusa_destino_mutavel_e_media_type_errado(mutation):
     assert registry.copied == []
 
 
+CLUSTER = f"arn:aws:ecs:{REGION}:{ACCOUNT}:cluster/cnesdata-prod-processor"
+
+
 def test_delta_da_phase_a_so_tem_revisoes_grants_e_canary():
     from scripts.promotion.phase_a import verify_delta
-
     plan = {
         "resource_changes": [
             {
@@ -242,12 +243,14 @@ def test_preserva_active_e_retained_no_bootstrap_e_promocao():
 def test_matriz_exige_principais_roles_cluster_e_negativos_exatos():
     from scripts.promotion.verify_task_revisions import authorization_matrix
 
-    context = _iam_context()
+    context: dict[str, Any] = _iam_context() | {"cluster_arn": CLUSTER}
     cases = {item["case_id"]: item for item in authorization_matrix(context)}
     assert cases["sfn-candidate-unit"]["resource"] == "candidate-unit"
     assert cases["sfn-retained-0"]["resource"] == "old-unit"
-    assert cases["verifier-audit"]["context"] == {"ecs:cluster": "cluster"}
+    assert cases["verifier-audit"]["context"] == {"ecs:cluster": context["cluster_arn"]}
     assert cases["verifier-other-cluster"]["expected"] is False
+    assert cases["verifier-describe"]["expected"] is True
+    assert cases["seeder-describe"]["expected"] is False
     assert cases["verifier-pass-role-0"]["context"] == {
         "iam:PassedToService": "ecs-tasks.amazonaws.com"
     }
@@ -433,7 +436,7 @@ def test_readback_de_revisoes_confere_todos_os_campos_funcionais(mutation):
 def test_matriz_bootstrap_preserva_ausencia_dos_schedulers():
     from scripts.promotion.verify_task_revisions import authorization_matrix
 
-    context = _iam_context()
+    context: dict[str, Any] = _iam_context() | {"cluster_arn": CLUSTER}
     context["scheduler_previous"] = {"recovery": None, "audit": None}
     context["principals"].update(scheduler_recovery=None, scheduler_audit=None)
     cases = authorization_matrix(context)

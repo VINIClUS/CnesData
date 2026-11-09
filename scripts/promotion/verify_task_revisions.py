@@ -78,6 +78,50 @@ def _case(
     }
 
 
+def canary_task_pattern(cluster: str) -> str:
+    """Returns: pattern de tasks derivado do cluster canônico, sem input novo."""
+    require(
+        re.fullmatch(r"arn:aws:ecs:us-east-2:[0-9]{12}:cluster/cnesdata-prod-processor", cluster),
+        "iam=canary_cluster",
+    )
+    return cluster.replace(":cluster/", ":task/") + "/*"
+
+
+def _describe_cases(contract: Node) -> list[Node]:
+    principals = contract["principals"]
+    task = canary_task_pattern(contract["cluster_arn"]).removesuffix("*") + "a" * 32
+    cluster = {"ecs:cluster": contract["cluster_arn"]}
+    cases = [
+        _case(
+            ("verifier-describe", principals["verifier"]),
+            ("ecs:DescribeTasks", task),
+            cluster,
+            True,
+        )
+    ]
+    for label, resource, context in (
+        ("cluster", task, {"ecs:cluster": contract["other_cluster_arn"]}),
+        ("missing-cluster", task, {}),
+        ("account", task.replace(task.split(":")[4], "999999999999"), cluster),
+        ("region", task.replace(":us-east-2:", ":us-west-2:"), cluster),
+        ("resource-cluster", task.replace("/cnesdata-prod-processor/", "/other/"), cluster),
+    ):
+        cases.append(
+            _case(
+                ("verifier-describe-" + label, principals["verifier"]),
+                ("ecs:DescribeTasks", resource),
+                context,
+                False,
+            )
+        )
+    cases.append(
+        _case(
+            ("seeder-describe", principals["seeder"]), ("ecs:DescribeTasks", task), cluster, False
+        )
+    )
+    return cases
+
+
 def _task_cases(contract: Node) -> list[Node]:
     principals, revisions = contract["principals"], contract["revisions"]
     cluster = {"ecs:cluster": contract["cluster_arn"]}
@@ -124,7 +168,7 @@ def _task_cases(contract: Node) -> list[Node]:
             False,
         )
     )
-    return cases + _scheduler_cases(contract)
+    return cases + _scheduler_cases(contract) + _describe_cases(contract)
 
 
 def _scheduler_cases(contract: Node) -> list[Node]:

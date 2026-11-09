@@ -96,7 +96,13 @@ def test_raiz_liga_grant_run_task_do_verifier(canary_plan):
             "Action": "ecs:RunTask",
             "Resource": REVISION % ("audit", 17),
             "Condition": {"ArnEquals": {"ecs:cluster": CLUSTER_ARN}},
-        }
+        },
+        {
+            "Effect": "Allow",
+            "Action": "ecs:DescribeTasks",
+            "Resource": CLUSTER_ARN.replace(":cluster/", ":task/") + "/*",
+            "Condition": {"ArnEquals": {"ecs:cluster": CLUSTER_ARN}},
+        },
     ]
 
 

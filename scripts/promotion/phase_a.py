@@ -41,6 +41,7 @@ from scripts.promotion.promote_ecr import (
 )
 from scripts.promotion.verify_task_revisions import (
     _prove_iam,
+    canary_task_pattern,
     verify_revisions,
 )
 
@@ -190,7 +191,13 @@ def _verifier_delta(after: Node, context: Node) -> None:
                     "Action": "ecs:RunTask",
                     "Resource": context["candidate_audit_arn"],
                     "Condition": {"ArnEquals": {"ecs:cluster": context["cluster_arn"]}},
-                }
+                },
+                {
+                    "Effect": "Allow",
+                    "Action": "ecs:DescribeTasks",
+                    "Resource": canary_task_pattern(context["cluster_arn"]),
+                    "Condition": {"ArnEquals": {"ecs:cluster": context["cluster_arn"]}},
+                },
             ],
         },
         "delta=verifier_grants",

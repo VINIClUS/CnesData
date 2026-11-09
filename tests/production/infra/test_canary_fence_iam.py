@@ -26,11 +26,9 @@ ACCOUNT, PREFIX = "123456789012", "cnesdata-prod"
 RELEASE, OTHER = "r20261101a", "r20261101b"
 PRINCIPAL = f"arn:aws:iam::{ACCOUNT}:role/promotion-workflow"
 CP_TABLE = f"arn:aws:dynamodb:us-east-2:{ACCOUNT}:table/{PREFIX}-control-plane"
-AUDIT = f"arn:aws:s3:::{PREFIX}-audit"
-DATA = f"arn:aws:s3:::{PREFIX}-data"
+AUDIT, DATA = f"arn:aws:s3:::{PREFIX}-audit", f"arn:aws:s3:::{PREFIX}-data"
 TABLE = f"arn:aws:dynamodb:us-east-2:{ACCOUNT}:table/{PREFIX}-canary"
-INDEX = f"{TABLE}/index/gsi6"
-BUCKET = f"arn:aws:s3:::{PREFIX}-canary"
+INDEX, BUCKET = f"{TABLE}/index/gsi6", f"arn:aws:s3:::{PREFIX}-canary"
 CLUSTER = f"arn:aws:ecs:us-east-2:{ACCOUNT}:cluster/{PREFIX}-processor"
 AUDIT_TASK = f"arn:aws:ecs:us-east-2:{ACCOUNT}:task-definition/{PREFIX}-processor-audit:7"
 SUBJECT = "module.subject"
@@ -467,6 +465,8 @@ def test_run_task_so_na_revisao_exata_de_audit_no_cluster(processing_events: lis
     spec = {"address": address, "name": f"{PREFIX}-canary-verifier-run-task", "allowed": [address]}
     condition = {"ArnEquals": {"ecs:cluster": CLUSTER}}
     expected = literal_grants(("ecs:RunTask",), (AUDIT_TASK,), condition)
+    pattern = CLUSTER.replace(":cluster/", ":task/") + "/*"
+    expected |= literal_grants(("ecs:DescribeTasks",), (pattern,), condition)
     assert_policy_grants(plan, role, spec, expected)
 
 
