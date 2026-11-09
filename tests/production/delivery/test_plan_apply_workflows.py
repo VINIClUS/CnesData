@@ -13,11 +13,12 @@ import yaml
 
 from release.verify_candidate import timestamp
 from scripts.promotion import verify_plan_artifact
-from scripts.promotion._plan_contract import verify_application
+from scripts.promotion._plan_contract import _package, verify_application
 from tests.production.delivery._plan_apply_fixtures import (
     APPLICATION_NOW,
     NOW,
     application,
+    canonical,
     evidence,
     outputs,
     phase_apply,
@@ -367,3 +368,77 @@ def test_cronologia_do_transporte_novo_sucede_release_real_do_produtor():
         < NOW
         < timestamp(artifact["expires_at"])
     )
+
+
+def _rehash_package(envelope):
+    plan = envelope["plan"]
+    plan["package"]["files"].sort(key=lambda item: item["name"])
+    plan["package"]["aggregate_sha256"] = hashlib.sha256(
+        canonical(plan["package"]["files"])
+    ).hexdigest()
+    envelope["plan_binding_sha256"] = hashlib.sha256(canonical(plan)).hexdigest()
+
+
+def _package_envelope(count=4, extra_name="extra"):
+    bundle, _ = application()
+    envelope = json.loads(bundle["planned"])
+    files = dict(bundle["files"])
+    for index in range(count - 3):
+        name = extra_name if index == 0 else f"extra-{index:02d}"
+        files[name] = b"x"
+        envelope["plan"]["package"]["files"].append(
+            {"name": name, "size": 1, "sha256": hashlib.sha256(b"x").hexdigest()}
+        )
+    _rehash_package(envelope)
+    return envelope, files
+
+
+@pytest.mark.parametrize(
+    ("case", "mutation", "reason"),
+    [
+        ("size", 0, "contract=id"),
+        ("count", 2, "package=count"),
+        ("name", "_bad", "package=path"),
+        ("name", ".bad", "package=path"),
+        ("name", "-bad", "package=path"),
+        ("name", "good..bad", "package=path"),
+        ("name", "bad..", "package=path"),
+        ("name", "bad\n", "package=path"),
+    ],
+)
+def test_schema_e_consumidor_recusam_o_mesmo_pacote_invalido(case, mutation, reason):
+    envelope, files = _package_envelope()
+    plan = envelope["plan"]
+    assert _package(plan, files) == {"resource_changes": []}
+    entries = plan["package"]["files"]
+    extra = next(item for item in entries if item["name"] == "extra")
+    if case == "size":
+        extra.update(size=mutation, sha256=hashlib.sha256(b"").hexdigest())
+        files["extra"] = b""
+    elif case == "count":
+        entries[:] = entries[:mutation]
+        files = {item["name"]: files[item["name"]] for item in entries}
+    else:
+        files[mutation] = files.pop("extra")
+        extra["name"] = mutation
+    _rehash_package(envelope)
+    with pytest.raises(ValueError, match=reason):
+        _package(plan, files)
+    assert validate(envelope, json.loads(SCHEMA.read_bytes()))
+
+
+@pytest.mark.parametrize(
+    ("count", "name"),
+    [
+        (3, "extra"),
+        (4, "a"),
+        (4, "0x"),
+        (4, "a.b-c_d"),
+        (4, "x" * 128),
+        (32, "extra"),
+    ],
+)
+def test_schema_e_consumidor_aceitam_limites_validos_do_pacote(count, name):
+    envelope, files = _package_envelope(count, name)
+    assert validate(envelope, json.loads(SCHEMA.read_bytes())) == []
+    assert _package(envelope["plan"], files) == {"resource_changes": []}

@@ -37,10 +37,11 @@
 "#/$defs/string"},"workflow_sha":{"$ref":"#/$defs/source"},"run_id":{"$ref":"#/$defs/id"},
 "run_attempt":{"$ref":"#/$defs/id"}}},"file":{"type":"object","additionalProperties":false,
 "required":["name","size","sha256"],"properties":{"name":{"type":"string","minLength":1,"pattern":
-"^(?!\\.{1,2}$)[A-Za-z0-9_.-]{1,128}$"},"size":{"$ref":"#/$defs/count"},"sha256":{"$ref":
+"^(?!.*\\.\\.)[A-Za-z0-9][A-Za-z0-9_.-]{0,127}(?![\\s\\S])"},
+"size":{"$ref":"#/$defs/id"},"sha256":{"$ref":
 "#/$defs/sha256"}}},"package":{"type":"object","additionalProperties":false,"required":["files",
 "aggregate_sha256"],"properties":{"files":{"type":"array","items":{"$ref":"#/$defs/file"},
-"uniqueItems":true,"minItems":1,"maxItems":32},"aggregate_sha256":{"$ref":"#/$defs/sha256"}}},
+"uniqueItems":true,"minItems":3,"maxItems":32},"aggregate_sha256":{"$ref":"#/$defs/sha256"}}},
 "dependency":{"type":"object","additionalProperties":false,"required":["repository","source_sha",
 "content_sha256"],"properties":{"repository":{"$ref":"#/$defs/string"},"source_sha":{"$ref":
 "#/$defs/source"},"content_sha256":{"$ref":"#/$defs/sha256"}}},"provider":{"type":"object",
