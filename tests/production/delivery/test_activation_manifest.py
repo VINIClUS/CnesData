@@ -14,6 +14,7 @@ import pytest
 
 from release.build_activation import _r1_payload, prepare_ext2, render_inputs
 from release.verify_activation import admit_ext2, canonical, verify_activation
+from scripts.promotion._phase_a_evidence import validate_evidence
 from scripts.promotion.phase_a import finalize_phase_a
 from scripts.promotion.promote_ecr import promote_candidate
 from tests.production.delivery import test_candidate_manifest as candidates
@@ -64,6 +65,8 @@ class Boundary:
 def activation(github):
     registry = RegistryBoundary()
     ref = _candidate_reference(github, registry)
+    for item in github.metadata:
+        item.setdefault("created_at", "2026-11-07T20:00:00Z")
     promotion = promote_candidate(
         ref,
         github,
@@ -93,8 +96,6 @@ def activation(github):
     phase_ref["workflow_path"] = phase_run["path"] = ".github/workflows/synthetic-phase-a.yml"
     request = _request(proof, phase_ref)
     governance = _governance(proof)
-    for item in github.metadata:
-        item.setdefault("created_at", "2026-11-07T20:00:00Z")
     github.routes["actions/runs/42"]["repository"] = {"full_name": "VINIClUS/CnesData"}
     return {
         "github": Boundary(github),
@@ -392,3 +393,87 @@ def test_aceita_json_publicado_por_jq_sem_alterar_os_bytes(activation):
     original = activation["github"].api.payloads["production-published-data_processor"]
     raw = (json.dumps(json.loads(original["manifest.json"]), indent=2) + "\n").encode()
     _r1_payload(candidate, "production-published-data_processor", {"manifest.json": raw})
+
+
+def _reseal_phase(case, payload):
+    reference = case["request"]["inputs"]["phase_a_reference"]
+    api = case["github"].api
+    artifact = api.routes[f"actions/artifacts/{reference['artifact_id']}"]
+    raw = canonical(case["proof"])
+    api.payloads[artifact["name"]]["phase-a-evidence.json"] = raw
+    api.refresh(artifact["name"])
+    reference["artifact_digest"] = artifact["digest"]
+    payload["inputs"] = copy.deepcopy(case["request"]["inputs"])
+    payload["phase_a_evidence_digest"] = digest(raw)
+    assert reference["artifact_digest"] == "sha256:" + digest(
+        candidates._zip(api.payloads[artifact["name"]])
+    )
+    return canonical(payload)
+
+
+@pytest.mark.parametrize("mutation", ["path", "event", "creator", "provenance"])
+def test_revalida_procedencia_r2_com_transporte_autentico(activation, mutation):
+    payload = json.loads(prepare(activation))
+    reference = activation["request"]["inputs"]["candidate_reference"]
+    api = activation["github"].api
+    run = api.routes[f"actions/runs/{reference['run_id']}"]
+    if mutation == "path":
+        run["path"] = reference["workflow_path"] = ".github/workflows/unrelated-success.yml"
+        activation["proof"]["references"]["candidate"]["workflow_path"] = run["path"]
+    elif mutation == "event":
+        run["event"] = "push"
+    elif mutation == "creator":
+        run["head_sha"] = "f" * 40
+    else:
+        activation["proof"]["source_provenance_sha256"] = "f" * 64
+    raw = _reseal_phase(activation, payload)
+    for callback in (lambda: prepare(activation), lambda: admit(activation, raw)):
+        with pytest.raises(ValueError):
+            callback()
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("scan_artifact_id", 999999),
+        ("scan_artifact_sha256", "f" * 64),
+        ("scan_sha256", "f" * 64),
+        ("scan_job_id", 999999),
+        ("scan_workflow_sha256", "f" * 64),
+    ],
+)
+def test_revalida_scan_r1_com_transporte_autentico(activation, field, value):
+    payload = json.loads(prepare(activation))
+    activation["proof"]["promotion"][field] = value
+    raw = _reseal_phase(activation, payload)
+    for callback in (lambda: prepare(activation), lambda: admit(activation, raw)):
+        with pytest.raises(ValueError, match="scan_binding"):
+            callback()
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("blob_digests", []),
+        ("blob_digests", ["mutable"]),
+        ("blob_digests", ["sha256:" + "f" * 64] * 130),
+        ("scan_artifact_id", True),
+        ("scan_job_id", 9007199254740992),
+        ("extra", "unapproved"),
+    ],
+)
+def test_valida_schema_consumido_aninhado_com_transporte_autentico(activation, field, value):
+    payload = json.loads(prepare(activation))
+    activation["proof"]["promotion"][field] = value
+    raw = _reseal_phase(activation, payload)
+    with pytest.raises(ValueError):
+        validate_evidence(activation["proof"], NOW)
+    for callback in (lambda: prepare(activation), lambda: admit(activation, raw)):
+        with pytest.raises(ValueError):
+            callback()
+
+
+def test_schema_consumido_preserva_o_documento_governante():
+    annotation = json.loads((ROOT / "release/activation.schema.json").read_bytes())
+    source = json.loads((ROOT / "release/phase-a-evidence.schema.json").read_bytes())
+    assert annotation["x-consumed-schemas"]["phase-a"]["schema"] == source

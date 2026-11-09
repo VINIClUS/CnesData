@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import importlib
 import importlib.util
@@ -14,72 +15,28 @@ from typing import Any
 
 EXT2_SHA = "d6c2fe101f5a5c2287aabc83ed73dd9f9b95f41f"
 REPOSITORY = "VINIClUS/CnesData"
-FIELDS = frozenset(
-    [
-        "project",
-        "environment",
-        "schema_version",
-        "repository",
-        "release_id",
-        "source_sha",
-        "candidate_sha256",
-        "binding_sha256",
-        "canary_id",
-        "derivation",
-        "revisions",
-        "ecr_uri",
-        "phase_a_evidence_digest",
-    ]
+FIELD_NAMES = (
+    "project environment schema_version repository release_id source_sha "
+    "candidate_sha256 binding_sha256 canary_id derivation revisions ecr_uri "
+    "phase_a_evidence_digest"
 )
+FIELDS = frozenset(FIELD_NAMES.split())
 INPUTS = frozenset(
     ["candidate_reference", "phase_a_reference", "retained_unit_task_definition_arns"]
 )
-REFERENCES = frozenset(
-    [
-        "repository",
-        "run_id",
-        "run_attempt",
-        "artifact_id",
-        "artifact_digest",
-        "workflow_path",
-        "workflow_sha",
-        "source_sha",
-    ]
+REFERENCE_NAMES = (
+    "repository run_id run_attempt artifact_id artifact_digest workflow_path "
+    "workflow_sha source_sha"
 )
+REFERENCES = frozenset(REFERENCE_NAMES.split())
 
 
-PHASE_A_FIELDS = [
-    "schema_version",
-    "repository",
-    "source_sha",
-    "release_id",
-    "candidate_sha256",
-    "canary_id",
-    "binding_sha256",
-    "derivation",
-    "ecr_image",
-    "image_digest",
-    "processor_task_definition_arns",
-    "active_before",
-    "retained_before",
-    "retained_after",
-    "state_sha256",
-    "outputs_sha256",
-    "plan_binding_sha256",
-    "source_provenance_sha256",
-    "references",
-    "r1_verification",
-    "r1_artifacts",
-    "promotion",
-    "iam",
-    "network_sha256",
-    "created_at",
-    "expires_at",
-    "resource_fingerprints",
-    "grant_fingerprints",
-    "route_fingerprints",
-    "cost",
-]
+CANDIDATE_FIELD_NAMES = (
+    "schema_version repository source_sha release_id created_at expires_at "
+    "verification pull_request expected_ecr_repository images dashboard_sha256 "
+    "config_sha256 compose_sha256 locks ecr_source_sha256 artifacts"
+)
+PHASE_A_SCHEMA_SHA256 = "3cb6b4f012d96493ecafdabcc4e8923453b2f43bb9d1a37f38cc2e039797d017"
 
 
 def require(condition: Any, reason: str) -> None:
@@ -197,26 +154,39 @@ def sibling(name: str, governance: dict[str, Any]) -> Any:
     return module
 
 
+def _schema_scalar(value: Any, rule: dict[str, Any]) -> None:
+    types = rule["type"] if type(rule["type"]) is list else [rule["type"]]
+    mapping = {"object": dict, "array": list, "string": str, "integer": int, "null": type(None)}
+    require(type(value) in [mapping[item] for item in types], "schema_type")
+    if "const" in rule:
+        require(value == rule["const"], "schema_context")
+    if type(value) is str:
+        require(
+            rule.get("minLength", 0) <= len(value) <= rule.get("maxLength", len(value)),
+            "schema_length",
+        )
+        require("pattern" not in rule or re.fullmatch(rule["pattern"], value), "schema_pattern")
+    if type(value) is int:
+        require(rule.get("minimum", value) <= value <= rule.get("maximum", value), "schema_range")
+
+
 def _schema(value: Any, rule: dict[str, Any], definitions: dict[str, Any]) -> None:
     if "$ref" in rule:
         rule = definitions[rule["$ref"].rsplit("/", 1)[1]]
-    mapping = {"object": dict, "array": list, "string": str, "integer": int}
-    require(type(value) is mapping[rule["type"]], "schema_type")
-    if "const" in rule:
-        require(value == rule["const"], "schema_context")
+    _schema_scalar(value, rule)
     if type(value) is dict:
         closed(value, rule["required"])
         for key, item in value.items():
             _schema(item, rule["properties"][key], definitions)
     elif type(value) is list:
-        require(len(value) <= rule.get("maxItems", 128), "schema_length")
+        require(
+            rule.get("minItems", 0) <= len(value) <= rule.get("maxItems", len(value)),
+            "schema_array_length",
+        )
+        if rule.get("uniqueItems"):
+            require(len({canonical(item) for item in value}) == len(value), "schema_duplicate")
         for item in value:
             _schema(item, rule["items"], definitions)
-    elif type(value) is str:
-        require(
-            rule.get("minLength", 0) <= len(value) <= rule.get("maxLength", 4096), "schema_length"
-        )
-        require("pattern" not in rule or re.fullmatch(rule["pattern"], value), "schema_pattern")
 
 
 def _reference(value: Any, source: str) -> dict[str, Any]:
@@ -245,27 +215,7 @@ def normalize_reference(value: dict[str, Any]) -> dict[str, Any]:
 
 
 def _candidate(candidate: dict[str, Any], now: datetime) -> None:
-    closed(
-        candidate,
-        [
-            "schema_version",
-            "repository",
-            "source_sha",
-            "release_id",
-            "created_at",
-            "expires_at",
-            "verification",
-            "pull_request",
-            "expected_ecr_repository",
-            "images",
-            "dashboard_sha256",
-            "config_sha256",
-            "compose_sha256",
-            "locks",
-            "ecr_source_sha256",
-            "artifacts",
-        ],
-    )
+    closed(candidate, CANDIDATE_FIELD_NAMES.split())
     valid_time(candidate, now)
     verification = candidate["verification"]
     expected = f"candidate-{candidate['source_sha']}-{verification['id']}-{verification['attempt']}"
@@ -285,8 +235,10 @@ def _candidate(candidate: dict[str, Any], now: datetime) -> None:
 
 
 def _phase_a(proof: dict[str, Any], candidate: dict[str, Any], now: datetime) -> None:
-    closed(proof, PHASE_A_FIELDS)
-    require(type(proof["schema_version"]) is int, "phase_a_schema")
+    data = json.loads(Path(__file__).with_name("activation.schema.json").read_bytes())
+    schema = data["x-consumed-schemas"]["phase-a"]["schema"]
+    require(sha(canonical(schema)) == PHASE_A_SCHEMA_SHA256, "consumed_schema_pin")
+    _schema(proof, schema, schema["$defs"])
     valid_time(proof, now)
     require(timestamp(proof["expires_at"]) <= timestamp(candidate["expires_at"]), "expiry")
     require(
@@ -295,16 +247,6 @@ def _phase_a(proof: dict[str, Any], candidate: dict[str, Any], now: datetime) ->
         == [{"name": k, **v} for k, v in sorted(candidate["artifacts"].items())],
         "r1_binding",
     )
-    for key in (
-        "state_sha256",
-        "outputs_sha256",
-        "plan_binding_sha256",
-        "source_provenance_sha256",
-        "network_sha256",
-    ):
-        require(
-            type(proof[key]) is str and re.fullmatch(r"[0-9a-f]{64}", proof[key]), "phase_a_hash"
-        )
     unit = proof["processor_task_definition_arns"]["unit"]
     retained = proof["retained_before"]
     require(
@@ -335,46 +277,100 @@ def _phase_a(proof: dict[str, Any], candidate: dict[str, Any], now: datetime) ->
 
 
 def _iam_cost(proof: dict[str, Any], now: datetime) -> None:
-    iam = closed(
-        proof["iam"],
-        [
-            "proof_kind",
-            "first_readback_seconds",
-            "second_readback_seconds",
-            "deadline_seconds",
-            "readback_sha256",
-            "matrix_sha256",
-        ],
-    )
+    iam = proof["iam"]
     first, second = Decimal(iam["first_readback_seconds"]), Decimal(iam["second_readback_seconds"])
-    require(
-        iam["proof_kind"] == "iam-readback-and-evaluation"
-        and iam["deadline_seconds"] == 300
-        and first.is_finite()
-        and second.is_finite()
-        and 0 <= first < second < 300
-        and second - first >= 10,
-        "iam_readback",
-    )
-    for key in ("readback_sha256", "matrix_sha256"):
-        require(re.fullmatch(r"[0-9a-f]{64}", iam[key]), "iam_digest")
+    require(0 <= first < second < 300 and second - first >= 10, "iam_readback")
     cost = proof["cost"]
     require(
         all(
             [
-                cost["verdict"] == "pass",
-                cost["scope"] == "active",
                 Decimal(cost["product_monthly_usd"]) <= 8,
                 Decimal(cost["aggregate_monthly_usd"]) < 15,
-                cost["paid_actions_limit_usd"] == "0.00",
-                cost["cloudfront"]["plan"] == "FREE",
-                cost["cloudfront"]["status"] == "ACTIVE",
                 timestamp(cost["calculated_at"]) <= now,
                 timestamp(proof["expires_at"]) <= timestamp(cost["expires_at"]),
                 timestamp(proof["expires_at"]) <= timestamp(cost["cloudfront"]["expires_at"]),
             ]
         ),
         "cost",
+    )
+
+
+def _r2_provenance(proof: dict[str, Any], candidate: dict[str, Any], api: Any, helper: Any) -> None:
+    reference = proof["references"]["candidate"]
+    run = helper.read_metadata(api, f"actions/runs/{reference['run_id']}")
+    helper.match_fields(
+        run,
+        {
+            "id": reference["run_id"],
+            "run_attempt": reference["run_attempt"],
+            "event": "workflow_dispatch",
+            "path": ".github/workflows/release-candidate.yml",
+            "head_sha": reference["workflow_sha"],
+        },
+        "candidate_producer",
+    )
+    artifact = helper.read_metadata(api, f"actions/artifacts/{reference['artifact_id']}")
+    require(artifact.get("size_in_bytes", 0) <= 131072, "candidate_size")
+    name = f"production-candidate-{candidate['source_sha']}-{run['id']}-{run['run_attempt']}"
+    require(artifact.get("name") == name, "candidate_name")
+    locator = {
+        key: reference[key]
+        for key in ("repository", "run_id", "run_attempt", "artifact_id", "artifact_digest")
+    }
+    provenance = {
+        "reference": locator,
+        "run": run,
+        "artifact": artifact,
+        "verification": candidate["verification"],
+        "artifacts": candidate["artifacts"],
+    }
+    require(
+        sha(canonical(provenance)) == proof["source_provenance_sha256"],
+        "source_provenance",
+    )
+
+
+def _scan(proof: dict[str, Any], candidate: dict[str, Any], raw: bytes, api: Any) -> None:
+    source, verification = candidate["source_sha"], candidate["verification"]
+    prefix = "repos/" + REPOSITORY + "/"
+    require(0 < len(raw) <= 4 * 1024**2, "scan_size")
+    scan = json.loads(raw, object_pairs_hook=_pairs, parse_constant=_invalid)
+    image = candidate["images"]["data_processor"]
+    require(scan.get("Metadata", {}).get("ImageID") == image["config_digest"], "scan_binding")
+    checks = api.read(prefix + f"commits/{source}/check-runs?filter=all&per_page=100")
+    jobs = [
+        item
+        for item in checks["check_runs"]
+        if item.get("check_suite", {}).get("id") == verification["check_suite_id"]
+        and item.get("name") == "oci-build (data_processor)"
+    ]
+    require(jobs, "scan_job_missing")
+    job = max(jobs, key=lambda item: item["id"])
+    require(
+        job.get("head_sha") == source
+        and job.get("status") == "completed"
+        and job.get("conclusion") == "success",
+        "scan_job_not_green",
+    )
+    document = api.read(prefix + f"contents/.github/workflows/verify-production.yml?ref={source}")
+    require(document.get("type") == "file" and document.get("encoding") == "base64", "scan_source")
+    workflow = base64.b64decode(document["content"].replace("\n", ""), validate=True)
+    command = (
+        rb"trivy image --input image.tar --scanners vuln\s*\\\n\s*"
+        rb"--severity CRITICAL,HIGH --ignore-unfixed --exit-code 1\s*\\\n\s*"
+        rb"--ignorefile \.trivyignore --format json --output scan.json"
+    )
+    require(re.search(command, workflow), "scan_threshold_contract")
+    artifact = candidate["artifacts"]["production-oci-data_processor"]
+    expected = {
+        "scan_artifact_id": artifact["id"],
+        "scan_artifact_sha256": artifact["sha256"],
+        "scan_sha256": sha(raw),
+        "scan_job_id": job["id"],
+        "scan_workflow_sha256": sha(workflow),
+    }
+    require(
+        all(proof["promotion"][key] == value for key, value in expected.items()), "scan_binding"
     )
 
 
@@ -418,6 +414,7 @@ def prepare_payload(
     for ref in (inputs["candidate_reference"], inputs["phase_a_reference"]):
         _reference(ref, source)
     candidate_raw, proof_raw = helper.authenticate_inputs(inputs, github, now)
+    require(len(candidate_raw) <= 65536, "candidate_size")
     candidate, proof = loads(candidate_raw), loads(proof_raw)
     _candidate(candidate, now)
     _phase_a(proof, candidate, now)
@@ -430,7 +427,9 @@ def prepare_payload(
     require(
         inputs["retained_unit_task_definition_arns"] == proof["retained_after"], "retained_binding"
     )
-    helper.authenticate_evidence(proof, candidate, github, now)
+    _r2_provenance(proof, candidate, github, helper)
+    scan = helper.authenticate_evidence(proof, candidate, github, now)
+    _scan(proof, candidate, scan, github)
     payload = fields | {"inputs": inputs}
     schema = json.loads(Path(__file__).with_name("activation.schema.json").read_bytes())
     _schema(payload, schema, schema["$defs"])

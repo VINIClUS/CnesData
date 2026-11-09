@@ -12,7 +12,7 @@ import stat
 import zipfile
 from datetime import datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 LIMIT = 192 * 1024**2
 REPOSITORY = "VINIClUS/CnesData"
@@ -23,11 +23,21 @@ def _require(condition: Any, reason: str) -> None:
         raise ValueError("activation=" + reason)
 
 
-def _matches(observed: dict[str, Any], expected: dict[str, Any], reason: str) -> None:
+def match_fields(observed: dict[str, Any], expected: dict[str, Any], reason: str) -> None:
+    """Raises: ValueError se valores ou tipos de metadados divergem."""
     _require(
         all(type(observed.get(k)) is type(v) and observed[k] == v for k, v in expected.items()),
         reason,
     )
+
+
+def _canonical(value: Any) -> bytes:
+    return (
+        json.dumps(
+            value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+        )
+        + "\n"
+    ).encode()
 
 
 def _verifier(governance: dict[str, Any]) -> Any:
@@ -47,7 +57,8 @@ def _verifier(governance: dict[str, Any]) -> Any:
     return module
 
 
-def _read(api: Any, route: str, *, raw: bool = False) -> Any:
+def read_metadata(api: Any, route: str, *, raw: bool = False) -> Any:
+    """Returns: bytes/metadados da API autenticada com limites de transporte."""
     try:
         path = route if route.startswith("repos/") else "repos/" + REPOSITORY + "/" + route
         value = api.read(path, raw=raw, maximum=LIMIT)
@@ -75,12 +86,7 @@ def _json(raw: bytes, *, require_canonical: bool = True) -> Any:
         value = json.loads(
             raw, object_pairs_hook=pairs, parse_float=invalid, parse_constant=invalid
         )
-        expected = (
-            json.dumps(
-                value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
-            )
-            + "\n"
-        ).encode()
+        expected = _canonical(value)
         _require(not require_canonical or raw == expected, "noncanonical_json")
         return value
     except (ValueError, RecursionError, UnicodeError):
@@ -120,8 +126,8 @@ def _artifact(ref: dict[str, Any], api: Any, now: datetime) -> dict[str, bytes]:
     _require(re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository), "artifact_repository")
     prefix = "repos/" + repository + "/"
     run_route = prefix + f"actions/runs/{ref['run_id']}/attempts/{ref['run_attempt']}"
-    run = _read(api, run_route)
-    _matches(
+    run = read_metadata(api, run_route)
+    match_fields(
         run,
         {
             "id": int(ref["run_id"]),
@@ -140,28 +146,28 @@ def _artifact(ref: dict[str, Any], api: Any, now: datetime) -> dict[str, bytes]:
         "artifact_producer",
     )
     route = prefix + f"actions/artifacts/{ref['artifact_id']}"
-    artifact = _read(api, route)
+    artifact = read_metadata(api, route)
     origin = artifact.get("workflow_run", {})
-    _matches(
+    match_fields(
         artifact,
         {"id": int(ref["artifact_id"]), "digest": ref["artifact_digest"], "expired": False},
         "artifact_origin",
     )
     expected_origin = {key: run[key] for key in ("id", "head_sha", "head_branch")}
-    _matches(origin, expected_origin, "artifact_origin")
+    match_fields(origin, expected_origin, "artifact_origin")
     _require(_date(artifact["created_at"]) <= now < _date(artifact["expires_at"]), "expiry")
     _require(
         type(artifact["size_in_bytes"]) is int and 0 < artifact["size_in_bytes"] <= LIMIT,
         "artifact_size",
     )
-    raw = _read(api, route + "/zip", raw=True)
+    raw = read_metadata(api, route + "/zip", raw=True)
     _require(
         len(raw) == artifact["size_in_bytes"]
         and "sha256:" + hashlib.sha256(raw).hexdigest() == ref["artifact_digest"],
         "artifact_digest",
     )
     members = _members(raw)
-    _require(_read(api, run_route) == run, "artifact_run_changed")
+    _require(read_metadata(api, run_route) == run, "artifact_run_changed")
     return members
 
 
@@ -200,11 +206,13 @@ def _checksums(members: dict[str, bytes]) -> None:
     )
 
 
-def _r1(candidate: dict[str, Any], api: Any, now: datetime) -> None:
+def _r1(candidate: dict[str, Any], api: Any, now: datetime) -> bytes:
     verification = candidate["verification"]
     _require(len(candidate["artifacts"]) == 6, "r1_artifacts")
     source = candidate["source_sha"]
-    run = _read(api, f"actions/runs/{verification['id']}/attempts/{verification['attempt']}")
+    run = read_metadata(
+        api, f"actions/runs/{verification['id']}/attempts/{verification['attempt']}"
+    )
     _require(
         run.get("head_sha") == source
         and run.get("conclusion") == "success"
@@ -214,6 +222,7 @@ def _r1(candidate: dict[str, Any], api: Any, now: datetime) -> None:
         and run.get("path") == ".github/workflows/verify-production.yml",
         "r1_run",
     )
+    scans = {}
     for name, item in candidate["artifacts"].items():
         _require(
             item["source_sha"] == source
@@ -230,11 +239,13 @@ def _r1(candidate: dict[str, Any], api: Any, now: datetime) -> None:
             "workflow_sha": source,
             "workflow_path": run["path"],
         }
-        metadata = _read(api, f"actions/artifacts/{item['id']}")
+        metadata = read_metadata(api, f"actions/artifacts/{item['id']}")
         _require(metadata.get("name") == name, "r1_name")
         members = _artifact(ref, api, now)
         _checksums(members)
         _r1_payload(candidate, name, members)
+        scans[name] = members.get("scan.json", b"")
+    return scans["production-oci-data_processor"]
 
 
 def _r1_payload(candidate: dict[str, Any], name: str, members: dict[str, bytes]) -> None:
@@ -249,7 +260,7 @@ def _r1_payload(candidate: dict[str, Any], name: str, members: dict[str, bytes])
             run_id=str(verification["id"]),
             run_attempt=str(verification["attempt"]),
         )
-        _matches(published, expected, "published_binding")
+        match_fields(published, expected, "published_binding")
         _require(
             published["image"] + "@" + published["digest"] == image["image"], "published_binding"
         )
@@ -293,7 +304,7 @@ def _index(index: dict[str, Any], proof: dict[str, Any], status: str) -> None:
         },
         "admission_binding",
     )
-    _matches(
+    match_fields(
         index,
         {
             "kind": "cnesdata-private-plan-transport",
@@ -317,10 +328,10 @@ def _index(index: dict[str, Any], proof: dict[str, Any], status: str) -> None:
 
 def authenticate_evidence(
     proof: dict[str, Any], candidate: dict[str, Any], api: Any, now: datetime
-) -> None:
+) -> bytes:
     """Raises: ValueError se alguma referência R1/A3 pública falha; nunca reconstrói OCI."""
     _fingerprints(proof)
-    _r1(candidate, api, now)
+    scan = _r1(candidate, api, now)
     references = proof["references"]
     _require(set(references) == {"candidate", "planned", "applied", "publication"}, "references")
     artifacts = {}
@@ -342,7 +353,7 @@ def authenticate_evidence(
     )
     receipt = _json(artifacts["publication"]["receipt.json"])
     applied = references["applied"]
-    _matches(
+    match_fields(
         receipt,
         {
             "receipt_version": 1,
@@ -359,24 +370,12 @@ def authenticate_evidence(
     _require(_date(receipt["verified_at"]) <= now, "phase_a_checkpoint")
     for key in ("lease_evidence_sha256", "checkpoint_sha256"):
         _require(re.fullmatch(r"[0-9a-f]{64}", receipt[key]), "phase_a_checkpoint")
+    return scan
 
 
 def _fingerprints(proof: dict[str, Any]) -> None:
     for key in ("resource_fingerprints", "grant_fingerprints", "route_fingerprints"):
-        items = proof[key]
-        _require(type(items) is list and len(items) <= 64, "phase_a_fingerprints")
-        addresses = []
-        for item in items:
-            _require(
-                type(item) is dict
-                and set(item) == {"address", "fingerprint_sha256"}
-                and type(item["address"]) is str
-                and 0 < len(item["address"]) <= 4096
-                and type(item["fingerprint_sha256"]) is str
-                and re.fullmatch(r"[0-9a-f]{64}", item["fingerprint_sha256"]),
-                "phase_a_fingerprints",
-            )
-            addresses.append(cast("dict[str, Any]", item)["address"])
+        addresses = [item["address"] for item in proof[key]]
         _require(addresses == sorted(set(addresses)), "phase_a_fingerprints")
 
 
@@ -402,9 +401,7 @@ def _reports(index: dict[str, Any], members: dict[str, bytes], now: datetime) ->
             and _date(check["observed_at"]) <= now < _date(check["expires_at"]),
             "admission_report",
         )
-        measurement = (
-            json.dumps(value["measurement"], sort_keys=True, separators=(",", ":")) + "\n"
-        ).encode()
+        measurement = _canonical(value["measurement"])
         _require(
             hashlib.sha256(measurement).hexdigest() == check["observed_sha256"],
             "admission_measurement",
@@ -422,7 +419,7 @@ def _dependencies(items: list[dict[str, Any]], api: Any, now: datetime) -> None:
             {"name": name, "size": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
             for name, raw in sorted(members.items())
         ]
-        raw = (json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n").encode()
+        raw = _canonical(manifest)
         _require(hashlib.sha256(raw).hexdigest() == item["content_sha256"], "admission_dependency")
 
 
