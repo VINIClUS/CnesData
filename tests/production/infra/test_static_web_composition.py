@@ -377,12 +377,13 @@ def test_outputs_cloudfront_e_runtime_sao_utilizaveis(static_web_composition: Co
     composition = static_web_composition
     outputs = composition.plan["planned_values"].get("outputs", {})
     declared = _configured(composition)["outputs"]
-    assert len(OUTPUTS) == 34
+    assert len(OUTPUTS) == 35
     assert set(declared) == OUTPUTS, f"root_output_inventory actual={set(declared)}"
     required_outputs = OUTPUTS - {"api_loopback_contract"}
     assert required_outputs <= set(outputs), "evaluated_root_outputs_required"
     assert declared["api_loopback_contract"]["expression"] == {"constant_value": None}
     assert outputs["processor_state_machine_arn"]["value"] is None
+    assert outputs["demo_seed_iam_contract"]["value"] is None
     if "api_loopback_contract" in outputs:
         assert "value" in outputs["api_loopback_contract"]
         assert outputs["api_loopback_contract"]["value"] is None
