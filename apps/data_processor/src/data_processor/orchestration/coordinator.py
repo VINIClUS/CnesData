@@ -7,11 +7,13 @@ from typing import TYPE_CHECKING, cast
 
 from cnes_domain.control_plane.commands import (
     BindRunDispatch,
+    ClaimRunDispatchStart,
     FinalizeRunCancellation,
     FinishRunDispatch,
     ReserveRunDispatch,
     TransitionRun,
 )
+from cnes_domain.control_plane.dispatch_start import DispatchStartClaim, request_sha256
 from cnes_domain.control_plane.entities import OutboxEvent
 from cnes_domain.control_plane.enums import DispatchOutcome, DispatchState, RunState, RunUnitState
 from cnes_domain.control_plane.errors import Conflict, ControlPlaneErrorCode
@@ -23,7 +25,7 @@ from cnes_domain.orchestration.planner import (
     logical_wave_id,
     ready_units,
 )
-from cnes_domain.ports.environment_gate import UNGATED_ADMISSION, DispatchDeferred
+from cnes_domain.ports.environment_gate import UNGATED_ADMISSION, DeferralReason, DispatchDeferred
 from cnes_domain.ports.processing import CancelRunExecution, ExecutionPermit, ExecutionStatus
 from data_processor.orchestration.publisher import PublishRequest
 
@@ -33,7 +35,6 @@ if TYPE_CHECKING:
 
     from cnes_domain.control_plane.entities import Run, RunDispatch, RunUnit
     from cnes_domain.ports.control_plane import ControlPlanePort
-    from cnes_domain.ports.environment_gate import DeferralReason
     from cnes_domain.ports.processing import (
         ExecutionPolicyConfig,
         ProcessorExecutorPort,
@@ -41,12 +42,21 @@ if TYPE_CHECKING:
     )
     from data_processor.orchestration.publisher import DatasetPublisher
 
-_TERMINAL_RUN_STATES = frozenset({
-    RunState.PUBLISHED, RunState.PUBLISHED_DEGRADED, RunState.FAILED, RunState.CANCELED,
-})
-_RECOVERABLE_RUN_STATES = frozenset({
-    RunState.PROCESSING, RunState.PUBLISHING, RunState.CANCEL_REQUESTED,
-})
+_TERMINAL_RUN_STATES = frozenset(
+    {
+        RunState.PUBLISHED,
+        RunState.PUBLISHED_DEGRADED,
+        RunState.FAILED,
+        RunState.CANCELED,
+    }
+)
+_RECOVERABLE_RUN_STATES = frozenset(
+    {
+        RunState.PROCESSING,
+        RunState.PUBLISHING,
+        RunState.CANCEL_REQUESTED,
+    }
+)
 _STATUS_OUTCOME = {
     ExecutionStatus.SUCCEEDED: DispatchOutcome.SUCCEEDED,
     ExecutionStatus.FAILED: DispatchOutcome.FAILED,
@@ -67,9 +77,9 @@ def _processor_recoverable_runs(
     while True:
         candidates = control_plane.list_recoverable_runs(now, query_limit)
         selected = tuple(
-            run for run in candidates
-            if run.state in _RECOVERABLE_RUN_STATES
-            and (run.tenant_id, run.run_id) not in skipped
+            run
+            for run in candidates
+            if run.state in _RECOVERABLE_RUN_STATES and (run.tenant_id, run.run_id) not in skipped
         )
         if len(selected) >= limit or len(candidates) < query_limit:
             return selected[:limit]
@@ -79,8 +89,12 @@ def _processor_recoverable_runs(
 def allow_execution(run: Run, dispatch: RunDispatch, requested_limit: int) -> ExecutionPermit:
     del dispatch
     return ExecutionPermit(
-        tenant_id=run.tenant_id, run_id=run.run_id, max_concurrency=requested_limit,
-        policy_version=0, fencing_token=0, binding_context=None,
+        tenant_id=run.tenant_id,
+        run_id=run.run_id,
+        max_concurrency=requested_limit,
+        policy_version=0,
+        fencing_token=0,
+        binding_context=None,
     )
 
 
@@ -110,7 +124,10 @@ class RecoveryFailed(RuntimeError):
     """Passada de recovery que falhou em runs ou no reconcile (a causa); carrega os resultados."""
 
     def __init__(
-        self, results: tuple[CoordinatorResult, ...], failed: int, *,
+        self,
+        results: tuple[CoordinatorResult, ...],
+        failed: int,
+        *,
         reconcile_failed: bool = False,
     ) -> None:
         super().__init__(f"failed={failed} recovered={len(results)}")
@@ -121,9 +138,13 @@ class RecoveryFailed(RuntimeError):
 
 def _build_event(run: Run, event_type: str, now: datetime) -> OutboxEvent:
     return OutboxEvent(
-        tenant_id=run.tenant_id, event_id=f"{event_type}:{run.tenant_id}:{run.run_id}",
-        event_type=event_type, aggregate_id=run.run_id,
-        payload={"dataset_name": run.dataset_name}, created_at=now, delivered_at=None,
+        tenant_id=run.tenant_id,
+        event_id=f"{event_type}:{run.tenant_id}:{run.run_id}",
+        event_type=event_type,
+        aggregate_id=run.run_id,
+        payload={"dataset_name": run.dataset_name},
+        created_at=now,
+        delivered_at=None,
     )
 
 
@@ -135,15 +156,24 @@ def _reserve_next_wave(
         return None
     wave_id = logical_wave_id(ready)
     unit_ids = tuple(sorted(unit.unit_id for unit in ready))
-    return control_plane.reserve_run_dispatch(ReserveRunDispatch(
-        tenant_id=plan.run.tenant_id, run_id=plan.run.run_id, wave_id=wave_id,
-        unit_ids=unit_ids, now=now, lease_seconds=execution.dispatch_lease_seconds,
-    ))
+    return control_plane.reserve_run_dispatch(
+        ReserveRunDispatch(
+            tenant_id=plan.run.tenant_id,
+            run_id=plan.run.run_id,
+            wave_id=wave_id,
+            unit_ids=unit_ids,
+            now=now,
+            lease_seconds=execution.dispatch_lease_seconds,
+        )
+    )
 
 
 def _settle_started(
-    control_plane: ControlPlanePort, executor: ProcessorExecutorPort,
-    plan: RunPlan, dispatch: RunDispatch, now: datetime,
+    control_plane: ControlPlanePort,
+    executor: ProcessorExecutorPort,
+    plan: RunPlan,
+    dispatch: RunDispatch,
+    now: datetime,
 ) -> RunDispatch | None:
     try:
         status = executor.status(cast("str", dispatch.execution_ref))
@@ -159,48 +189,70 @@ def _settle_started(
         status = ExecutionStatus.FAILED
     if status is ExecutionStatus.RUNNING:
         return dispatch
-    control_plane.finish_run_dispatch(FinishRunDispatch(
-        tenant_id=plan.run.tenant_id, run_id=plan.run.run_id, dispatch_id=dispatch.dispatch_id,
-        outcome=_STATUS_OUTCOME[status], finished_at=now,
-    ))
+    control_plane.finish_run_dispatch(
+        FinishRunDispatch(
+            tenant_id=plan.run.tenant_id,
+            run_id=plan.run.run_id,
+            dispatch_id=dispatch.dispatch_id,
+            outcome=_STATUS_OUTCOME[status],
+            finished_at=now,
+            claim=dispatch.start_claim,
+        )
+    )
     return None
 
 
 def _compensate_start(
-    control_plane: ControlPlanePort, executor: ProcessorExecutorPort,
-    finish: FinishRunDispatch, execution_ref: str,
+    control_plane: ControlPlanePort,
+    executor: ProcessorExecutorPort,
+    finish: FinishRunDispatch,
+    execution_ref: str,
 ) -> None:
     # An execution whose bind or started callback failed must not outlive its dispatch:
     # finishing it CANCELED makes the next resume reserve generation+1 instead of a replay.
     logger.warning(
         "dispatch_start_compensated tenant_id=%s run_id=%s dispatch_id=%s",
-        finish.tenant_id, finish.run_id, finish.dispatch_id,
+        finish.tenant_id,
+        finish.run_id,
+        finish.dispatch_id,
     )
-    executor.cancel(CancelRunExecution(
-        tenant_id=finish.tenant_id, run_id=finish.run_id, execution_ref=execution_ref,
-    ))
+    executor.cancel(
+        CancelRunExecution(
+            tenant_id=finish.tenant_id,
+            run_id=finish.run_id,
+            execution_ref=execution_ref,
+        )
+    )
     control_plane.finish_run_dispatch(finish)
 
 
 def _completed_before_bind(
-    control_plane: ControlPlanePort, command: BindRunDispatch, unit_ids: tuple[str, ...],
+    control_plane: ControlPlanePort,
+    command: BindRunDispatch,
+    unit_ids: tuple[str, ...],
 ) -> bool:
     run = control_plane.get_run(command.tenant_id, command.run_id)
     if run is None or run.state not in _TERMINAL_RUN_STATES | {RunState.PUBLISHING}:
         return False
     units = control_plane.list_run_units(command.tenant_id, command.run_id)
     completed = {
-        unit.unit_id for unit in units
+        unit.unit_id
+        for unit in units
         if unit.dispatch_id == command.dispatch_id
-        and unit.state in {
-            RunUnitState.SUCCEEDED, RunUnitState.SUCCEEDED_DEGRADED, RunUnitState.FAILED_FINAL,
+        and unit.state
+        in {
+            RunUnitState.SUCCEEDED,
+            RunUnitState.SUCCEEDED_DEGRADED,
+            RunUnitState.FAILED_FINAL,
         }
     }
     return bool(unit_ids) and set(unit_ids) <= completed
 
 
 def _bind_dispatch(
-    control_plane: ControlPlanePort, command: BindRunDispatch, unit_ids: tuple[str, ...],
+    control_plane: ControlPlanePort,
+    command: BindRunDispatch,
+    unit_ids: tuple[str, ...],
 ) -> RunDispatch | None:
     try:
         return control_plane.bind_run_dispatch(command)
@@ -213,8 +265,12 @@ def _bind_dispatch(
 
 
 def _start_and_bind(
-    control_plane: ControlPlanePort, executor: ProcessorExecutorPort,
-    execution: ExecutionPolicyConfig, plan: RunPlan, dispatch: RunDispatch, now: datetime,
+    control_plane: ControlPlanePort,
+    executor: ProcessorExecutorPort,
+    execution: ExecutionPolicyConfig,
+    plan: RunPlan,
+    dispatch: RunDispatch,
+    now: datetime,
 ) -> str | DispatchDeferred:
     run = plan.run
     requested_limit = min(len(dispatch.unit_ids), execution.deployment_limit)
@@ -226,27 +282,74 @@ def _start_and_bind(
     admission = execution.admission.admit(holder, now)
     if isinstance(admission, DispatchDeferred):
         return admission
+    claim = None
+    if admission.token is not None:
+        claim = DispatchStartClaim(
+            dispatch_id=dispatch.dispatch_id,
+            generation=dispatch.generation,
+            permit_token=admission.token,
+            fence_version=admission.fence_version or 0,
+            request_sha256=request_sha256(request),
+            promotion_id=admission.promotion_id,
+        )
+        claimed = control_plane.claim_run_dispatch_start(
+            ClaimRunDispatchStart(
+                tenant_id=run.tenant_id,
+                run_id=run.run_id,
+                dispatch_id=dispatch.dispatch_id,
+                claim=claim,
+                now=now,
+                lease_seconds=execution.dispatch_lease_seconds,
+                environment=admission.environment or "prod",
+            )
+        )
+        if claimed is None:
+            execution.admission.settle(holder, now)
+            return DispatchDeferred(DeferralReason.PERMIT_HELD)
     try:
-        execution_ref = executor.start(request)
+        start_with_claim = getattr(executor, "start_with_claim", None)
+        execution_ref = (
+            cast("str", start_with_claim(request, claim))
+            if claim is not None and callable(start_with_claim)
+            else executor.start(request)
+        )
     except Exception:
         execution.admission.settle(holder, now)
         raise
     completed_before_binding = False
     try:
-        bound = _bind_dispatch(control_plane, BindRunDispatch(
-            tenant_id=run.tenant_id, run_id=run.run_id, dispatch_id=dispatch.dispatch_id,
-            execution_ref=execution_ref, now=now, lease_seconds=execution.dispatch_lease_seconds,
-        ), dispatch.unit_ids)
+        bound = _bind_dispatch(
+            control_plane,
+            BindRunDispatch(
+                tenant_id=run.tenant_id,
+                run_id=run.run_id,
+                dispatch_id=dispatch.dispatch_id,
+                execution_ref=execution_ref,
+                now=now,
+                lease_seconds=execution.dispatch_lease_seconds,
+                claim=claim,
+            ),
+            dispatch.unit_ids,
+        )
         completed_before_binding = bound is None
         execution.admission.confirm(admission, execution_ref, now)
         execution.callbacks.started(run, request, execution_ref, permit)
     except Exception:
         if completed_before_binding:
             raise
-        _compensate_start(control_plane, executor, FinishRunDispatch(
-            tenant_id=run.tenant_id, run_id=run.run_id, dispatch_id=dispatch.dispatch_id,
-            outcome=DispatchOutcome.CANCELED, finished_at=now,
-        ), execution_ref)
+        _compensate_start(
+            control_plane,
+            executor,
+            FinishRunDispatch(
+                tenant_id=run.tenant_id,
+                run_id=run.run_id,
+                dispatch_id=dispatch.dispatch_id,
+                outcome=DispatchOutcome.CANCELED,
+                finished_at=now,
+                    claim=claim,
+            ),
+            execution_ref,
+        )
         execution.admission.settle(holder, now)
         raise
     if bound is None:
@@ -256,10 +359,15 @@ def _start_and_bind(
 
 
 def _dispatch_protocol(
-    control_plane: ControlPlanePort, executor: ProcessorExecutorPort,
-    execution: ExecutionPolicyConfig, plan: RunPlan, now: datetime,
+    control_plane: ControlPlanePort,
+    executor: ProcessorExecutorPort,
+    execution: ExecutionPolicyConfig,
+    plan: RunPlan,
+    now: datetime,
 ) -> str | DispatchDeferred | None:
     active = control_plane.get_active_run_dispatch(plan.run.tenant_id, plan.run.run_id)
+    if active is not None and active.state is DispatchState.STARTING:
+        return DispatchDeferred(DeferralReason.PERMIT_HELD)
     if active is not None and active.state is DispatchState.STARTED:
         if _settle_started(control_plane, executor, plan, active, now) is not None:
             return active.execution_ref
@@ -276,20 +384,32 @@ def _fail_run(
     control_plane: ControlPlanePort, run: Run, missing: tuple[str, ...], now: datetime
 ) -> Run:
     event = _build_event(run, "run.failed", now)
-    return control_plane.transition_run(TransitionRun(
-        tenant_id=run.tenant_id, run_id=run.run_id, expected_state=RunState.PROCESSING,
-        new_state=RunState.FAILED, missing_sources=missing,
-    ), event)
+    return control_plane.transition_run(
+        TransitionRun(
+            tenant_id=run.tenant_id,
+            run_id=run.run_id,
+            expected_state=RunState.PROCESSING,
+            new_state=RunState.FAILED,
+            missing_sources=missing,
+        ),
+        event,
+    )
 
 
 def _transition_to_publishing(
     control_plane: ControlPlanePort, run: Run, missing: tuple[str, ...], now: datetime
 ) -> Run:
     event = _build_event(run, "run.publishing", now)
-    return control_plane.transition_run(TransitionRun(
-        tenant_id=run.tenant_id, run_id=run.run_id, expected_state=RunState.PROCESSING,
-        new_state=RunState.PUBLISHING, missing_sources=missing,
-    ), event)
+    return control_plane.transition_run(
+        TransitionRun(
+            tenant_id=run.tenant_id,
+            run_id=run.run_id,
+            expected_state=RunState.PROCESSING,
+            new_state=RunState.PUBLISHING,
+            missing_sources=missing,
+        ),
+        event,
+    )
 
 
 def _publish_now(
@@ -298,9 +418,14 @@ def _publish_now(
     control_plane = dependencies.control_plane
     pointer = control_plane.get_dataset_pointer(run.tenant_id, run.dataset_name)
     expected_version_id = None if pointer is None else pointer.version_id
-    dependencies.publisher.publish(PublishRequest(
-        run=run, units=units, expected_version_id=expected_version_id, now=now,
-    ))
+    dependencies.publisher.publish(
+        PublishRequest(
+            run=run,
+            units=units,
+            expected_version_id=expected_version_id,
+            now=now,
+        )
+    )
     published_run = cast("Run", control_plane.get_run(run.tenant_id, run.run_id))
     return CoordinatorResult(state=published_run.state, execution_ref=None, published=True)
 
@@ -309,21 +434,32 @@ def _cancel(dependencies: CoordinatorDependencies, run: Run, now: datetime) -> C
     # get_active_run_dispatch and claim_run_unit are both scoped to PROCESSING runs;
     # once CANCEL_REQUESTED, no dispatch is visible or claimable. Cancellation is
     # therefore best-effort and has no execution_ref (RunUnitState.CANCELED covers the rest).
-    dependencies.executor.cancel(CancelRunExecution(
-        tenant_id=run.tenant_id, run_id=run.run_id, execution_ref=None,
-    ))
+    dependencies.executor.cancel(
+        CancelRunExecution(
+            tenant_id=run.tenant_id,
+            run_id=run.run_id,
+            execution_ref=None,
+        )
+    )
     event = _build_event(run, "run.canceled", now)
-    canceled = dependencies.control_plane.finalize_run_cancellation(FinalizeRunCancellation(
-        tenant_id=run.tenant_id, run_id=run.run_id,
-        expected_state=RunState.CANCEL_REQUESTED, canceled_at=now,
-    ), event)
+    canceled = dependencies.control_plane.finalize_run_cancellation(
+        FinalizeRunCancellation(
+            tenant_id=run.tenant_id,
+            run_id=run.run_id,
+            expected_state=RunState.CANCEL_REQUESTED,
+            canceled_at=now,
+        ),
+        event,
+    )
     return CoordinatorResult(state=canceled.state, execution_ref=None, published=False)
 
 
 def _processing_result(outcome: str | DispatchDeferred | None) -> CoordinatorResult:
     if isinstance(outcome, DispatchDeferred):
         return CoordinatorResult(
-            state=RunState.PROCESSING, execution_ref=None, published=False,
+            state=RunState.PROCESSING,
+            execution_ref=None,
+            published=False,
             deferred=outcome.reason,
         )
     return CoordinatorResult(state=RunState.PROCESSING, execution_ref=outcome, published=False)
@@ -376,7 +512,10 @@ class PipelineCoordinator:
         control_plane = self._dependencies.control_plane
         units = control_plane.list_run_units(run.tenant_id, run.run_id)
         plan = RunPlan(
-            run=run, units=units, missing_required=(), missing_optional=run.missing_sources,
+            run=run,
+            units=units,
+            missing_required=(),
+            missing_optional=run.missing_sources,
             deployment_limit=self._execution.deployment_limit,
         )
         decision = decide_fan_in(plan)
@@ -408,7 +547,9 @@ class PipelineCoordinator:
         return results
 
     def _recover_runs(
-        self, now: datetime, limit: int,
+        self,
+        now: datetime,
+        limit: int,
     ) -> tuple[tuple[CoordinatorResult, ...], int]:
         control_plane = self._dependencies.control_plane
         skipped: set[tuple[str, str]] = set()

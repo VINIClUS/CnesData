@@ -103,6 +103,8 @@ def _validate_closed_ready(
         raise ValueError("closed_ready=source_kind")
     if close_drain.get("permit") is not None:
         raise ValueError("closed_ready=permit")
+    if not close_drain.get("closed_membership_sha256"):
+        raise ValueError("closed_ready=fence_snapshot")
     if phase_b.get("close_drain_sha256") != object_hash(close_drain):
         raise ValueError("closed_ready=close_hash")
     if object_hash(current) != close_drain.get("frozen_membership_sha256"):

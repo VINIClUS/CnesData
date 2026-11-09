@@ -6,6 +6,7 @@ from typing import Literal
 
 from pydantic import field_validator, model_validator
 
+from cnes_domain.control_plane.dispatch_start import DispatchStartClaim  # noqa: TC001
 from cnes_domain.control_plane.entities import (
     ControlPlaneModel,
     DatasetVersion,
@@ -134,15 +135,11 @@ class FailJob(ControlPlaneModel):
         if is_resync and self.rejected_manifest_sha256 is None:
             raise ValueError("resync_hash_required")
         guarded = (
-            self.expected_head_manifest_id is not None
-            or self.expected_resync_marker is not None
+            self.expected_head_manifest_id is not None or self.expected_resync_marker is not None
         )
         if guarded and not is_resync:
             raise ValueError("resync_guard_forbidden")
-        if (
-            self.expected_head_manifest_id is not None
-            and self.expected_resync_marker is not False
-        ):
+        if self.expected_head_manifest_id is not None and self.expected_resync_marker is not False:
             raise ValueError("head_guard_requires_absent_marker")
         if not is_resync and self.rejected_manifest_sha256 is not None:
             raise ValueError("resync_hash_forbidden")
@@ -307,6 +304,7 @@ class BindRunDispatch(ControlPlaneModel):
     execution_ref: str
     now: UtcDatetime
     lease_seconds: int
+    claim: DispatchStartClaim | None = None
 
     _strings = field_validator("tenant_id", "run_id", "execution_ref")(require_non_blank)
     _dispatch = field_validator("dispatch_id")(_require_dispatch_field)
@@ -320,10 +318,54 @@ class FinishRunDispatch(ControlPlaneModel):
     dispatch_id: str
     outcome: DispatchOutcome
     finished_at: UtcDatetime
+    claim: DispatchStartClaim | None = None
 
     _strings = field_validator("tenant_id", "run_id")(require_non_blank)
     _dispatch = field_validator("dispatch_id")(_require_dispatch_field)
     _finished_utc = field_validator("finished_at")(require_utc)
+
+
+class ClaimRunDispatchStart(ControlPlaneModel):
+    """Atomically claim the right to cross the AWS start boundary."""
+
+    tenant_id: str
+    run_id: str
+    dispatch_id: str
+    claim: DispatchStartClaim
+    now: UtcDatetime
+    lease_seconds: int
+    environment: str = "prod"
+
+    _strings = field_validator("tenant_id", "run_id")(require_non_blank)
+    _dispatch = field_validator("dispatch_id")(_require_dispatch_field)
+    _now_utc = field_validator("now")(require_utc)
+    _lease_positive = field_validator("lease_seconds")(_require_positive)
+
+    @model_validator(mode="after")
+    def _claim_identity(self) -> ClaimRunDispatchStart:
+        if self.claim.dispatch_id != self.dispatch_id:
+            raise ValueError("dispatch_claim_identity_mismatch")
+        return self
+
+
+class CancelReservedRunDispatch(ControlPlaneModel):
+    """Durably cancel a dispatch only while it remains RESERVED."""
+
+    tenant_id: str
+    run_id: str
+    dispatch_id: str
+    claim: DispatchStartClaim
+    canceled_at: UtcDatetime
+
+    _strings = field_validator("tenant_id", "run_id")(require_non_blank)
+    _dispatch = field_validator("dispatch_id")(_require_dispatch_field)
+    _canceled_utc = field_validator("canceled_at")(require_utc)
+
+    @model_validator(mode="after")
+    def _claim_identity(self) -> CancelReservedRunDispatch:
+        if self.claim.dispatch_id != self.dispatch_id:
+            raise ValueError("dispatch_claim_identity_mismatch")
+        return self
 
 
 class BeginIdempotency(ControlPlaneModel):

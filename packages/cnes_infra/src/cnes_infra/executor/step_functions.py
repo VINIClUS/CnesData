@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from botocore.exceptions import ClientError
 
+from cnes_domain.control_plane.dispatch_start import claim_matches
 from cnes_domain.control_plane.entities import require_dispatch_id
 from cnes_domain.ports.environment_gate import ExecutionObservation, ExecutionPresence
 from cnes_domain.ports.processing import ExecutionStatus, StartRunExecution
@@ -22,6 +23,7 @@ if TYPE_CHECKING:
         def start_execution(self, **kwargs: str) -> dict[str, Any]: ...
         def stop_execution(self, **kwargs: str) -> dict[str, Any]: ...
         def describe_execution(self, **kwargs: str) -> dict[str, Any]: ...
+
 
 _STATUS = {
     "RUNNING": ExecutionStatus.RUNNING,
@@ -119,7 +121,8 @@ def _describe_state_machine(client: BaseClient, state_machine_arn: str) -> dict[
 
 
 def _start_state_of_type(
-    machine: dict[str, Any], state_type: str,
+    machine: dict[str, Any],
+    state_type: str,
 ) -> tuple[dict[str, Any] | None, int]:
     states = machine.get("States", {})
     matches = [name for name, state in states.items() if state.get("Type") == state_type]
@@ -181,7 +184,8 @@ def _validate_network(parameters: dict[str, Any]) -> None:
 
 
 def _validate_production_network(
-    parameters: dict[str, Any], policy: ProductionNetworkPolicy,
+    parameters: dict[str, Any],
+    policy: ProductionNetworkPolicy,
 ) -> None:
     network = _awsvpc_configuration(parameters)
     if network.get("AssignPublicIp") != _PRODUCTION_ASSIGN_PUBLIC_IP:
@@ -215,7 +219,8 @@ def _validate_production_topology(definition: dict[str, Any]) -> None:
 
 
 def _container_environment(
-    parameters: dict[str, Any], container_name: str,
+    parameters: dict[str, Any],
+    container_name: str,
 ) -> dict[str, dict[str, Any]]:
     overrides = parameters.get("Overrides", {}).get("ContainerOverrides", [])
     matches = [override for override in overrides if override.get("Name") == container_name]
@@ -243,7 +248,9 @@ def _validate_environment(environment: dict[str, dict[str, Any]], lease_seconds:
 
 
 def _validate_processor(
-    parameters: dict[str, Any], container_name: str, lease_seconds: int,
+    parameters: dict[str, Any],
+    container_name: str,
+    lease_seconds: int,
 ) -> None:
     _validate_environment(_container_environment(parameters, container_name), lease_seconds)
 
@@ -273,7 +280,9 @@ def validate_state_machine(
 
 
 def validate_production_state_machine(
-    client: BaseClient, state_machine_arn: str, policy: ProductionNetworkPolicy,
+    client: BaseClient,
+    state_machine_arn: str,
+    policy: ProductionNetworkPolicy,
 ) -> None:
     """Valida o contrato genérico com o override de rede exato do perfil de produção.
 
@@ -328,6 +337,17 @@ class StepFunctionsExecutor:
             return self._confirm_existing(request.dispatch_id, payload)
         return response["executionArn"]
 
+    def start_with_claim(self, request: StartRunExecution, claim: Any) -> str:
+        """Start only with the authenticated claim won by the control plane."""
+        if not claim_matches(
+            claim,
+            dispatch_id=request.dispatch_id,
+            generation=claim.generation,
+            request=request,
+        ):
+            raise ProcessorExecutionUnavailable("dispatch_start_claim_mismatch")
+        return self.start(request)
+
     def cancel(self, request: CancelRunExecution) -> None:
         """Solicita a interrupção da execução; não acessa a AWS sem um ref."""
         if request.execution_ref is None:
@@ -378,7 +398,8 @@ class StepFunctionsExecutionProbe:
             ProcessorExecutionUnavailable: outra falha AWS ao descrever a execução.
         """
         execution_arn = _execution_arn(
-            self._state_machine_arn, require_dispatch_id(dispatch_id, "dispatch_id"),
+            self._state_machine_arn,
+            require_dispatch_id(dispatch_id, "dispatch_id"),
         )
         try:
             described = self._client.describe_execution(executionArn=execution_arn)

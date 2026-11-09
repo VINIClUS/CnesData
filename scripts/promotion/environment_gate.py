@@ -179,9 +179,16 @@ def _fixed_deadline(closed_at: datetime, expirations: Iterable[datetime]) -> dat
 
 
 def _close_fence(gate: FenceGatePort, environment: str, promotion_id: str, now: datetime) -> Any:
-    if not gate.close_promotion_fence(ClosePromotionFence(environment, promotion_id, now)):
-        raise DrainError("fence=close_conflict")
-    state = gate.observe_environment_gate(environment)
+    command = ClosePromotionFence(environment, promotion_id, now)
+    snapshot = getattr(gate, "close_promotion_fence_snapshot", None)
+    if callable(snapshot):
+        state = cast("Any", snapshot(command))
+        if not state.fence.closed_membership_sha256:
+            raise DrainError("membership=fence_snapshot_missing")
+    else:
+        if not gate.close_promotion_fence(command):
+            raise DrainError("fence=close_conflict")
+        state = gate.observe_environment_gate(environment)
     if state.fence.state is not FenceState.CLOSED or state.fence.promotion_id != promotion_id:
         raise DrainError("fence=closed_readback")
     return state
@@ -231,6 +238,13 @@ def close_and_drain(
     members = _source_members(membership)
     active_clock = clock or _SystemDrainClock()
     _drain(gate, probe, members, environment, now, fixed_deadline, active_clock)
+    post_state = gate.observe_environment_gate(environment)
+    if (
+        post_state.fence.state is not FenceState.CLOSED
+        or post_state.fence.promotion_id != promotion_id
+        or post_state.fence.closed_membership_sha256 != state.fence.closed_membership_sha256
+    ):
+        raise DrainError("fence=post_drain_mismatch")
     observed_at = _utc(now)
     return {
         "version": 1,
@@ -246,6 +260,7 @@ def close_and_drain(
         "close_confirmed_at": _utc(now),
         "drain_observed_at": observed_at,
         "frozen_membership_sha256": _sha(members),
+        "closed_membership_sha256": state.fence.closed_membership_sha256,
         "members": members,
         "proofs": {item["proof_sha256"]: item for item in members},
         "permit": None,

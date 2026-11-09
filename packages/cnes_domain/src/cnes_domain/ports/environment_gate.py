@@ -86,6 +86,8 @@ class UnitAdmission:
 
     environment: str | None
     token: int | None
+    fence_version: int | None = None
+    promotion_id: str | None = None
 
     def __post_init__(self) -> None:
         if self.environment is None and self.token is None:

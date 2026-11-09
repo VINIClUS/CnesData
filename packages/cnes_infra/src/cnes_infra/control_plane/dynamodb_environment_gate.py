@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from dataclasses import dataclass
 from datetime import datetime
@@ -131,12 +133,17 @@ def _optional_text(item: Item, name: str) -> str | None:
 def _decode_fence(item: Item | None, environment: str) -> PromotionFence:
     if item is None:
         return open_fence(environment)
+    membership = (
+        tuple(json.loads(item["closed_membership"]["S"])) if "closed_membership" in item else ()
+    )
     return PromotionFence(
         environment=environment,
         state=FenceState(item["state"]["S"]),
         promotion_id=_optional_text(item, "promotion_id"),
         version=int(item["version"]["N"]),
         changed_at=datetime.fromisoformat(item["changed_at"]["S"]),
+        closed_membership=membership,
+        closed_membership_sha256=_optional_text(item, "closed_membership_sha256"),
     )
 
 
@@ -144,7 +151,9 @@ def _decode_permit(item: Item | None, environment: str) -> UnitPermit | None:
     if item is None or _HOLDER_DISPATCH not in item:
         return None
     holder = PermitHolder(
-        item["holder_tenant_id"]["S"], item["holder_run_id"]["S"], item[_HOLDER_DISPATCH]["S"],
+        item["holder_tenant_id"]["S"],
+        item["holder_run_id"]["S"],
+        item[_HOLDER_DISPATCH]["S"],
     )
     return UnitPermit(
         environment=environment,
@@ -154,6 +163,9 @@ def _decode_permit(item: Item | None, environment: str) -> UnitPermit | None:
         acquired_at=datetime.fromisoformat(item["acquired_at"]["S"]),
         lease_until=datetime.fromisoformat(item["lease_until"]["S"]),
         canary_promotion_id=_optional_text(item, "canary_promotion_id"),
+        generation=int(item["generation"]["N"]) if "generation" in item else None,
+        request_sha256=_optional_text(item, "request_sha256"),
+        start_state=_optional_text(item, "start_state"),
     )
 
 
@@ -163,32 +175,44 @@ def _fence_check(table_name: str, command: AcquireUnitPermit) -> Action:
     if command.canary_promotion_id is not None:
         condition += " OR #promotion = :canary"
         values[":canary"] = _text(command.canary_promotion_id)
-    return {"ConditionCheck": {
-        "TableName": table_name,
-        "Key": item_key(*fence_key(command.environment)),
-        "ConditionExpression": condition,
-        "ExpressionAttributeNames": _names(condition),
-        "ExpressionAttributeValues": values,
-    }}
+    return {
+        "ConditionCheck": {
+            "TableName": table_name,
+            "Key": item_key(*fence_key(command.environment)),
+            "ConditionExpression": condition,
+            "ExpressionAttributeNames": _names(condition),
+            "ExpressionAttributeValues": values,
+        }
+    }
 
 
 def _claim(table_name: str, command: AcquireUnitPermit) -> Action:
     holder = command.holder
     sets = [
-        "#entity = :entity", "#holder_tenant = :tenant", "#holder_run = :run",
-        "#holder_dispatch = :dispatch", "#acquired = :now", "#lease = :lease", "#updated = :now",
+        "#entity = :entity",
+        "#holder_tenant = :tenant",
+        "#holder_run = :run",
+        "#holder_dispatch = :dispatch",
+        "#acquired = :now",
+        "#lease = :lease",
+        "#updated = :now",
     ]
     values = {
-        ":entity": _text(_SEMAPHORE_ENTITY), ":tenant": _text(holder.tenant_id),
-        ":run": _text(holder.run_id), ":dispatch": _text(holder.dispatch_id),
-        ":now": _text(timestamp(command.now)), ":lease": _text(timestamp(command.lease_until)),
+        ":entity": _text(_SEMAPHORE_ENTITY),
+        ":tenant": _text(holder.tenant_id),
+        ":run": _text(holder.run_id),
+        ":dispatch": _text(holder.dispatch_id),
+        ":now": _text(timestamp(command.now)),
+        ":lease": _text(timestamp(command.lease_until)),
         ":one": _number(1),
     }
     if command.canary_promotion_id is not None:
         sets.append("#canary = :canary")
         values[":canary"] = _text(command.canary_promotion_id)
     update = _Update(
-        f"SET {', '.join(sets)} ADD #token :one", "attribute_not_exists(#holder_dispatch)", values,
+        f"SET {', '.join(sets)} ADD #token :one",
+        "attribute_not_exists(#holder_dispatch)",
+        values,
     )
     key = item_key(*semaphore_key(command.environment))
     return {"Update": {"TableName": table_name, "Key": key, **update.request()}}
@@ -197,9 +221,11 @@ def _claim(table_name: str, command: AcquireUnitPermit) -> Action:
 def _bind(command: BindUnitPermit) -> _Update:
     bound = "(attribute_not_exists(#execution_ref) OR #execution_ref = :ref)"
     return _Update(
-        "SET #execution_ref = :ref, #updated = :now", f"{_HELD_CONDITION} AND {bound}",
+        "SET #execution_ref = :ref, #updated = :now",
+        f"{_HELD_CONDITION} AND {bound}",
         {
-            ":token": _number(command.token), ":ref": _text(command.execution_ref),
+            ":token": _number(command.token),
+            ":ref": _text(command.execution_ref),
             ":now": _text(timestamp(command.now)),
         },
     )
@@ -207,9 +233,11 @@ def _bind(command: BindUnitPermit) -> _Update:
 
 def _renew(command: RenewUnitPermit) -> _Update:
     return _Update(
-        "SET #lease = :lease, #updated = :now", _HELD_CONDITION,
+        "SET #lease = :lease, #updated = :now",
+        _HELD_CONDITION,
         {
-            ":token": _number(command.token), ":lease": _text(timestamp(command.lease_until)),
+            ":token": _number(command.token),
+            ":lease": _text(timestamp(command.lease_until)),
             ":now": _text(timestamp(command.now)),
         },
     )
@@ -232,7 +260,9 @@ def _release(command: ReleaseUnitPermit) -> _Update:
         condition += f" AND #acquired = :anchor AND {_UNBOUND_CONDITION}"
         values[":anchor"] = _text(timestamp(command.anchor))
     return _Update(
-        f"REMOVE {holder}, #execution_ref, #canary SET #updated = :now", condition, values,
+        f"REMOVE {holder}, #execution_ref, #canary SET #updated = :now",
+        condition,
+        values,
     )
 
 
@@ -255,8 +285,114 @@ def _fence_write(current: PromotionFence, updated: PromotionFence) -> _Update:
     return _Update(expression, condition, values)
 
 
+def _closed_membership(permit: UnitPermit | None) -> tuple[dict[str, object], ...]:
+    if permit is None:
+        return ()
+    return (
+        {
+            "tenant_id": permit.holder.tenant_id,
+            "run_id": permit.holder.run_id,
+            "dispatch_id": permit.holder.dispatch_id,
+            "token": permit.token,
+            "generation": permit.generation,
+            "request_sha256": permit.request_sha256,
+            "start_state": permit.start_state
+            or ("STARTED" if permit.execution_ref else "RESERVED"),
+            "execution_ref": permit.execution_ref,
+            "promotion_id": permit.canary_promotion_id,
+            "acquired_at": timestamp(permit.acquired_at),
+            "lease_until": timestamp(permit.lease_until),
+        },
+    )
+
+
+def _close_transaction(
+    table_name: str,
+    current: PromotionFence,
+    updated: PromotionFence,
+    permit: UnitPermit | None,
+) -> tuple[Action, Action]:
+    membership = _closed_membership(permit)
+    canonical = json.dumps(membership, sort_keys=True, separators=(",", ":"))
+    values: dict[str, dict[str, str]] = {
+        ":entity": _text(_FENCE_ENTITY),
+        ":state": _text(FenceState.CLOSED.value),
+        ":promotion": _text(cast("str", updated.promotion_id)),
+        ":version": _number(updated.version),
+        ":changed": _text(timestamp(cast("datetime", updated.changed_at))),
+        ":membership": _text(canonical),
+        ":membership_sha": _text(hashlib.sha256(canonical.encode()).hexdigest()),
+    }
+    condition = "attribute_not_exists(pk)"
+    if current.version:
+        condition = "#version = :expected AND #state = :open"
+        values[":expected"] = _number(current.version)
+        values[":open"] = _text(FenceState.OPEN.value)
+    update = {
+        "Update": {
+            "TableName": table_name,
+            "Key": item_key(*fence_key(updated.environment)),
+            "UpdateExpression": (
+                "SET #entity = :entity, #state = :state, #promotion = :promotion, "
+                "#version = :version, #changed = :changed, "
+                "closed_membership = :membership, "
+                "closed_membership_sha256 = :membership_sha"
+            ),
+            "ConditionExpression": condition,
+            "ExpressionAttributeNames": {
+                "#entity": "entity",
+                "#state": "state",
+                "#promotion": "promotion_id",
+                "#version": "version",
+                "#changed": "changed_at",
+            },
+            "ExpressionAttributeValues": values,
+        },
+    }
+    semaphore = item_key(*semaphore_key(updated.environment))
+    if permit is None:
+        check = {
+            "ConditionCheck": {
+                "TableName": table_name,
+                "Key": semaphore,
+                "ConditionExpression": "attribute_not_exists(pk)",
+            },
+        }
+    else:
+        names = {
+            "#token": "token",
+            "#tenant": "holder_tenant_id",
+            "#run": "holder_run_id",
+            "#dispatch": _HOLDER_DISPATCH,
+            "#acquired": "acquired_at",
+            "#lease": "lease_until",
+        }
+        check = {
+            "ConditionCheck": {
+                "TableName": table_name,
+                "Key": semaphore,
+                "ConditionExpression": (
+                    "#token = :token AND #tenant = :tenant AND #run = :run AND "
+                    "#dispatch = :dispatch AND #acquired = :acquired AND #lease = :lease"
+                ),
+                "ExpressionAttributeNames": names,
+                "ExpressionAttributeValues": {
+                    ":token": _number(permit.token),
+                    ":tenant": _text(permit.holder.tenant_id),
+                    ":run": _text(permit.holder.run_id),
+                    ":dispatch": _text(permit.holder.dispatch_id),
+                    ":acquired": _text(timestamp(permit.acquired_at)),
+                    ":lease": _text(timestamp(permit.lease_until)),
+                },
+            },
+        }
+    return update, check
+
+
 def _acquisition(
-    state: EnvironmentGateState, command: AcquireUnitPermit, committed: bool,
+    state: EnvironmentGateState,
+    command: AcquireUnitPermit,
+    committed: bool,
 ) -> PermitAcquisition | None:
     permit = state.permit
     if committed and permit is not None and permit.holder == command.holder:
@@ -282,7 +418,13 @@ class DynamoDBEnvironmentGate(DynamoDBHost):
         """
         fence = _decode_fence(self._get_item(fence_key(environment)), environment)
         permit = _decode_permit(self._get_item(semaphore_key(environment)), environment)
-        return EnvironmentGateState(environment, fence, permit)
+        return EnvironmentGateState(
+            environment,
+            fence,
+            permit,
+            fence.closed_membership,
+            fence.closed_membership_sha256,
+        )
 
     def acquire_unit_permit(self, command: AcquireUnitPermit) -> PermitAcquisition:
         """Adquire o semáforo numa transação que exige o fence admissível.
@@ -318,11 +460,36 @@ class DynamoDBEnvironmentGate(DynamoDBHost):
         return self._gate_semaphore(command.environment, _reanchor(command))
 
     def close_promotion_fence(self, command: ClosePromotionFence) -> bool:
-        """Fecha o fence por CAS de versão.
+        """Close FENCE while atomically checking the exact semaphore snapshot."""
+        for _ in range(_ATTEMPTS):
+            fence_item = self._get_item(fence_key(command.environment))
+            semaphore_item = self._get_item(semaphore_key(command.environment))
+            current = _decode_fence(fence_item, command.environment)
+            updated = close_fence(current, command)
+            if updated is None:
+                return False
+            permit = _decode_permit(semaphore_item, command.environment)
+            try:
+                self._transact(
+                    _close_transaction(
+                        self._table_name,
+                        current,
+                        updated,
+                        permit,
+                    )
+                )
+            except (Conflict, ClientError) as error:
+                if isinstance(error, ClientError) and not _transaction_conflict(error):
+                    raise
+                continue
+            return True
+        raise Conflict(ErrorCode.TRANSACTION_CONFLICT)
 
-        Returns: False se outra promoção o mantém fechado ou se a promoção já o reabriu.
-        """
-        return self._gate_fence(command.environment, lambda fence: close_fence(fence, command))
+    def close_promotion_fence_snapshot(self, command: ClosePromotionFence) -> EnvironmentGateState:
+        """Close and return the strongly-read persisted membership snapshot."""
+        if not self.close_promotion_fence(command):
+            raise Conflict(ErrorCode.TRANSACTION_CONFLICT)
+        return self.observe_environment_gate(command.environment)
 
     def reopen_promotion_fence(self, command: ReopenPromotionFence) -> bool:
         """Reabre o fence por CAS de versão; False sem a promoção correspondente."""
@@ -349,7 +516,9 @@ class DynamoDBEnvironmentGate(DynamoDBHost):
         raise Conflict(ErrorCode.TRANSACTION_CONFLICT)
 
     def _gate_fence(
-        self, environment: str, change: Callable[[PromotionFence], PromotionFence | None],
+        self,
+        environment: str,
+        change: Callable[[PromotionFence], PromotionFence | None],
     ) -> bool:
         key = fence_key(environment)
         for _ in range(_ATTEMPTS):
@@ -364,7 +533,9 @@ class DynamoDBEnvironmentGate(DynamoDBHost):
     def _gate_write(self, key: tuple[str, str], update: _Update) -> bool | None:
         try:
             self._client.update_item(
-                TableName=self._table_name, Key=item_key(*key), **update.request(),
+                TableName=self._table_name,
+                Key=item_key(*key),
+                **update.request(),
             )
         except ClientError as error:
             code = error.response.get("Error", {}).get("Code")

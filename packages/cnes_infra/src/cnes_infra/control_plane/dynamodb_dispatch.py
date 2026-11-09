@@ -7,7 +7,7 @@ from hashlib import sha256
 from typing import TYPE_CHECKING, Any
 
 from cnes_domain.control_plane.entities import Run, RunDispatch, RunUnit
-from cnes_domain.control_plane.enums import DispatchState, RunState, RunUnitState
+from cnes_domain.control_plane.enums import DispatchOutcome, DispatchState, RunState, RunUnitState
 from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost, NotFound
 from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
 from cnes_infra.control_plane.dynamodb_codec import (
@@ -18,9 +18,11 @@ from cnes_infra.control_plane.dynamodb_codec import (
     payload,
     put_action,
 )
+from cnes_infra.control_plane.dynamodb_environment_gate import semaphore_key
 from cnes_infra.control_plane.dynamodb_host import DynamoDBHost
 from cnes_infra.control_plane.dynamodb_keys import (
     dispatch_key,
+    item_key,
     key_component,
     run_entity_key,
     unit_key,
@@ -29,6 +31,8 @@ from cnes_infra.control_plane.dynamodb_keys import (
 if TYPE_CHECKING:
     from cnes_domain.control_plane.commands import (
         BindRunDispatch,
+        CancelReservedRunDispatch,
+        ClaimRunDispatchStart,
         FinishRunDispatch,
         ReserveRunDispatch,
     )
@@ -51,7 +55,11 @@ class DynamoDBDispatch(DynamoDBHost):
     def _validate_dispatch_lease(dispatch: RunDispatch, dispatch_id: str, now: Any) -> None:
         if dispatch.dispatch_id != dispatch_id:
             raise FenceRejected(ErrorCode.DISPATCH_FENCE_REJECTED)
-        if dispatch.state not in {DispatchState.RESERVED, DispatchState.STARTED}:
+        if dispatch.state not in {
+            DispatchState.RESERVED,
+            DispatchState.STARTING,
+            DispatchState.STARTED,
+        }:
             raise LeaseLost(ErrorCode.DISPATCH_TERMINAL)
         if dispatch.lease_until <= now:
             raise LeaseLost(ErrorCode.DISPATCH_EXPIRED)
@@ -98,6 +106,8 @@ class DynamoDBDispatch(DynamoDBHost):
     ) -> RunDispatch | None:
         if current is None:
             return None
+        if current.state is DispatchState.STARTING:
+            return current
         if current.state is DispatchState.TERMINAL or current.lease_until <= command.now:
             return None
         if current.wave_id != command.wave_id or current.unit_ids != command.unit_ids:
@@ -140,9 +150,14 @@ class DynamoDBDispatch(DynamoDBHost):
             raise Conflict(ErrorCode.RUN_NOT_PROCESSING)
         item, dispatch = self._required_dispatch(command.tenant_id, command.run_id)
         self._validate_dispatch_lease(dispatch, command.dispatch_id, command.now)
-        if dispatch.state is DispatchState.STARTED:
+        if dispatch.state in {DispatchState.STARTING, DispatchState.STARTED}:
             if dispatch.execution_ref == command.execution_ref:
                 return dispatch
+            if dispatch.state is DispatchState.STARTING and command.claim == dispatch.start_claim:
+                pass
+            else:
+                raise Conflict(ErrorCode.DISPATCH_BINDING_CONFLICT)
+        if command.claim is not None and dispatch.start_claim != command.claim:
             raise Conflict(ErrorCode.DISPATCH_BINDING_CONFLICT)
         updated = dispatch.model_copy(
             update={
@@ -159,6 +174,78 @@ class DynamoDBDispatch(DynamoDBHost):
         )
         return updated
 
+    def claim_run_dispatch_start(
+        self,
+        command: ClaimRunDispatchStart,
+    ) -> RunDispatch | None:
+        item = self._get_item(dispatch_key(command.tenant_id, command.run_id))
+        if item is None:
+            return None
+        dispatch = decode_model(item, RunDispatch)
+        if dispatch.state is DispatchState.STARTING and dispatch.start_claim == command.claim:
+            return dispatch
+        invalid = (
+            dispatch.state is not DispatchState.RESERVED
+            or dispatch.dispatch_id != command.dispatch_id
+            or dispatch.generation != command.claim.generation
+            or dispatch.lease_until <= command.now
+        )
+        if invalid:
+            return None
+        semaphore = self._get_item(semaphore_key(command.environment))
+        if semaphore is None:
+            return None
+        updated = dispatch.model_copy(
+            update={"state": DispatchState.STARTING, "start_claim": command.claim}
+        )
+        self._transact((
+            {
+                "ConditionCheck": {
+                    "TableName": self._table_name,
+                    "Key": item_key(*semaphore_key(command.environment)),
+                    "ConditionExpression": (
+                        "#token = :token AND #tenant = :tenant AND #run = :run "
+                        "AND #dispatch = :dispatch"
+                    ),
+                    "ExpressionAttributeNames": {
+                        "#token": "token", "#tenant": "holder_tenant_id",
+                        "#run": "holder_run_id", "#dispatch": "holder_dispatch_id",
+                    },
+                    "ExpressionAttributeValues": {
+                        ":token": {"N": str(command.claim.permit_token)},
+                        ":tenant": {"S": command.tenant_id},
+                        ":run": {"S": command.run_id},
+                        ":dispatch": {"S": command.dispatch_id},
+                    },
+                },
+            },
+            put_action(self._table_name, self._dispatch_item(updated), payload(item)),
+        ))
+        return updated
+
+    def cancel_reserved_run_dispatch(
+        self,
+        command: CancelReservedRunDispatch,
+    ) -> RunDispatch | None:
+        item = self._get_item(dispatch_key(command.tenant_id, command.run_id))
+        if item is None:
+            return None
+        dispatch = decode_model(item, RunDispatch)
+        if (
+            dispatch.dispatch_id != command.dispatch_id
+            or dispatch.state is not DispatchState.RESERVED
+            or dispatch.generation != command.claim.generation
+        ):
+            return None
+        updated = dispatch.model_copy(
+            update={
+                "state": DispatchState.TERMINAL,
+                "terminal_outcome": DispatchOutcome.CANCELED,
+            }
+        )
+        self._transact((put_action(self._table_name, self._dispatch_item(updated), payload(item)),))
+        return updated
+
     def finish_run_dispatch(self, command: FinishRunDispatch) -> RunDispatch:
         """Finaliza um dispatch ativo."""
         item, dispatch = self._required_dispatch(command.tenant_id, command.run_id)
@@ -170,6 +257,10 @@ class DynamoDBDispatch(DynamoDBHost):
             raise Conflict(ErrorCode.DISPATCH_OUTCOME_CONFLICT)
         if dispatch.lease_until <= command.finished_at:
             raise Conflict(ErrorCode.DISPATCH_EXPIRED)
+        if dispatch.state is DispatchState.STARTING and command.claim != dispatch.start_claim:
+            raise Conflict(ErrorCode.DISPATCH_BINDING_CONFLICT)
+        if command.claim is not None and command.claim != dispatch.start_claim:
+            raise Conflict(ErrorCode.DISPATCH_BINDING_CONFLICT)
         updated = dispatch.model_copy(
             update={
                 "state": DispatchState.TERMINAL,
@@ -191,7 +282,7 @@ class DynamoDBDispatch(DynamoDBHost):
         if item is None:
             return None
         dispatch = decode_model(item, RunDispatch)
-        active = (
+        active = dispatch.state in {DispatchState.RESERVED, DispatchState.STARTING} or (
             dispatch.state is not DispatchState.TERMINAL and dispatch.lease_until > self._clock()
         )
         return dispatch if active else None

@@ -160,7 +160,11 @@ def build_phase_b_evidence(
     observed_at: datetime,
 ) -> Node:
     """Build a Phase B record from exact plan/audit/apply bytes and readback."""
-    if close_drain.get("kind") != "close-drain" or close_drain.get("permit") is not None:
+    if (
+        close_drain.get("kind") != "close-drain"
+        or close_drain.get("permit") is not None
+        or not close_drain.get("closed_membership_sha256")
+    ):
         raise ValueError("phase_b=close_drain")
     if before.get("lineage") != after.get("lineage") or after.get("serial", -1) <= before.get(
         "serial", -1

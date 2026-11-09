@@ -137,7 +137,11 @@ def build_dispatch_admission(
         raise AwsRuntimeConfigurationError("environment_gate_unsupported")
     probe = StepFunctionsExecutionProbe(clients.step_functions, settings.state_machine_arn)
     return EnvironmentAdmission(
-        control_plane, probe, settings.environment, settings.processor_lease_seconds,
+        control_plane,
+        probe,
+        settings.environment,
+        settings.processor_lease_seconds,
+        control_plane,
     )
 
 

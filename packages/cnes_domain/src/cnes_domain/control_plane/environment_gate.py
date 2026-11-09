@@ -87,6 +87,8 @@ class PromotionFence:
     promotion_id: str | None
     version: int
     changed_at: datetime | None
+    closed_membership: tuple[dict[str, object], ...] = ()
+    closed_membership_sha256: str | None = None
 
     def __post_init__(self) -> None:
         require_environment(self.environment)
@@ -123,6 +125,9 @@ class UnitPermit:
     acquired_at: datetime
     lease_until: datetime
     canary_promotion_id: str | None
+    generation: int | None = None
+    request_sha256: str | None = None
+    start_state: str | None = None
 
     def __post_init__(self) -> None:
         require_environment(self.environment)
@@ -140,6 +145,8 @@ class EnvironmentGateState:
     environment: str
     fence: PromotionFence
     permit: UnitPermit | None
+    closed_membership: tuple[dict[str, object], ...] = ()
+    closed_membership_sha256: str | None = None
 
     def __post_init__(self) -> None:
         require_environment(self.environment)

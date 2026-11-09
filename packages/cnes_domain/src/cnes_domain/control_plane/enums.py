@@ -43,6 +43,7 @@ class RunStage(StrEnum):
 
 class DispatchState(StrEnum):
     RESERVED = "RESERVED"
+    STARTING = "STARTING"
     STARTED = "STARTED"
     TERMINAL = "TERMINAL"
 

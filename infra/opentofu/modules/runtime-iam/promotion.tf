@@ -35,6 +35,15 @@ resource "aws_iam_role_policy" "promotion_fence_operator" {
           Null                        = { "dynamodb:LeadingKeys" = "false" }
         }
       },
+      {
+        Effect   = "Allow"
+        Action   = "dynamodb:ConditionCheckItem"
+        Resource = var.runtime_grants.table_arn
+        Condition = {
+          "ForAllValues:StringEquals" = { "dynamodb:LeadingKeys" = ["ENV#prod#SEMAPHORE"] }
+          Null                        = { "dynamodb:LeadingKeys" = "false" }
+        }
+      },
     ]
   })
 }

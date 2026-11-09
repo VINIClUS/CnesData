@@ -15,6 +15,7 @@ from pydantic import (
     model_validator,
 )
 
+from cnes_domain.control_plane.dispatch_start import DispatchStartClaim  # noqa: TC001
 from cnes_domain.control_plane.enums import (
     AccessRequestState,
     AgentState,
@@ -32,43 +33,67 @@ _COMPETENCIA = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 _LOWER_HEX_16 = re.compile(r"^[0-9a-f]{16}$")
 _LOWER_HEX_64 = re.compile(r"^[0-9a-f]{64}$")
 _ERROR_CODE = re.compile(r"^[A-Za-z0-9_.:-]+$")
+
+
 def require_non_blank(value: object) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError("blank_value")
     return value
+
+
 def optional_non_blank(value: str | None) -> str | None:
     return require_non_blank(value) if value is not None else value
+
+
 def require_key_component(value: str) -> str:
     require_non_blank(value)
     if value in {".", ".."} or any(char in value for char in "#/\\"):
         raise ValueError("invalid_key_component")
     return value
+
+
 def require_competencia(value: object) -> str:
     if not isinstance(value, str) or not _COMPETENCIA.fullmatch(value):
         raise ValueError("invalid_competencia")
     return value
+
+
 def require_utc(value: datetime) -> datetime:
     if value.tzinfo is None or value.utcoffset() != timedelta(0):
         raise ValueError("datetime_not_utc")
     return value
+
+
 def _optional_utc(value: datetime | None) -> datetime | None:
     return require_utc(value) if value is not None else value
+
+
 def require_sha256(value: str) -> str:
     if not _LOWER_HEX_64.fullmatch(value):
         raise ValueError("invalid_sha256")
     return value
+
+
 def optional_sha256(value: str | None) -> str | None:
     return require_sha256(value) if value is not None else value
+
+
 def optional_error_code(value: str | None) -> str | None:
     if value is not None and not _ERROR_CODE.fullmatch(value):
         raise ValueError("invalid_error_code")
     return value
+
+
 def require_dispatch_id(value: str, name: str) -> str:
     if not _LOWER_HEX_16.fullmatch(value):
         raise ValueError(f"invalid_{name}")
     return value
+
+
 def _optional_key_component(value: str | None) -> str | None:
     return require_key_component(value) if value is not None else value
+
+
 def _require_sidecar_key(value: str) -> str:
     if value.startswith("/") or "//" in value or "\\" in value:
         raise ValueError("invalid_manifest_key")
@@ -77,6 +102,8 @@ def _require_sidecar_key(value: str) -> str:
     if len(parts) < 3 or parts[-1] not in {"manifest.json", "run-manifest.json"} or invalid_parts:
         raise ValueError("invalid_manifest_key")
     return value
+
+
 def _require_finite_json(value: JsonValue) -> JsonValue:
     if isinstance(value, float) and not isfinite(value):
         raise ValueError("non_finite_json_float")
@@ -87,17 +114,23 @@ def _require_finite_json(value: JsonValue) -> JsonValue:
         for item in value.values():
             _require_finite_json(item)
     return value
+
+
 def unique_non_blank(values: tuple[str, ...], duplicate_message: str) -> tuple[str, ...]:
     for value in values:
         require_non_blank(value)
     if len(set(values)) != len(values):
         raise ValueError(duplicate_message)
     return values
+
+
 def require_unique_refs(refs: tuple[ManifestRef, ...]) -> None:
     ids = {ref.manifest_id for ref in refs}
     keys = {ref.manifest_key for ref in refs}
     if len(ids) != len(refs) or len(keys) != len(refs):
         raise ValueError("duplicate_manifest_ref")
+
+
 class ControlPlaneModel(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True, extra="forbid")
 
@@ -160,6 +193,7 @@ class Job(ControlPlaneModel):
     _optional_ids = field_validator("lease_owner", "result_manifest_id")(optional_non_blank)
     _error_value = field_validator("error_code")(optional_error_code)
     _rejected_hash = field_validator("rejected_manifest_sha256")(optional_sha256)
+
     @model_validator(mode="after")
     def _validate_consistency(self) -> Job:
         if (self.lease_owner is None) != (self.lease_until is None):
@@ -209,6 +243,7 @@ class Run(ControlPlaneModel):
     _strings = field_validator("tenant_id", "run_id", "dataset_name")(require_non_blank)
     _competencia_value = field_validator("competencia")(require_competencia)
     _created_utc = field_validator("created_at")(require_utc)
+
     @field_validator("missing_sources")
     @classmethod
     def _missing_unique(cls, values: tuple[str, ...]) -> tuple[str, ...]:
@@ -260,6 +295,7 @@ class RawManifestRecord(ControlPlaneModel):
     _created_utc = field_validator("created_at")(require_utc)
     _base_snapshot = field_validator("base_snapshot_id")(_optional_key_component)
     _previous_hash = field_validator("previous_manifest_sha256")(optional_sha256)
+
     @model_validator(mode="after")
     def _validate_chain(self) -> RawManifestRecord:
         if self.sequence < 1:
@@ -282,8 +318,9 @@ class RawResyncState(ControlPlaneModel):
     file_subtype: str
     competencia: str
     required_since: datetime
-    _components = field_validator(
-        "tenant_id", "agent_id", "source_type", "file_subtype")(require_key_component)
+    _components = field_validator("tenant_id", "agent_id", "source_type", "file_subtype")(
+        require_key_component
+    )
     _competencia_value = field_validator("competencia")(require_competencia)
     _required_utc = field_validator("required_since")(require_utc)
 
@@ -369,9 +406,11 @@ class RunDispatch(ControlPlaneModel):
     lease_until: datetime
     execution_ref: str | None = None
     terminal_outcome: DispatchOutcome | None = None
+    start_claim: DispatchStartClaim | None = None
     _strings = field_validator("tenant_id", "run_id")(require_non_blank)
     _lease_utc = field_validator("lease_until")(require_utc)
     _execution_ref_value = field_validator("execution_ref")(optional_non_blank)
+
     @field_validator("wave_id", "dispatch_id")
     @classmethod
     def _dispatch_ids(cls, value: str, info: ValidationInfo) -> str:
@@ -386,10 +425,18 @@ class RunDispatch(ControlPlaneModel):
         unique_non_blank(self.unit_ids, "duplicate_unit_id")
         if self.unit_ids != tuple(sorted(self.unit_ids)):
             raise ValueError("unit_ids_not_ordered")
+        if self.state is DispatchState.STARTING and self.start_claim is None:
+            raise ValueError("start_claim_required")
         if self.state is DispatchState.STARTED and not self.execution_ref:
             raise ValueError("execution_ref_required")
-        if self.state is DispatchState.RESERVED and self.execution_ref is not None:
+        if self.state is DispatchState.RESERVED and (
+            self.execution_ref is not None or self.start_claim is not None
+        ):
             raise ValueError("execution_ref_forbidden")
+        if self.start_claim is not None and self.start_claim.dispatch_id != self.dispatch_id:
+            raise ValueError("start_claim_dispatch_mismatch")
+        if self.start_claim is not None and self.start_claim.generation != self.generation:
+            raise ValueError("start_claim_generation_mismatch")
         if self.state is DispatchState.TERMINAL and self.terminal_outcome is None:
             raise ValueError("terminal_outcome_required")
         if self.state is not DispatchState.TERMINAL and self.terminal_outcome is not None:

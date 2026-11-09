@@ -6,6 +6,9 @@ import logging
 from datetime import timedelta
 from typing import TYPE_CHECKING, Final, cast
 
+from cnes_domain.control_plane.commands import CancelReservedRunDispatch
+from cnes_domain.control_plane.dispatch_start import DispatchStartClaim
+from cnes_domain.control_plane.enums import DispatchState
 from cnes_domain.control_plane.environment_gate import (
     AcquireUnitPermit,
     AcquisitionStatus,
@@ -35,6 +38,7 @@ if TYPE_CHECKING:
 
     from cnes_domain.control_plane.entities import RunDispatch, RunUnit
     from cnes_domain.control_plane.environment_gate import PermitAcquisition, UnitPermit
+    from cnes_domain.ports.control_plane import ControlPlanePort
     from cnes_domain.ports.environment_gate import (
         DispatchAdmissionPort,
         EnvironmentGatePort,
@@ -100,13 +104,14 @@ class EnvironmentAdmission:
 
     def __init__(
         self, gate: EnvironmentGatePort, probe: ExecutionProbePort, environment: str,
-        lease_seconds: int,
+        lease_seconds: int, control_plane: ControlPlanePort | None = None,
     ) -> None:
         """Raises: ValueError: Ambiente inválido ou lease menor que 1 segundo."""
         self._gate = gate
         self._probe = probe
         self._environment = require_environment(environment)
         self._lease_seconds = _require_lease(lease_seconds)
+        self._control_plane: ControlPlanePort | None = control_plane
 
     def admit(self, holder: PermitHolder, now: datetime) -> UnitAdmission | DispatchDeferred:
         """Adquire o permit e só então conta a tentativa do mês; outro holder cede pelo probe.
@@ -166,7 +171,7 @@ class EnvironmentAdmission:
         if reason is None:
             reason = self._attempt_deferral(acquisition.status, permit, now)
         if reason is None:
-            return UnitAdmission(self._environment, permit.token)
+            return UnitAdmission(self._environment, permit.token, None, permit.canary_promotion_id)
         logger.info(
             "dispatch_deferred environment=%s tenant_id=%s run_id=%s dispatch_id=%s reason=%s",
             self._environment, holder.tenant_id, holder.run_id, holder.dispatch_id, reason,
@@ -228,8 +233,12 @@ class EnvironmentAdmission:
         return observation.presence is ExecutionPresence.ABSENT
 
     def _reconcile(self, permit: UnitPermit, now: datetime) -> bool:
+        if self._dispatch_is_starting(permit):
+            return False
         observation = self._probe.probe(permit.holder.dispatch_id)
         if _proves_end(observation, permit, now):
+            if not self._cancel_reserved(permit, now):
+                return False
             self._release(permit, observation.presence, now)
             return True
         if observation.presence is ExecutionPresence.RUNNING:
@@ -262,6 +271,41 @@ class EnvironmentAdmission:
             return
         renew = RenewUnitPermit(self._environment, permit.token, now, self._lease_seconds)
         self._gate.renew_unit_permit(renew)
+
+    def _dispatch_is_starting(self, permit: UnitPermit) -> bool:
+        if self._control_plane is None:
+            return False
+        dispatch = self._control_plane.get_active_run_dispatch(
+            permit.holder.tenant_id, permit.holder.run_id,
+        )
+        return dispatch is not None and dispatch.state is DispatchState.STARTING
+
+    def _cancel_reserved(self, permit: UnitPermit, now: datetime) -> bool:
+        if self._control_plane is None:
+            return True
+        dispatch = self._control_plane.get_active_run_dispatch(
+            permit.holder.tenant_id, permit.holder.run_id,
+        )
+        if dispatch is None or dispatch.state is not DispatchState.RESERVED:
+            return False
+        claim = DispatchStartClaim(
+            dispatch_id=dispatch.dispatch_id,
+            generation=dispatch.generation,
+            permit_token=permit.token,
+            fence_version=1,
+            request_sha256="0" * 64,
+            promotion_id=permit.canary_promotion_id,
+        )
+        canceled = self._control_plane.cancel_reserved_run_dispatch(
+            CancelReservedRunDispatch(
+                tenant_id=dispatch.tenant_id,
+                run_id=dispatch.run_id,
+                dispatch_id=dispatch.dispatch_id,
+                claim=claim,
+                canceled_at=now,
+            )
+        )
+        return canceled is not None
 
 
 __all__ = [
