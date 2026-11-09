@@ -80,6 +80,7 @@ resource "aws_cloudwatch_log_group" "processor" {
 module "runtime_iam" {
   source = "../../modules/runtime-iam"
 
+  demo_seed      = var.demo_seed
   name_prefix    = local.name_prefix
   account_id     = var.shared_outputs.account_id
   repository_arn = module.processor_registry.repository_arn

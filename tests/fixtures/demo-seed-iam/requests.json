@@ -1,0 +1,497 @@
+[
+  {
+    "name": "tenant_GetItem",
+    "action": "dynamodb:GetItem",
+    "resource": "arn:aws:dynamodb:us-east-2:123456789012:table/cnesdata-prod-control-plane",
+    "context": {
+      "dynamodb:LeadingKeys": [
+        "TENANT#64656d6f"
+      ]
+    },
+    "sort_key": "TENANT",
+    "allowed": true
+  },
+  {
+    "name": "tenant_PutItem",
+    "action": "dynamodb:PutItem",
+    "resource": "arn:aws:dynamodb:us-east-2:123456789012:table/cnesdata-prod-control-plane",
+    "context": {
+      "dynamodb:LeadingKeys": [
+        "TENANT#64656d6f"
+      ]
+    },
+    "sort_key": "TENANT",
+    "allowed": true
+  },
+  {
+    "name": "membership_GetItem",
+    "action": "dynamodb:GetItem",
+    "resource": "arn:aws:dynamodb:us-east-2:123456789012:table/cnesdata-prod-control-plane",
+    "context": {
+      "dynamodb:LeadingKeys": [
+        "TENANT#64656d6f"
+      ]
+    },
+    "sort_key": "MEMBERSHIP#75736572",
+    "allowed": true
+  },
+  {
+    "name": "membership_PutItem",
+    "action": "dynamodb:PutItem",
+    "resource": "arn:aws:dynamodb:us-east-2:123456789012:table/cnesdata-prod-control-plane",
+    "context": {
+      "dynamodb:LeadingKeys": [
+        "TENANT#64656d6f"
+      ]
+    },
+    "sort_key": "MEMBERSHIP#75736572",
+    "allowed": true
+  },
+  {
+    "name": "dataset_version_GetItem",
+    "action": "dynamodb:GetItem",
+    "resource": "arn:aws:dynamodb:us-east-2:123456789012:table/cnesdata-prod-control-plane",
+    "context": {
+      "dynamodb:LeadingKeys": [
+        "TENANT#64656d6f"
+      ]
+    },
+    "sort_key": "VERSION#64617461736574#7631",
+    "allowed": true
+  },
+  {
+    "name": "dataset_version_PutItem",
+    "action": "dynamodb:PutItem",
+    "resource": "arn:aws:dynamodb:us-east-2:123456789012:table/cnesdata-prod-control-plane",
+    "context": {
+      "dynamodb:LeadingKeys": [
+        "TENANT#64656d6f"
+      ]
+    },
+    "sort_key": "VERSION#64617461736574#7631",
+    "allowed": true
+  },
+  {
+    "name": "dataset_pointer_GetItem",
+    "action": "dynamodb:GetItem",
+    "resource": "arn:aws:dynamodb:us-east-2:123456789012:table/cnesdata-prod-control-plane",
+    "context": {
+      "dynamodb:LeadingKeys": [
+        "TENANT#64656d6f"
+      ]
+    },
+    "sort_key": "POINTER#64617461736574#616374697665",
+    "allowed": true
+  },
+  {
+    "name": "dataset_pointer_PutItem",
+    "action": "dynamodb:PutItem",
+    "resource": "arn:aws:dynamodb:us-east-2:123456789012:table/cnesdata-prod-control-plane",
+    "context": {
+      "dynamodb:LeadingKeys": [
+        "TENANT#64656d6f"
+      ]
+    },
+    "sort_key": "POINTER#64617461736574#616374697665",
+    "allowed": true
+  },
+  {
+    "name": "outro",
+    "action": "dynamodb:PutItem",
+    "resource": "arn:aws:dynamodb:us-east-2:123456789012:table/cnesdata-prod-control-plane",
+    "context": {
+      "dynamodb:LeadingKeys": [
+        "TENANT#6f74686572"
+      ]
+    },
+    "allowed": false
+  },
+  {
+    "name": "prefixo",
+    "action": "dynamodb:PutItem",
+    "resource": "arn:aws:dynamodb:us-east-2:123456789012:table/cnesdata-prod-control-plane",
+    "context": {
+      "dynamodb:LeadingKeys": [
+        "TENANT#64656d6f00"
+      ]
+    },
+    "allowed": false
+  },
+  {
+    "name": "misto",
+    "action": "dynamodb:PutItem",
+    "resource": "arn:aws:dynamodb:us-east-2:123456789012:table/cnesdata-prod-control-plane",
+    "context": {
+      "dynamodb:LeadingKeys": [
+        "TENANT#64656d6f",
+        "TENANT#6f74686572"
+      ]
+    },
+    "allowed": false
+  },
+  {
+    "name": "ausente",
+    "action": "dynamodb:PutItem",
+    "resource": "arn:aws:dynamodb:us-east-2:123456789012:table/cnesdata-prod-control-plane",
+    "context": {},
+    "allowed": false
+  },
+  {
+    "name": "vazio",
+    "action": "dynamodb:PutItem",
+    "resource": "arn:aws:dynamodb:us-east-2:123456789012:table/cnesdata-prod-control-plane",
+    "context": {
+      "dynamodb:LeadingKeys": []
+    },
+    "allowed": false
+  },
+  {
+    "name": "string_vazia",
+    "action": "dynamodb:PutItem",
+    "resource": "arn:aws:dynamodb:us-east-2:123456789012:table/cnesdata-prod-control-plane",
+    "context": {
+      "dynamodb:LeadingKeys": [
+        ""
+      ]
+    },
+    "allowed": false
+  },
+  {
+    "name": "canary",
+    "action": "dynamodb:PutItem",
+    "resource": "arn:aws:dynamodb:us-east-2:123456789012:table/cnesdata-prod-control-plane",
+    "context": {
+      "dynamodb:LeadingKeys": [
+        "TENANT#_GLOBAL"
+      ]
+    },
+    "allowed": false
+  },
+  {
+    "name": "global",
+    "action": "dynamodb:PutItem",
+    "resource": "arn:aws:dynamodb:us-east-2:123456789012:table/cnesdata-prod-control-plane",
+    "context": {
+      "dynamodb:LeadingKeys": [
+        "GLOBAL"
+      ]
+    },
+    "allowed": false
+  },
+  {
+    "name": "outbox",
+    "action": "dynamodb:PutItem",
+    "resource": "arn:aws:dynamodb:us-east-2:123456789012:table/cnesdata-prod-control-plane",
+    "context": {
+      "dynamodb:LeadingKeys": [
+        "OUTBOX#PENDING"
+      ]
+    },
+    "allowed": false
+  },
+  {
+    "name": "semaforo",
+    "action": "dynamodb:PutItem",
+    "resource": "arn:aws:dynamodb:us-east-2:123456789012:table/cnesdata-prod-control-plane",
+    "context": {
+      "dynamodb:LeadingKeys": [
+        "SEMAPHORE#x"
+      ]
+    },
+    "allowed": false
+  },
+  {
+    "name": "fence",
+    "action": "dynamodb:PutItem",
+    "resource": "arn:aws:dynamodb:us-east-2:123456789012:table/cnesdata-prod-control-plane",
+    "context": {
+      "dynamodb:LeadingKeys": [
+        "PROMOTION#FENCE"
+      ]
+    },
+    "allowed": false
+  },
+  {
+    "name": "run",
+    "action": "dynamodb:PutItem",
+    "resource": "arn:aws:dynamodb:us-east-2:123456789012:table/cnesdata-prod-control-plane",
+    "context": {
+      "dynamodb:LeadingKeys": [
+        "TENANT#64656d6f#RUN#01"
+      ]
+    },
+    "allowed": false
+  },
+  {
+    "name": "raw",
+    "action": "dynamodb:PutItem",
+    "resource": "arn:aws:dynamodb:us-east-2:123456789012:table/cnesdata-prod-control-plane",
+    "context": {
+      "dynamodb:LeadingKeys": [
+        "TENANT#64656d6f#RAW#01"
+      ]
+    },
+    "allowed": false
+  },
+  {
+    "name": "outra_tabela",
+    "action": "dynamodb:GetItem",
+    "resource": "arn:aws:dynamodb:us-east-2:123456789012:table/cnesdata-prod-control-plane-other",
+    "context": {
+      "dynamodb:LeadingKeys": [
+        "TENANT#64656d6f"
+      ]
+    },
+    "allowed": false
+  },
+  {
+    "name": "tabela_canary",
+    "action": "dynamodb:GetItem",
+    "resource": "arn:aws:dynamodb:us-east-2:123456789012:table/cnesdata-prod-canary",
+    "context": {
+      "dynamodb:LeadingKeys": [
+        "TENANT#64656d6f"
+      ]
+    },
+    "allowed": false
+  },
+  {
+    "name": "indice",
+    "action": "dynamodb:GetItem",
+    "resource": "arn:aws:dynamodb:us-east-2:123456789012:table/cnesdata-prod-control-plane/index/gsi1",
+    "context": {
+      "dynamodb:LeadingKeys": [
+        "TENANT#64656d6f"
+      ]
+    },
+    "allowed": false
+  },
+  {
+    "name": "Scan",
+    "action": "dynamodb:Scan",
+    "resource": "arn:aws:dynamodb:us-east-2:123456789012:table/cnesdata-prod-control-plane",
+    "context": {
+      "dynamodb:LeadingKeys": [
+        "TENANT#64656d6f"
+      ]
+    },
+    "allowed": false
+  },
+  {
+    "name": "Query",
+    "action": "dynamodb:Query",
+    "resource": "arn:aws:dynamodb:us-east-2:123456789012:table/cnesdata-prod-control-plane",
+    "context": {
+      "dynamodb:LeadingKeys": [
+        "TENANT#64656d6f"
+      ]
+    },
+    "allowed": false
+  },
+  {
+    "name": "DeleteItem",
+    "action": "dynamodb:DeleteItem",
+    "resource": "arn:aws:dynamodb:us-east-2:123456789012:table/cnesdata-prod-control-plane",
+    "context": {
+      "dynamodb:LeadingKeys": [
+        "TENANT#64656d6f"
+      ]
+    },
+    "allowed": false
+  },
+  {
+    "name": "UpdateItem",
+    "action": "dynamodb:UpdateItem",
+    "resource": "arn:aws:dynamodb:us-east-2:123456789012:table/cnesdata-prod-control-plane",
+    "context": {
+      "dynamodb:LeadingKeys": [
+        "TENANT#64656d6f"
+      ]
+    },
+    "allowed": false
+  },
+  {
+    "name": "BatchGetItem",
+    "action": "dynamodb:BatchGetItem",
+    "resource": "arn:aws:dynamodb:us-east-2:123456789012:table/cnesdata-prod-control-plane",
+    "context": {
+      "dynamodb:LeadingKeys": [
+        "TENANT#64656d6f"
+      ]
+    },
+    "allowed": false
+  },
+  {
+    "name": "BatchWriteItem",
+    "action": "dynamodb:BatchWriteItem",
+    "resource": "arn:aws:dynamodb:us-east-2:123456789012:table/cnesdata-prod-control-plane",
+    "context": {
+      "dynamodb:LeadingKeys": [
+        "TENANT#64656d6f"
+      ]
+    },
+    "allowed": false
+  },
+  {
+    "name": "ConditionCheckItem",
+    "action": "dynamodb:ConditionCheckItem",
+    "resource": "arn:aws:dynamodb:us-east-2:123456789012:table/cnesdata-prod-control-plane",
+    "context": {
+      "dynamodb:LeadingKeys": [
+        "TENANT#64656d6f"
+      ]
+    },
+    "allowed": false
+  },
+  {
+    "name": "DescribeTable",
+    "action": "dynamodb:DescribeTable",
+    "resource": "arn:aws:dynamodb:us-east-2:123456789012:table/cnesdata-prod-control-plane",
+    "context": {
+      "dynamodb:LeadingKeys": [
+        "TENANT#64656d6f"
+      ]
+    },
+    "allowed": false
+  },
+  {
+    "name": "ExecuteStatement",
+    "action": "dynamodb:ExecuteStatement",
+    "resource": "arn:aws:dynamodb:us-east-2:123456789012:table/cnesdata-prod-control-plane",
+    "context": {
+      "dynamodb:LeadingKeys": [
+        "TENANT#64656d6f"
+      ]
+    },
+    "allowed": false
+  },
+  {
+    "name": "priv_escalate",
+    "action": "iam:PassRole",
+    "resource": "*",
+    "context": {},
+    "allowed": false
+  },
+  {
+    "name": "trust",
+    "action": "sts:AssumeRole",
+    "principal": "arn:aws:iam::123456789012:role/synthetic/demo-operator",
+    "context": {
+      "sts:RoleSessionName": "demo-seed"
+    },
+    "allowed": true
+  },
+  {
+    "name": "outra_role",
+    "action": "sts:AssumeRole",
+    "principal": "arn:aws:iam::123456789012:role/synthetic/demo-operator-other",
+    "context": {
+      "sts:RoleSessionName": "demo-seed"
+    },
+    "allowed": false
+  },
+  {
+    "name": "outra_conta",
+    "action": "sts:AssumeRole",
+    "principal": "arn:aws:iam::999999999999:role/synthetic/demo-operator",
+    "context": {
+      "sts:RoleSessionName": "demo-seed"
+    },
+    "allowed": false
+  },
+  {
+    "name": "root",
+    "action": "sts:AssumeRole",
+    "principal": "arn:aws:iam::123456789012:root",
+    "context": {
+      "sts:RoleSessionName": "demo-seed"
+    },
+    "allowed": false
+  },
+  {
+    "name": "user",
+    "action": "sts:AssumeRole",
+    "principal": "arn:aws:iam::123456789012:user/demo",
+    "context": {
+      "sts:RoleSessionName": "demo-seed"
+    },
+    "allowed": false
+  },
+  {
+    "name": "sts",
+    "action": "sts:AssumeRole",
+    "principal": "arn:aws:sts::123456789012:assumed-role/demo/session",
+    "context": {
+      "sts:RoleSessionName": "demo-seed"
+    },
+    "allowed": false
+  },
+  {
+    "name": "sessao",
+    "action": "sts:AssumeRole",
+    "principal": "arn:aws:iam::123456789012:role/synthetic/demo-operator",
+    "context": {
+      "sts:RoleSessionName": "demo-seed-other"
+    },
+    "allowed": false
+  },
+  {
+    "name": "sessao_ausente",
+    "action": "sts:AssumeRole",
+    "principal": "arn:aws:iam::123456789012:role/synthetic/demo-operator",
+    "context": {},
+    "allowed": false
+  },
+  {
+    "name": "TransactWriteItems_item_True",
+    "action": "dynamodb:PutItem",
+    "operation": "TransactWriteItems",
+    "resource": "arn:aws:dynamodb:us-east-2:123456789012:table/cnesdata-prod-control-plane",
+    "context": {
+      "dynamodb:LeadingKeys": [
+        "TENANT#64656d6f"
+      ],
+      "dynamodb:EnclosingOperation": "TransactWriteItems"
+    },
+    "allowed": true
+  },
+  {
+    "name": "TransactWriteItems_item_False",
+    "action": "dynamodb:PutItem",
+    "operation": "TransactWriteItems",
+    "resource": "arn:aws:dynamodb:us-east-2:123456789012:table/cnesdata-prod-control-plane",
+    "context": {
+      "dynamodb:LeadingKeys": [
+        "TENANT#6f74686572"
+      ],
+      "dynamodb:EnclosingOperation": "TransactWriteItems"
+    },
+    "allowed": false
+  },
+  {
+    "name": "TransactGetItems_item_True",
+    "action": "dynamodb:GetItem",
+    "operation": "TransactGetItems",
+    "resource": "arn:aws:dynamodb:us-east-2:123456789012:table/cnesdata-prod-control-plane",
+    "context": {
+      "dynamodb:LeadingKeys": [
+        "TENANT#64656d6f"
+      ],
+      "dynamodb:EnclosingOperation": "TransactGetItems"
+    },
+    "allowed": true
+  },
+  {
+    "name": "TransactGetItems_item_False",
+    "action": "dynamodb:GetItem",
+    "operation": "TransactGetItems",
+    "resource": "arn:aws:dynamodb:us-east-2:123456789012:table/cnesdata-prod-control-plane",
+    "context": {
+      "dynamodb:LeadingKeys": [
+        "TENANT#6f74686572"
+      ],
+      "dynamodb:EnclosingOperation": "TransactGetItems"
+    },
+    "allowed": false
+  }
+]

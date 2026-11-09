@@ -1,3 +1,43 @@
+variable "demo_seed" {
+  description = "Exact demo tenant seed grant, or null to create no demo identity."
+  type = object({
+    tenant_partition_key  = string
+    trusted_principal_arn = string
+  })
+  default  = null
+  nullable = true
+
+  validation {
+    condition = var.demo_seed == null ? true : can(regex(
+      "^TENANT#([0-9a-f]{2})+$", var.demo_seed.tenant_partition_key,
+    ))
+    error_message = "demo_seed_partition=expected_exact_lowercase_even_hex_tenant"
+  }
+
+  validation {
+    condition     = var.demo_seed == null ? true : var.runtime_grants != null
+    error_message = "demo_seed_runtime_grants=required"
+  }
+
+  validation {
+    condition = var.demo_seed == null ? true : try(
+      can(regex(
+        "^arn:aws:iam::[0-9]{12}:role/([^/*?]+/)*[A-Za-z0-9_+=,.@-]{1,64}$",
+        var.demo_seed.trusted_principal_arn,
+      )) &&
+      can(regex("^[!-~]+$", var.demo_seed.trusted_principal_arn)) &&
+      split(":", var.demo_seed.trusted_principal_arn)[4] == var.account_id,
+      false,
+    )
+    error_message = "demo_seed_principal=expected_exact_same_account_ascii_iam_role"
+  }
+
+  validation {
+    condition     = var.demo_seed == null ? true : length("${var.name_prefix}-demo-seed") <= 64
+    error_message = "demo_seed_role_name=expected_max64_chars"
+  }
+}
+
 variable "name_prefix" {
   description = "Product namespace for processor identities."
   type        = string

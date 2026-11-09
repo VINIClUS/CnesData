@@ -1,3 +1,18 @@
+output "demo_seed_iam_contract" {
+  description = "Dedicated demo consumer contract, or null when demo_seed is disabled."
+  value = var.demo_seed == null ? null : {
+    contract_version             = "cnesdata.demo-seed-iam/v1"
+    role_arn                     = aws_iam_role.demo_seed[0].arn
+    policy_name                  = aws_iam_role_policy.demo_seed[0].name
+    policy_sha256                = sha256(aws_iam_role_policy.demo_seed[0].policy)
+    table_arn                    = var.runtime_grants.table_arn
+    tenant_partition_key         = var.demo_seed.tenant_partition_key
+    role_session_name            = "demo-seed"
+    max_session_duration_seconds = aws_iam_role.demo_seed[0].max_session_duration
+    allowed_actions              = local.demo_seed_actions
+  }
+}
+
 output "execution_role_arn" {
   description = "Shared execution identity ARN for processor tasks."
   value       = aws_iam_role.execution.arn

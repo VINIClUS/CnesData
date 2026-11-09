@@ -14,6 +14,7 @@ OUTPUTS = {
     "processor_cluster_arn", "processor_state_machine_arn", "processor_step_functions_role_id",
     "processor_step_functions_role_arn", "scheduler_schedule_arns", "scheduler_role_arns",
     "scheduler_freeze_target_role_names", "scheduler_task_hour_budget", "scheduler_alarm_names",
+    "demo_seed_iam_contract",
 } | ROOT_OUTPUTS
 STATIC_TYPES = {
     "aws_s3_bucket", "aws_s3_bucket_public_access_block", "aws_s3_bucket_ownership_controls",

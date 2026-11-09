@@ -163,6 +163,49 @@ variables {
   }
 }
 
+run "demo_seed_desligado_por_padrao" {
+  command = plan
+
+  assert {
+    condition     = output.demo_seed_iam_contract == null
+    error_message = "demo_seed_default=expected_null_contract"
+  }
+}
+
+run "demo_seed_contrato_da_raiz" {
+  command = plan
+
+  variables {
+    demo_seed = {
+      tenant_partition_key  = "TENANT#64656d6f"
+      trusted_principal_arn = "arn:aws:iam::123456789012:role/synthetic/demo-operator"
+    }
+  }
+
+  override_resource {
+    target = module.runtime_iam.aws_iam_role.demo_seed[0]
+    values = {
+      arn = "arn:aws:iam::123456789012:role/cnesdata-prod-demo-seed"
+    }
+  }
+
+  assert {
+    condition     = output.demo_seed_iam_contract == module.runtime_iam.demo_seed_iam_contract
+    error_message = "demo_seed_contract=expected_unmodified_module_output"
+  }
+
+  assert {
+    condition = (
+      length(keys(output.demo_seed_iam_contract)) == 9 &&
+      output.demo_seed_iam_contract.contract_version == "cnesdata.demo-seed-iam/v1" &&
+      output.demo_seed_iam_contract.table_arn == module.control_plane.table_arn &&
+      output.demo_seed_iam_contract.tenant_partition_key == var.demo_seed.tenant_partition_key &&
+      output.demo_seed_iam_contract.max_session_duration_seconds == 3600
+    )
+    error_message = "demo_seed_contract=expected_dedicated_tenant_table_and_3600_iam_cap"
+  }
+}
+
 run "saidas_cognito_da_raiz" {
   command = plan
 
