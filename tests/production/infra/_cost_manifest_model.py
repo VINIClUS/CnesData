@@ -13,7 +13,7 @@ CENTS = Decimal("0.01")
 SUPPORTED_KEYWORDS = frozenset({
     "$schema", "$id", "$defs", "$ref", "title", "description", "type", "const", "enum",
     "required", "properties", "additionalProperties", "items", "minItems", "minLength",
-    "pattern", "minimum",
+    "pattern", "minimum", "maximum", "maxLength", "maxItems", "uniqueItems", "oneOf",
 })
 TYPES = {
     "object": dict, "array": list, "string": str, "null": type(None), "boolean": bool,
@@ -28,6 +28,8 @@ def unsupported_keywords(schema: Any, path: str = "$") -> list[str]:
         for name, child in schema.get(key, {}).items():
             found += unsupported_keywords(child, f"{path}.{key}.{name}")
     found += unsupported_keywords(schema.get("items"), f"{path}.items")
+    for index, child in enumerate(schema.get("oneOf", [])):
+        found += unsupported_keywords(child, f"{path}.oneOf[{index}]")
     return found
 
 
@@ -50,6 +52,9 @@ def _resolve(schema: Node, root: Node) -> Node:
 def validate(instance: Any, schema: Node, root: Node | None = None, path: str = "$") -> list[str]:
     root = root or schema
     schema = _resolve(schema, root)
+    if "oneOf" in schema:
+        matches = sum(not validate(instance, branch, root, path) for branch in schema["oneOf"])
+        return [] if matches == 1 else [f"{path} oneOf={matches}"]
     errors: list[str] = []
     names = schema.get("type")
     names = [names] if isinstance(names, str) else names
@@ -63,6 +68,8 @@ def validate(instance: Any, schema: Node, root: Node | None = None, path: str = 
         errors += _string_errors(instance, schema, path)
     if isinstance(instance, (int, float)) and "minimum" in schema and instance < schema["minimum"]:
         errors.append(f"{path} minimum={schema['minimum']}")
+    if isinstance(instance, (int, float)) and "maximum" in schema and instance > schema["maximum"]:
+        errors.append(f"{path} maximum={schema['maximum']}")
     if isinstance(instance, dict):
         errors += _object_errors(instance, schema, root, path)
     if isinstance(instance, list):
@@ -74,6 +81,8 @@ def _string_errors(instance: str, schema: Node, path: str) -> list[str]:
     errors = []
     if len(instance) < schema.get("minLength", 0):
         errors.append(f"{path} minLength={schema['minLength']}")
+    if len(instance) > schema.get("maxLength", len(instance)):
+        errors.append(f"{path} maxLength={schema['maxLength']}")
     if "pattern" in schema and re.search(schema["pattern"], instance) is None:
         errors.append(f"{path} pattern={schema['pattern']}")
     return errors
@@ -94,6 +103,10 @@ def _array_errors(instance: list[Any], schema: Node, root: Node, path: str) -> l
     errors = []
     if len(instance) < schema.get("minItems", 0):
         errors.append(f"{path} minItems={schema['minItems']}")
+    if len(instance) > schema.get("maxItems", len(instance)):
+        errors.append(f"{path} maxItems={schema['maxItems']}")
+    if schema.get("uniqueItems") and any(item in instance[:i] for i, item in enumerate(instance)):
+        errors.append(f"{path} uniqueItems=true")
     for index, item in enumerate(instance):
         errors += validate(item, schema.get("items", {}), root, f"{path}[{index}]")
     return errors
