@@ -1,4 +1,4 @@
-"""Builders sintéticos do contrato atual; nunca evidência operacional."""
+"""Transporte97 sintético; bundle A3 integrado reutilizado sem alterar a origem."""
 
 import copy
 import hashlib
@@ -9,9 +9,10 @@ from datetime import UTC, datetime
 
 from tests.production.delivery._phase_a_application_fixtures import _application
 
-NOW = datetime(2026, 11, 7, 20, 45, tzinfo=UTC)
+NOW = datetime(2026, 11, 9, 0, 45, tzinfo=UTC)
+APPLICATION_NOW = datetime(2026, 11, 7, 20, 52, tzinfo=UTC)
 SOURCE = "a" * 40
-PRODUCER = "99fc0e4805b96fbca7df06440d5ea3ad42e53369"
+PRODUCER = "97f8e7e086e3f107401b5eb35ff4017dde21ff34"
 BASELINES = ["backend", "cost", "drift", "policy", "shared-outputs", "toolchain"]
 
 
@@ -59,8 +60,8 @@ class PublicGitHub:
             "id": ref["artifact_id"],
             "digest": ref["artifact_digest"],
             "expired": False,
-            "expires_at": "2026-11-07T22:00:00Z",
-            "created_at": "2026-11-07T20:31:00Z",
+            "expires_at": "2026-11-09T02:00:00Z",
+            "created_at": "2026-11-09T00:31:00Z",
             "size_in_bytes": len(raw),
             "workflow_run": {"id": ref["run_id"], "head_sha": ref["source_sha"]},
         }
@@ -74,8 +75,8 @@ class PublicGitHub:
             "path": ref["workflow_path"],
             "status": "completed",
             "conclusion": "success",
-            "run_started_at": "2026-11-07T20:30:00Z",
-            "updated_at": "2026-11-07T20:32:00Z",
+            "run_started_at": "2026-11-09T00:30:00Z",
+            "updated_at": "2026-11-09T00:32:00Z",
         }
 
 
@@ -169,7 +170,6 @@ def source_responses(api, mode):
 
 
 def transport(ref, purpose):
-    plan = evidence(purpose, "planned")["plan"]
     return {
         "index_version": 1,
         "kind": "cnesdata-private-plan-transport",
@@ -180,8 +180,8 @@ def transport(ref, purpose):
             key: ref[key] for key in ("workflow_path", "workflow_sha", "run_id", "run_attempt")
         },
         "purpose": purpose,
-        "created_at": plan["created_at"],
-        "expires_at": plan["expires_at"],
+        "created_at": "2026-11-09T00:30:00Z",
+        "expires_at": "2026-11-09T01:30:00Z",
         "plan_binding_sha256": "1" * 64,
         "envelope_sha256": "2" * 64,
         "package_aggregate_sha256": "3" * 64,
@@ -193,7 +193,7 @@ def transport(ref, purpose):
             "status": "planned",
         },
         "policy": {"verdict": "pass", "evidence_sha256": "4" * 64},
-        "cost": plan["cost"],
+        "cost": transport_cost(purpose),
         "drift": {"verdict": "pass", "evidence_sha256": "5" * 64},
         "admission_proof": {"fixture_only": True},
     }
@@ -276,3 +276,13 @@ def outputs(purpose):
 
 def application():
     return _application()
+
+
+def transport_cost(purpose):
+    cost = copy.deepcopy(evidence(purpose, "planned")["plan"]["cost"])
+    cost.update(calculated_at="2026-11-09T00:30:00Z", expires_at="2026-11-09T01:30:00Z")
+    if cost["scope"] == "active":
+        cost["cloudfront"].update(
+            observed_at="2026-11-09T00:30:00Z", expires_at="2026-11-09T01:30:00Z"
+        )
+    return cost

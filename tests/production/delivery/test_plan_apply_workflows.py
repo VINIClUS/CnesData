@@ -1,17 +1,21 @@
 """Contratos atuais de admissão e plan/apply manuais exatos."""
 
+import hashlib
 import json
 import os
 import subprocess
 from pathlib import Path
 from shutil import which
+from types import SimpleNamespace
 
 import pytest
 import yaml
 
+from release.verify_candidate import timestamp
 from scripts.promotion import verify_plan_artifact
 from scripts.promotion._plan_contract import verify_application
 from tests.production.delivery._plan_apply_fixtures import (
+    APPLICATION_NOW,
     NOW,
     application,
     evidence,
@@ -176,7 +180,7 @@ def test_validacao_publica_precede_reusable_e_id_token(mode):
         "expected_source_sha",
         "purpose",
     }
-    assert gate["uses"].endswith("@99fc0e4805b96fbca7df06440d5ea3ad42e53369")
+    assert gate["uses"].endswith("@97f8e7e086e3f107401b5eb35ff4017dde21ff34")
     assert "secrets" not in gate
 
 
@@ -206,7 +210,8 @@ def test_guard_do_caller_executa_contexto_exato_antes_do_checkout(mode, case):
     assert (result.returncode == 0) == (case == "valid")
 
 
-def test_draft_sem_pin_integrado_p1_p2_fecha_cli_sem_output(monkeypatch, tmp_path):
+def test_cli_sem_produtor_liberado_fecha_sem_output(monkeypatch, tmp_path):
+    monkeypatch.setattr(verify_plan_artifact, "PRODUCER_READY", False)
     monkeypatch.setenv("GITHUB_OUTPUT", str(tmp_path / "outputs"))
     monkeypatch.setattr("sys.argv", ["verify_plan_artifact", "plan"])
     with pytest.raises(SystemExit) as result:
@@ -227,7 +232,7 @@ def test_apply_nao_estende_plan_alem_da_assinatura_free():
     value, api = request("apply", "phase-a")
     payload = json.loads(value["request_descriptor"])["payload_artifact"]
     index = transport(payload, "phase-a")
-    index["cost"]["cloudfront"]["expires_at"] = "2026-11-07T21:00:00Z"
+    index["cost"]["cloudfront"]["expires_at"] = "2026-11-09T01:00:00Z"
     replace_payload(value, api, index)
     with pytest.raises(ValueError):
         admission().prepare_request(value, api, NOW)
@@ -297,8 +302,68 @@ def test_schema_preserva_limites_de_custo_e_colecoes(case):
 
 def test_schema_e_consumidor_integrado_concordam_no_a3_phase_a_sintetico():
     bundle, governed = application()
-    result = verify_application(bundle, governed, NOW.replace(minute=52))
+    result = verify_application(bundle, governed, APPLICATION_NOW)
     schema = json.loads(SCHEMA.read_bytes())
     for status in ("planned", "applied"):
         assert validate(json.loads(bundle[status]), schema) == []
     assert result["plan"] == json.loads(bundle["planned"])["plan"]
+
+
+@pytest.mark.parametrize("mode", ["plan", "apply"])
+def test_cli_liberado_autentica_e_emite_os_oito_inputs(mode, monkeypatch, tmp_path):
+    value, api = request(mode, "bootstrap")
+    for key in ("mode", "run_id", "run_attempt"):
+        value.pop(key)
+    for key, item in {
+        "GITHUB_REPOSITORY": "VINIClUS/CnesData",
+        "GITHUB_REF": "refs/heads/develop",
+        "GITHUB_EVENT_NAME": "workflow_dispatch",
+        "GITHUB_RUN_ID": "900",
+        "GITHUB_RUN_ATTEMPT": "2",
+        "GITHUB_OUTPUT": str(tmp_path / "outputs"),
+        "REQUEST_JSON": json.dumps(value),
+    }.items():
+        monkeypatch.setenv(key, item)
+    monkeypatch.setattr("sys.argv", ["verify_plan_artifact", mode])
+    monkeypatch.setattr(verify_plan_artifact, "PublicGitHub", lambda: api)
+    monkeypatch.setattr(verify_plan_artifact, "datetime", SimpleNamespace(now=lambda _: NOW))
+    verify_plan_artifact.main()
+    output = (tmp_path / "outputs").read_text()
+    assert {line.split("<<")[0] for line in output.splitlines() if "<<" in line} == {
+        "request_descriptor",
+        "request_descriptor_sha256",
+        "expected_source_sha",
+        "purpose",
+        "contract_repository",
+        "contract_source_sha",
+        "contract_path",
+        "contract_sha256",
+    }
+    assert value["request_descriptor"] in output
+    assert "bootstrap" in output
+
+
+def test_produtor_antigo_e_recusado_mesmo_com_descriptor_recalculado():
+    from tests.production.delivery._plan_apply_fixtures import canonical
+
+    value, api = request()
+    descriptor = json.loads(value["request_descriptor"])
+    descriptor["producer_pins"][0]["source_sha"] = "99fc0e4805b96fbca7df06440d5ea3ad42e53369"
+    value["request_descriptor"] = canonical(descriptor).decode()
+    value["request_descriptor_sha256"] = hashlib.sha256(canonical(descriptor)).hexdigest()
+    with pytest.raises(ValueError, match="descriptor=producer_pin"):
+        verify_plan_artifact.prepare_request(value, api, NOW)
+
+
+def test_cronologia_do_transporte_novo_sucede_release_real_do_produtor():
+    _, api = request()
+    run = api.responses["VINIClUS/infra-ansible", "actions/runs/1/attempts/1"]
+    artifact = api.responses["VINIClUS/infra-ansible", "actions/artifacts/1001"]
+    assert (
+        timestamp("2026-11-08T23:47:55Z")
+        < timestamp(run["run_started_at"])
+        < timestamp(artifact["created_at"])
+        < timestamp(run["updated_at"])
+        < NOW
+        < timestamp(artifact["expires_at"])
+    )

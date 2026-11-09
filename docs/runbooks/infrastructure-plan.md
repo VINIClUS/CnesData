@@ -64,11 +64,13 @@ SHA. O registro dos dois YAMLs na default main é um PR mínimo posterior ao Có
 com bytes/pins idênticos, auditoria e CI de main; não é autorização para executar em main
 nem para habilitar Deploy develop.
 
-O Draft de #468 está fechado no CLI enquanto faltar pin integrado/auditado/verde de
-P1/P2. O pin base EXT1 `99fc0e4805b96fbca7df06440d5ea3ad42e53369` é real, mas não
-comprova essas duas conferências. Proposta/HEAD de PR não substitui o pin final. Antes
-de liberar execução, atualizar em conjunto os dois callers e a constante de produtor,
-reauditar e conferir schema/contratos atuais; nenhum SHA futuro deve ser antecipado.
+Os callers e a constante de produtor usam o pin EXT1 integrado/auditado/verde
+`97f8e7e086e3f107401b5eb35ff4017dde21ff34`, que inclui P1/P2. A CI de main
+42535291459 foi conferida e o controlador liberou esse pin para Código. Proposta/HEAD
+não integrado não substitui release. Toda atualização de produtor exige pins coerentes
+nos dois callers e no helper, conferência de contratos, CI e nova auditoria do HEAD.
+A liberação do pin não concede Ready/Produção: registro em main, allowlists, identidades,
+transporte privado e demais fatos operacionais continuam obrigatórios.
 
 ### Entradas e admissão
 

@@ -24,8 +24,8 @@ from scripts.promotion._plan_contract import closed, validate_reference
 
 type Node = dict[str, Any]
 REPOSITORY = "VINIClUS/CnesData"
-PRODUCER_SHA = "99fc0e4805b96fbca7df06440d5ea3ad42e53369"
-PRODUCER_READY = False
+PRODUCER_SHA = "97f8e7e086e3f107401b5eb35ff4017dde21ff34"
+PRODUCER_READY = True
 CONTRACT = {
     "contract_repository": REPOSITORY,
     "contract_source_sha": "7ebc0e3dc024617b33903577c87dac3ca6fba529",
@@ -431,7 +431,7 @@ def prepare_request(request: Node, api: Any, now: datetime) -> Node:
 
 
 def main() -> None:
-    """Raises: SystemExit antes do reusable se faltar pin integrado de P1/P2."""
+    """Raises: SystemExit para produtor não liberado ou admissão inválida."""
     parser = argparse.ArgumentParser()
     parser.add_argument("mode", choices=("plan", "apply"))
     mode = parser.parse_args().mode
