@@ -1,0 +1,172 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Activation pós-Phase A com referências históricas assinadas",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "project",
+    "environment",
+    "schema_version",
+    "repository",
+    "release_id",
+    "source_sha",
+    "candidate_sha256",
+    "binding_sha256",
+    "canary_id",
+    "derivation",
+    "revisions",
+    "ecr_uri",
+    "phase_a_evidence_digest",
+    "inputs"
+  ],
+  "properties": {
+    "project": {
+      "type": "string",
+      "const": "cnesdata"
+    },
+    "environment": {
+      "type": "string",
+      "const": "prod"
+    },
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "repository": {
+      "type": "string",
+      "const": "VINIClUS/CnesData"
+    },
+    "release_id": {
+      "type": "string",
+      "pattern": "^candidate-[0-9a-f]{40}-[1-9][0-9]*-[1-9][0-9]*$",
+      "maxLength": 512
+    },
+    "source_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "candidate_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "binding_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "canary_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "derivation": {
+      "type": "string",
+      "const": "cnesdata:prod:canary:v1"
+    },
+    "revisions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "unit",
+        "recovery",
+        "audit"
+      ],
+      "properties": {
+        "unit": {
+          "type": "string",
+          "pattern": "^arn:aws:ecs:us-east-2:[0-9]{12}:task-definition/[A-Za-z0-9_-]{1,255}:[1-9][0-9]{0,9}$"
+        },
+        "recovery": {
+          "type": "string",
+          "pattern": "^arn:aws:ecs:us-east-2:[0-9]{12}:task-definition/[A-Za-z0-9_-]{1,255}:[1-9][0-9]{0,9}$"
+        },
+        "audit": {
+          "type": "string",
+          "pattern": "^arn:aws:ecs:us-east-2:[0-9]{12}:task-definition/[A-Za-z0-9_-]{1,255}:[1-9][0-9]{0,9}$"
+        }
+      }
+    },
+    "ecr_uri": {
+      "type": "string",
+      "pattern": "^[0-9]{12}\\.dkr\\.ecr\\.us-east-2\\.amazonaws\\.com/[a-z0-9_./-]+@sha256:[0-9a-f]{64}$"
+    },
+    "phase_a_evidence_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidate_reference",
+        "phase_a_reference",
+        "retained_unit_task_definition_arns"
+      ],
+      "properties": {
+        "candidate_reference": {
+          "$ref": "#/$defs/reference"
+        },
+        "phase_a_reference": {
+          "$ref": "#/$defs/reference"
+        },
+        "retained_unit_task_definition_arns": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^arn:aws:ecs:us-east-2:[0-9]{12}:task-definition/[A-Za-z0-9_-]{1,255}:[1-9][0-9]{0,9}$"
+          },
+          "maxItems": 128,
+          "uniqueItems": true
+        }
+      }
+    }
+  },
+  "$defs": {
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "run_id",
+        "run_attempt",
+        "artifact_id",
+        "artifact_digest",
+        "workflow_path",
+        "workflow_sha",
+        "source_sha"
+      ],
+      "properties": {
+        "repository": {
+          "type": "string",
+          "const": "VINIClUS/CnesData"
+        },
+        "run_id": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,15}$"
+        },
+        "run_attempt": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,15}$"
+        },
+        "artifact_id": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]{0,15}$"
+        },
+        "artifact_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "workflow_path": {
+          "type": "string",
+          "pattern": "^\\.github/workflows/[A-Za-z0-9_-]+\\.yml$"
+        },
+        "workflow_sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "source_sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        }
+      }
+    }
+  }
+}
