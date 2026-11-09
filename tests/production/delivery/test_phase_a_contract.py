@@ -356,34 +356,34 @@ def test_fingerprint_normaliza_json_e_recusa_chaves_duplicadas():
 
 
 def _expected_symbolic_policy(kind):
-    resource = (
-        f"arn:aws:dynamodb:{REGION}:{ACCOUNT}:table/cnesdata-prod-canary"
-        if kind == "seeder"
-        else f"arn:aws:ecs:{REGION}:{ACCOUNT}:task-definition/cnesdata-prod-processor-audit:2"
-    )
-    condition = (
-        {
+    cluster = f"arn:aws:ecs:{REGION}:{ACCOUNT}:cluster/cnesdata-prod-processor"
+    if kind == "seeder":
+        resource = f"arn:aws:dynamodb:{REGION}:{ACCOUNT}:table/cnesdata-prod-canary"
+        condition = {
             "ForAllValues:StringEquals": {"dynamodb:LeadingKeys": ["TENANT#_GLOBAL"]},
             "Null": {"dynamodb:LeadingKeys": "false"},
         }
-        if kind == "seeder"
-        else {
-            "ArnEquals": {
-                "ecs:cluster": f"arn:aws:ecs:{REGION}:{ACCOUNT}:cluster/cnesdata-prod-processor"
-            }
+    else:
+        resource = f"arn:aws:ecs:{REGION}:{ACCOUNT}:task-definition/cnesdata-prod-processor-audit:2"
+        condition = {"ArnEquals": {"ecs:cluster": cluster}}
+    statements = [
+        {
+            "Effect": "Allow",
+            "Action": "dynamodb:PutItem" if kind == "seeder" else "ecs:RunTask",
+            "Resource": resource,
+            "Condition": condition,
         }
-    )
-    return {
-        "Version": "2012-10-17",
-        "Statement": [
+    ]
+    if kind == "verifier":
+        statements.append(
             {
                 "Effect": "Allow",
-                "Action": "dynamodb:PutItem" if kind == "seeder" else "ecs:RunTask",
-                "Resource": resource,
+                "Action": "ecs:DescribeTasks",
+                "Resource": cluster.replace(":cluster/", ":task/") + "/*",
                 "Condition": condition,
             }
-        ],
-    }
+        )
+    return {"Version": "2012-10-17", "Statement": statements}
 
 
 def _alter_symbolic_policy(policy, mutation):

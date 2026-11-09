@@ -22,6 +22,8 @@ from tests.production.delivery._phase_a_fixtures import (
     _public_artifact,
 )
 
+CLUSTER = f"arn:aws:ecs:{REGION}:{ACCOUNT}:cluster/cnesdata-prod-processor"
+
 
 def _runtime_resources(promotion, outputs):
     image = promotion["ecr_image"]
@@ -102,8 +104,14 @@ def _runtime_grants(outputs):
                         "Effect": "Allow",
                         "Action": "ecs:RunTask",
                         "Resource": outputs["processor_task_definition_arns"]["audit"],
-                        "Condition": {"ArnEquals": {"ecs:cluster": "cluster"}},
-                    }
+                        "Condition": {"ArnEquals": {"ecs:cluster": CLUSTER}},
+                    },
+                    {
+                        "Effect": "Allow",
+                        "Action": "ecs:DescribeTasks",
+                        "Resource": CLUSTER.replace(":cluster/", ":task/") + "/*",
+                        "Condition": {"ArnEquals": {"ecs:cluster": CLUSTER}},
+                    },
                 ],
             }
         ),
@@ -149,7 +157,7 @@ def _runtime_bundle(promotion):
         "candidate_unit_arn": outputs["processor_task_definition_arns"]["unit"],
         "candidate_audit_arn": outputs["processor_task_definition_arns"]["audit"],
         "canary_verifier_role_id": "cnesdata-prod-canary-verifier",
-        "cluster_arn": "cluster",
+        "cluster_arn": CLUSTER,
         "retained_before": [],
     }
     return bundle, governed, applied, resources, roles, source
@@ -157,7 +165,6 @@ def _runtime_bundle(promotion):
 
 def _runtime_graph(resources, governed, outputs):
     from scripts.promotion.phase_a import resource_fingerprint
-
     for key in ("resource_fingerprints", "grant_fingerprints"):
         addresses = sorted(
             address
@@ -206,7 +213,6 @@ def _runtime_graph(resources, governed, outputs):
 
 def _runtime_saved_plan(bundle, governed, plan_json, approved):
     from scripts.promotion._phase_a_graph import redacted_plan
-
     bundle["files"].update(
         {
             "plan.json": _bytes(plan_json) + b"\n",
@@ -354,7 +360,7 @@ def _runtime_governance(governed, prior, profiles, roles):
         artifact_profiles=profiles,
         iam_role_addresses=roles,
         network={
-            "cluster": "cluster",
+            "cluster": CLUSTER,
             "subnets": ["subnet"],
             "security_group": "sg",
             "public_ip": "ENABLED",
@@ -368,7 +374,10 @@ def _runtime_governance(governed, prior, profiles, roles):
 
 
 def _runtime_context(governed, promotion):
-    governed["iam_context"] = _iam_context()
+    governed["iam_context"] = _iam_context() | {
+        "cluster_arn": CLUSTER,
+        "other_cluster_arn": f"arn:aws:ecs:{REGION}:{ACCOUNT}:cluster/other",
+    }
     governed["iam_context"]["scheduler_previous"] = {"recovery": None, "audit": None}
     governed["iam_context"]["principals"].update(scheduler_recovery=None, scheduler_audit=None)
     governed["revisions_context"] = {
@@ -454,6 +463,7 @@ class RuntimeBoundary:
         allowed = {
             "sfn-candidate-unit",
             "verifier-audit",
+            "verifier-describe",
             "sfn-pass-role-0",
             "sfn-pass-role-1",
             "verifier-pass-role-0",

@@ -36,6 +36,7 @@ def _symbolic_configuration(kind, role, policy):
         if kind == "seeder"
         else [
             "local.canary_audit_task_definition_arn",
+            "local.canary_task_arn_pattern",
             "aws_ecs_cluster.processor.arn",
             "aws_ecs_cluster.processor",
         ]
