@@ -189,10 +189,12 @@ Procedimento e matriz de divergências em `docs/runbooks/floci-and-aws-capabilit
 | Object Lock COMPLIANCE do audit | `docs/runbooks/object-lock-capability.md` |
 | Aceite e revogação do Roles Anywhere | `docs/runbooks/roles-anywhere-evidence.md` |
 | CloudFront Free ACTIVE | `docs/runbooks/cloudfront-free.md` |
-| IAM de serviço do Step Functions | seção abaixo |
+| IAM de serviço do Step Functions | seção abaixo; #476 P3, [D5] |
 | Digest exato no ECR | seção abaixo |
-| `TriggeredRules` de regra sem target | seção abaixo |
-| 404 de chave ausente com as três roles reais (#441) | seção abaixo |
+| `TriggeredRules` de regra sem target | seção abaixo; #476 P3, [D5] |
+| 404 de chave ausente com as três roles reais (#441) | seção abaixo; #476 P3, [D5] |
+
+[D5]: cloudfront-free.md#d5--execução-real-sob-476-p3
 
 #### IAM de serviço do Step Functions
 
