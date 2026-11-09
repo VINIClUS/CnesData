@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import MagicMock
@@ -83,14 +84,22 @@ def test_implementa_execution_probe_port() -> None:
 def test_execucao_inexistente_prova_ausencia() -> None:
     observation = _probe(_client_failing_with("ExecutionDoesNotExist")).probe(_DISPATCH_ID)
 
-    assert observation == ExecutionObservation(ExecutionPresence.ABSENT, None)
+    assert observation == ExecutionObservation(
+        ExecutionPresence.ABSENT,
+        None,
+        evidence=_original({"executionArn": _EXECUTION_ARN, "error": "ExecutionDoesNotExist"}),
+    )
 
 
 @pytest.mark.parametrize(
     "status", ["RUNNING", "PENDING_REDRIVE"], ids=["executando", "redrive_pendente"],
 )
 def test_execucao_viva_ou_em_redrive_e_running_com_execution_ref(status: str) -> None:
-    assert _observe(status) == ExecutionObservation(ExecutionPresence.RUNNING, _EXECUTION_ARN)
+    assert _observe(status) == ExecutionObservation(
+        ExecutionPresence.RUNNING,
+        _EXECUTION_ARN,
+        evidence=_original({"executionArn": _EXECUTION_ARN, "status": status}),
+    )
 
 
 @pytest.mark.parametrize(
@@ -99,7 +108,11 @@ def test_execucao_viva_ou_em_redrive_e_running_com_execution_ref(status: str) ->
     ids=["sucesso", "falha", "expirada", "abortada"],
 )
 def test_status_terminal_e_terminal_com_execution_ref(status: str) -> None:
-    assert _observe(status) == ExecutionObservation(ExecutionPresence.TERMINAL, _EXECUTION_ARN)
+    assert _observe(status) == ExecutionObservation(
+        ExecutionPresence.TERMINAL,
+        _EXECUTION_ARN,
+        evidence=_original({"executionArn": _EXECUTION_ARN, "status": status}),
+    )
 
 
 def test_status_desconhecido_falha_fechado_sem_terminal_nem_ausencia() -> None:
@@ -174,3 +187,19 @@ def test_rejeita_state_machine_arn_invalido() -> None:
 def test_rejeita_arn_qualificado_que_derivaria_execucao_inexistente(qualifier: str) -> None:
     with pytest.raises(ValueError, match="state_machine_arn=qualified"):
         StepFunctionsExecutionProbe(MagicMock(), f"{_STATE_MACHINE_ARN}:{qualifier}")
+
+
+def _original(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+
+
+def test_prova_preserva_input_original_e_hash_da_requisicao():
+    from cnes_domain.control_plane.dispatch_start import request_sha256
+
+    request = {"dispatch_id": _DISPATCH_ID, "tenant_id": "tenant", "run_id": "run"}
+    native = {"executionArn": _EXECUTION_ARN, "status": "SUCCEEDED", "input": json.dumps(request)}
+    client = MagicMock()
+    client.describe_execution.return_value = native
+    observation = _probe(client).probe(_DISPATCH_ID)
+    assert observation.request_sha256 == request_sha256(request)
+    assert observation.evidence == _original(native)

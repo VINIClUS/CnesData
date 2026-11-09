@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from botocore.exceptions import ClientError
 
-from cnes_domain.control_plane.dispatch_start import claim_matches
+from cnes_domain.control_plane.dispatch_start import claim_matches, request_sha256
 from cnes_domain.control_plane.entities import require_dispatch_id
 from cnes_domain.ports.environment_gate import ExecutionObservation, ExecutionPresence
 from cnes_domain.ports.processing import ExecutionStatus, StartRunExecution
@@ -121,8 +121,7 @@ def _describe_state_machine(client: BaseClient, state_machine_arn: str) -> dict[
 
 
 def _start_state_of_type(
-    machine: dict[str, Any],
-    state_type: str,
+    machine: dict[str, Any], state_type: str,
 ) -> tuple[dict[str, Any] | None, int]:
     states = machine.get("States", {})
     matches = [name for name, state in states.items() if state.get("Type") == state_type]
@@ -184,8 +183,7 @@ def _validate_network(parameters: dict[str, Any]) -> None:
 
 
 def _validate_production_network(
-    parameters: dict[str, Any],
-    policy: ProductionNetworkPolicy,
+    parameters: dict[str, Any], policy: ProductionNetworkPolicy,
 ) -> None:
     network = _awsvpc_configuration(parameters)
     if network.get("AssignPublicIp") != _PRODUCTION_ASSIGN_PUBLIC_IP:
@@ -219,8 +217,7 @@ def _validate_production_topology(definition: dict[str, Any]) -> None:
 
 
 def _container_environment(
-    parameters: dict[str, Any],
-    container_name: str,
+    parameters: dict[str, Any], container_name: str,
 ) -> dict[str, dict[str, Any]]:
     overrides = parameters.get("Overrides", {}).get("ContainerOverrides", [])
     matches = [override for override in overrides if override.get("Name") == container_name]
@@ -248,9 +245,7 @@ def _validate_environment(environment: dict[str, dict[str, Any]], lease_seconds:
 
 
 def _validate_processor(
-    parameters: dict[str, Any],
-    container_name: str,
-    lease_seconds: int,
+    parameters: dict[str, Any], container_name: str, lease_seconds: int,
 ) -> None:
     _validate_environment(_container_environment(parameters, container_name), lease_seconds)
 
@@ -280,9 +275,7 @@ def validate_state_machine(
 
 
 def validate_production_state_machine(
-    client: BaseClient,
-    state_machine_arn: str,
-    policy: ProductionNetworkPolicy,
+    client: BaseClient, state_machine_arn: str, policy: ProductionNetworkPolicy,
 ) -> None:
     """Valida o contrato genérico com o override de rede exato do perfil de produção.
 
@@ -406,6 +399,16 @@ class StepFunctionsExecutionProbe:
         except ClientError as error:
             if _error_code(error) != "ExecutionDoesNotExist":
                 raise ProcessorExecutionUnavailable(_error_code(error)) from error
-            return ExecutionObservation(ExecutionPresence.ABSENT, None)
+            evidence = json.dumps(
+                {"executionArn": execution_arn, "error": "ExecutionDoesNotExist"},
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+            return ExecutionObservation(ExecutionPresence.ABSENT, None, evidence=evidence)
         presence = _PRESENCE[_execution_status(described["status"])]
-        return ExecutionObservation(presence, execution_arn)
+        original = {
+            key: described[key] for key in ("executionArn", "status", "input") if key in described
+        }
+        evidence = json.dumps(original, sort_keys=True, separators=(",", ":")).encode()
+        digest = request_sha256(json.loads(described["input"])) if "input" in described else None
+        return ExecutionObservation(presence, execution_arn, digest, evidence)

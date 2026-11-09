@@ -204,6 +204,7 @@ class RunCancellation:
         finish = FinishRunDispatch(
             tenant_id=command.tenant_id, run_id=command.run_id, dispatch_id=dispatch.dispatch_id,
             outcome=DispatchOutcome.CANCELED, finished_at=command.canceled_at,
+            claim=dispatch.start_claim,
         )
         try:
             return self._plane.finish_run_dispatch(finish)

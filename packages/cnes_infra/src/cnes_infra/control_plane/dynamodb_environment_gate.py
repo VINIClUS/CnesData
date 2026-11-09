@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import re
 from dataclasses import dataclass
 from datetime import datetime
@@ -21,7 +19,6 @@ from cnes_domain.control_plane.environment_gate import (
     UnitPermit,
     close_fence,
     decide_acquisition,
-    open_fence,
     reopen_fence,
     require_environment,
 )
@@ -29,6 +26,7 @@ from cnes_domain.control_plane.errors import Conflict
 from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
 from cnes_infra.control_plane.dynamodb_host import DynamoDBHost
 from cnes_infra.control_plane.dynamodb_keys import item_key, timestamp
+from cnes_infra.control_plane.dynamodb_promotion_snapshot import close_transaction, decode_fence
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -67,6 +65,12 @@ _NAMES: Final = {
     "#promotion": "promotion_id",
     "#version": "version",
     "#changed": "changed_at",
+    "#generation": "generation",
+    "#request": "request_sha256",
+    "#start": "start_state",
+    "#fence_version": "fence_version",
+    "#settlement": "settlement",
+    "#confirmed": "confirmed_at",
 }
 
 
@@ -130,22 +134,6 @@ def _optional_text(item: Item, name: str) -> str | None:
     return item[name]["S"] if name in item else None
 
 
-def _decode_fence(item: Item | None, environment: str) -> PromotionFence:
-    if item is None:
-        return open_fence(environment)
-    membership = (
-        tuple(json.loads(item["closed_membership"]["S"])) if "closed_membership" in item else ()
-    )
-    return PromotionFence(
-        environment=environment,
-        state=FenceState(item["state"]["S"]),
-        promotion_id=_optional_text(item, "promotion_id"),
-        version=int(item["version"]["N"]),
-        changed_at=datetime.fromisoformat(item["changed_at"]["S"]),
-        closed_membership=membership,
-        closed_membership_sha256=_optional_text(item, "closed_membership_sha256"),
-    )
-
 
 def _decode_permit(item: Item | None, environment: str) -> UnitPermit | None:
     if item is None or _HOLDER_DISPATCH not in item:
@@ -166,6 +154,17 @@ def _decode_permit(item: Item | None, environment: str) -> UnitPermit | None:
         generation=int(item["generation"]["N"]) if "generation" in item else None,
         request_sha256=_optional_text(item, "request_sha256"),
         start_state=_optional_text(item, "start_state"),
+        fence_version=int(item["fence_version"]["N"]) if "fence_version" in item else None,
+        observed_at=(
+            datetime.fromisoformat(item["observed_at"]["S"]) if "observed_at" in item else None
+        ),
+        send_disabled_at=(
+            datetime.fromisoformat(item["send_disabled_at"]["S"])
+            if "send_disabled_at" in item
+            else None
+        ),
+        resolution=_optional_text(item, "resolution"),
+        proof_sha256=_optional_text(item, "proof_sha256"),
     )
 
 
@@ -175,15 +174,13 @@ def _fence_check(table_name: str, command: AcquireUnitPermit) -> Action:
     if command.canary_promotion_id is not None:
         condition += " OR #promotion = :canary"
         values[":canary"] = _text(command.canary_promotion_id)
-    return {
-        "ConditionCheck": {
-            "TableName": table_name,
-            "Key": item_key(*fence_key(command.environment)),
-            "ConditionExpression": condition,
-            "ExpressionAttributeNames": _names(condition),
-            "ExpressionAttributeValues": values,
-        }
-    }
+    return {"ConditionCheck": {
+        "TableName": table_name,
+        "Key": item_key(*fence_key(command.environment)),
+        "ConditionExpression": condition,
+        "ExpressionAttributeNames": _names(condition),
+        "ExpressionAttributeValues": values,
+    }}
 
 
 def _claim(table_name: str, command: AcquireUnitPermit) -> Action:
@@ -209,6 +206,15 @@ def _claim(table_name: str, command: AcquireUnitPermit) -> Action:
     if command.canary_promotion_id is not None:
         sets.append("#canary = :canary")
         values[":canary"] = _text(command.canary_promotion_id)
+    if holder.generation is not None and holder.request_sha256 is not None:
+        sets.extend(["#generation = :generation", "#request = :request", "#start = :reserved"])
+        values.update(
+            {
+                ":generation": _number(holder.generation),
+                ":request": _text(holder.request_sha256),
+                ":reserved": _text("RESERVED"),
+            }
+        )
     update = _Update(
         f"SET {', '.join(sets)} ADD #token :one",
         "attribute_not_exists(#holder_dispatch)",
@@ -221,11 +227,12 @@ def _claim(table_name: str, command: AcquireUnitPermit) -> Action:
 def _bind(command: BindUnitPermit) -> _Update:
     bound = "(attribute_not_exists(#execution_ref) OR #execution_ref = :ref)"
     return _Update(
-        "SET #execution_ref = :ref, #updated = :now",
+        "SET #execution_ref = :ref, #updated = :now, #start = :started",
         f"{_HELD_CONDITION} AND {bound}",
         {
             ":token": _number(command.token),
             ":ref": _text(command.execution_ref),
+            ":started": _text("STARTED"),
             ":now": _text(timestamp(command.now)),
         },
     )
@@ -233,11 +240,9 @@ def _bind(command: BindUnitPermit) -> _Update:
 
 def _renew(command: RenewUnitPermit) -> _Update:
     return _Update(
-        "SET #lease = :lease, #updated = :now",
-        _HELD_CONDITION,
+        "SET #lease = :lease, #updated = :now", _HELD_CONDITION,
         {
-            ":token": _number(command.token),
-            ":lease": _text(timestamp(command.lease_until)),
+            ":token": _number(command.token), ":lease": _text(timestamp(command.lease_until)),
             ":now": _text(timestamp(command.now)),
         },
     )
@@ -247,8 +252,13 @@ def _reanchor(command: ReanchorUnitPermit) -> _Update:
     # The anchor only advances: a stale clock must never shorten the absence grace.
     return _Update(
         "SET #acquired = :now, #updated = :now",
-        f"{_HELD_CONDITION} AND {_UNBOUND_CONDITION} AND #acquired <= :now",
-        {":token": _number(command.token), ":now": _text(timestamp(command.now))},
+        f"{_HELD_CONDITION} AND {_UNBOUND_CONDITION} AND #acquired <= :now "
+        "AND (attribute_not_exists(#start) OR #start = :reserved)",
+        {
+            ":token": _number(command.token),
+            ":now": _text(timestamp(command.now)),
+            ":reserved": _text("RESERVED"),
+        },
     )
 
 
@@ -259,8 +269,19 @@ def _release(command: ReleaseUnitPermit) -> _Update:
     if command.anchor is not None:
         condition += f" AND #acquired = :anchor AND {_UNBOUND_CONDITION}"
         values[":anchor"] = _text(timestamp(command.anchor))
+    if command.proof is None:
+        condition += " AND (attribute_not_exists(#generation) OR #start = :reserved)"
+        values[":reserved"] = _text("RESERVED")
+    sets = "#updated = :now"
+    if command.generation is not None:
+        condition += " AND #generation = :generation"
+        values[":generation"] = _number(command.generation)
+    if command.proof is not None:
+        sets += ", #settlement = :settlement"
+        values[":settlement"] = _text(command.proof.decode())
+    holder += ", #generation, #request, #start, #fence_version"
     return _Update(
-        f"REMOVE {holder}, #execution_ref, #canary SET #updated = :now",
+        f"REMOVE {holder}, #execution_ref, #canary SET {sets}",
         condition,
         values,
     )
@@ -285,114 +306,8 @@ def _fence_write(current: PromotionFence, updated: PromotionFence) -> _Update:
     return _Update(expression, condition, values)
 
 
-def _closed_membership(permit: UnitPermit | None) -> tuple[dict[str, object], ...]:
-    if permit is None:
-        return ()
-    return (
-        {
-            "tenant_id": permit.holder.tenant_id,
-            "run_id": permit.holder.run_id,
-            "dispatch_id": permit.holder.dispatch_id,
-            "token": permit.token,
-            "generation": permit.generation,
-            "request_sha256": permit.request_sha256,
-            "start_state": permit.start_state
-            or ("STARTED" if permit.execution_ref else "RESERVED"),
-            "execution_ref": permit.execution_ref,
-            "promotion_id": permit.canary_promotion_id,
-            "acquired_at": timestamp(permit.acquired_at),
-            "lease_until": timestamp(permit.lease_until),
-        },
-    )
-
-
-def _close_transaction(
-    table_name: str,
-    current: PromotionFence,
-    updated: PromotionFence,
-    permit: UnitPermit | None,
-) -> tuple[Action, Action]:
-    membership = _closed_membership(permit)
-    canonical = json.dumps(membership, sort_keys=True, separators=(",", ":"))
-    values: dict[str, dict[str, str]] = {
-        ":entity": _text(_FENCE_ENTITY),
-        ":state": _text(FenceState.CLOSED.value),
-        ":promotion": _text(cast("str", updated.promotion_id)),
-        ":version": _number(updated.version),
-        ":changed": _text(timestamp(cast("datetime", updated.changed_at))),
-        ":membership": _text(canonical),
-        ":membership_sha": _text(hashlib.sha256(canonical.encode()).hexdigest()),
-    }
-    condition = "attribute_not_exists(pk)"
-    if current.version:
-        condition = "#version = :expected AND #state = :open"
-        values[":expected"] = _number(current.version)
-        values[":open"] = _text(FenceState.OPEN.value)
-    update = {
-        "Update": {
-            "TableName": table_name,
-            "Key": item_key(*fence_key(updated.environment)),
-            "UpdateExpression": (
-                "SET #entity = :entity, #state = :state, #promotion = :promotion, "
-                "#version = :version, #changed = :changed, "
-                "closed_membership = :membership, "
-                "closed_membership_sha256 = :membership_sha"
-            ),
-            "ConditionExpression": condition,
-            "ExpressionAttributeNames": {
-                "#entity": "entity",
-                "#state": "state",
-                "#promotion": "promotion_id",
-                "#version": "version",
-                "#changed": "changed_at",
-            },
-            "ExpressionAttributeValues": values,
-        },
-    }
-    semaphore = item_key(*semaphore_key(updated.environment))
-    if permit is None:
-        check = {
-            "ConditionCheck": {
-                "TableName": table_name,
-                "Key": semaphore,
-                "ConditionExpression": "attribute_not_exists(pk)",
-            },
-        }
-    else:
-        names = {
-            "#token": "token",
-            "#tenant": "holder_tenant_id",
-            "#run": "holder_run_id",
-            "#dispatch": _HOLDER_DISPATCH,
-            "#acquired": "acquired_at",
-            "#lease": "lease_until",
-        }
-        check = {
-            "ConditionCheck": {
-                "TableName": table_name,
-                "Key": semaphore,
-                "ConditionExpression": (
-                    "#token = :token AND #tenant = :tenant AND #run = :run AND "
-                    "#dispatch = :dispatch AND #acquired = :acquired AND #lease = :lease"
-                ),
-                "ExpressionAttributeNames": names,
-                "ExpressionAttributeValues": {
-                    ":token": _number(permit.token),
-                    ":tenant": _text(permit.holder.tenant_id),
-                    ":run": _text(permit.holder.run_id),
-                    ":dispatch": _text(permit.holder.dispatch_id),
-                    ":acquired": _text(timestamp(permit.acquired_at)),
-                    ":lease": _text(timestamp(permit.lease_until)),
-                },
-            },
-        }
-    return update, check
-
-
 def _acquisition(
-    state: EnvironmentGateState,
-    command: AcquireUnitPermit,
-    committed: bool,
+    state: EnvironmentGateState, command: AcquireUnitPermit, committed: bool,
 ) -> PermitAcquisition | None:
     permit = state.permit
     if committed and permit is not None and permit.holder == command.holder:
@@ -416,14 +331,18 @@ class DynamoDBEnvironmentGate(DynamoDBHost):
 
         Raises: ValueError: Ambiente inválido.
         """
-        fence = _decode_fence(self._get_item(fence_key(environment)), environment)
-        permit = _decode_permit(self._get_item(semaphore_key(environment)), environment)
+        fence = decode_fence(self._get_item(fence_key(environment)), environment)
+        semaphore = self._get_item(semaphore_key(environment))
+        permit = _decode_permit(semaphore, environment)
         return EnvironmentGateState(
             environment,
             fence,
             permit,
             fence.closed_membership,
             fence.closed_membership_sha256,
+            semaphore["settlement"]["S"].encode()
+            if semaphore and "settlement" in semaphore
+            else None,
         )
 
     def acquire_unit_permit(self, command: AcquireUnitPermit) -> PermitAcquisition:
@@ -464,18 +383,20 @@ class DynamoDBEnvironmentGate(DynamoDBHost):
         for _ in range(_ATTEMPTS):
             fence_item = self._get_item(fence_key(command.environment))
             semaphore_item = self._get_item(semaphore_key(command.environment))
-            current = _decode_fence(fence_item, command.environment)
+            current = decode_fence(fence_item, command.environment)
             updated = close_fence(current, command)
             if updated is None:
                 return False
+            if current.state is FenceState.CLOSED:
+                return bool(current.closed_membership_sha256)
             permit = _decode_permit(semaphore_item, command.environment)
             try:
                 self._transact(
-                    _close_transaction(
+                    close_transaction(
                         self._table_name,
                         current,
                         updated,
-                        permit,
+                        (permit, semaphore_item),
                     )
                 )
             except (Conflict, ClientError) as error:
@@ -490,6 +411,30 @@ class DynamoDBEnvironmentGate(DynamoDBHost):
         if not self.close_promotion_fence(command):
             raise Conflict(ErrorCode.TRANSACTION_CONFLICT)
         return self.observe_environment_gate(command.environment)
+
+    def confirm_promotion_close(
+        self, environment: str, promotion_id: str, observed_at: datetime
+    ) -> EnvironmentGateState:
+        state = self.observe_environment_gate(environment)
+        fence = state.fence
+        if fence.state is not FenceState.CLOSED or fence.promotion_id != promotion_id:
+            raise Conflict(ErrorCode.TRANSACTION_CONFLICT)
+        if fence.confirmed_at is not None:
+            return state
+        update = _Update(
+            "SET #confirmed = :confirmed",
+            "#version = :version AND #state = :closed AND attribute_not_exists(#confirmed)",
+            {
+                ":confirmed": _text(timestamp(observed_at)),
+                ":version": _number(fence.version),
+                ":closed": _text("CLOSED"),
+            },
+        )
+        self._gate_write(fence_key(environment), update)
+        confirmed = self.observe_environment_gate(environment)
+        if confirmed.fence.confirmed_at is None or confirmed.fence.version != fence.version:
+            raise Conflict(ErrorCode.TRANSACTION_CONFLICT)
+        return confirmed
 
     def reopen_promotion_fence(self, command: ReopenPromotionFence) -> bool:
         """Reabre o fence por CAS de versão; False sem a promoção correspondente."""
@@ -516,13 +461,11 @@ class DynamoDBEnvironmentGate(DynamoDBHost):
         raise Conflict(ErrorCode.TRANSACTION_CONFLICT)
 
     def _gate_fence(
-        self,
-        environment: str,
-        change: Callable[[PromotionFence], PromotionFence | None],
+        self, environment: str, change: Callable[[PromotionFence], PromotionFence | None],
     ) -> bool:
         key = fence_key(environment)
         for _ in range(_ATTEMPTS):
-            current = _decode_fence(self._get_item(key), environment)
+            current = decode_fence(self._get_item(key), environment)
             updated = change(current)
             if updated is None:
                 return False
@@ -533,9 +476,7 @@ class DynamoDBEnvironmentGate(DynamoDBHost):
     def _gate_write(self, key: tuple[str, str], update: _Update) -> bool | None:
         try:
             self._client.update_item(
-                TableName=self._table_name,
-                Key=item_key(*key),
-                **update.request(),
+                TableName=self._table_name, Key=item_key(*key), **update.request(),
             )
         except ClientError as error:
             code = error.response.get("Error", {}).get("Code")

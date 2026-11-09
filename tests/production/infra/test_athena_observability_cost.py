@@ -22,9 +22,9 @@ from tests.production.infra._athena_contracts import (
 )
 from tests.production.infra._athena_root_plan import (  # noqa: F401
     Node,
-    fixture_canary_plan,
     fixture_all_root_plans,
     fixture_bootstrap_plan,
+    fixture_canary_plan,
     fixture_scheduled_plan,
 )
 from tests.production.infra._cost_manifest_model import (

@@ -88,7 +88,6 @@ _ORPHAN = PermitHolder(_TENANT, "run-orphan", "fedcba9876543210")
 _ORPHAN_REF = f"exec-{_ORPHAN.dispatch_id}"
 _NEXT = PermitHolder(_TENANT, "run-next", "00000000000000ff")
 
-
 @dataclass
 class _StepFunctions(_FakeExecutor):
     """Executor e probe na fronteira do Step Functions: a execução tem o nome do dispatch_id."""
@@ -127,11 +126,9 @@ class _StepFunctions(_FakeExecutor):
         presence = ExecutionPresence.RUNNING if running else ExecutionPresence.TERMINAL
         return ExecutionObservation(presence, execution_ref)
 
-
 @pytest.fixture
 def clock() -> _MutableClock:
     return _MutableClock(_NOW)
-
 
 @pytest.fixture
 def adapter(tmp_path: Path, clock: _MutableClock) -> SQLiteControlPlane:
@@ -233,7 +230,7 @@ def test_fence_fechado_nao_chama_step_functions(
     assert _permit(gate) is None
 
 
-def test_erro_ambiguo_faz_probe_antes_de_liberar(
+def test_erro_ambiguo_mantem_permit_apos_grace_sem_prova_de_cancelamento(
     adapter: SQLiteControlPlane, executor: _StepFunctions, gate: DynamoDBControlPlane,
     coordinator: PipelineCoordinator, clock: _MutableClock,
 ) -> None:
@@ -249,11 +246,15 @@ def test_erro_ambiguo_faz_probe_antes_de_liberar(
     deferred = _rival(gate, executor).admit(_NEXT, clock.now())
     assert deferred == DispatchDeferred(DeferralReason.PERMIT_HELD)
     clock.advance(timedelta(seconds=1))
-    assert _rival(gate, executor).admit(_NEXT, clock.now()) == UnitAdmission(_ENVIRONMENT, 2)
+    assert _rival(gate, executor).admit(_NEXT, clock.now()) == DispatchDeferred(
+        DeferralReason.PERMIT_HELD
+    )
 
 
-def test_erro_ambiguo_com_execucao_criada_vincula_e_retoma_a_mesma_execucao(
-    adapter: SQLiteControlPlane, executor: _StepFunctions, gate: DynamoDBControlPlane,
+def test_erro_ambiguo_sem_recovery_nativo_mantem_claim_sem_reenviar(
+    adapter: SQLiteControlPlane,
+    executor: _StepFunctions,
+    gate: DynamoDBControlPlane,
     coordinator: PipelineCoordinator,
 ) -> None:
     _seed(adapter, manifests=_full_manifests())
@@ -270,9 +271,10 @@ def test_erro_ambiguo_com_execucao_criada_vincula_e_retoma_a_mesma_execucao(
 
     retry = coordinator.resume(_TENANT, _RUN_ID)
 
-    assert retry.execution_ref == reference
-    assert [request.dispatch_id for request in executor.started] == [dispatch.dispatch_id] * 2
-    assert _active(adapter).state is DispatchState.STARTED
+    assert retry.execution_ref is None
+    assert retry.deferred is DeferralReason.PERMIT_HELD
+    assert [request.dispatch_id for request in executor.started] == [dispatch.dispatch_id]
+    assert _active(adapter).state is DispatchState.STARTING
     assert _held(gate).token == 1
 
 

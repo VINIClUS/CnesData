@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import time
@@ -12,10 +13,12 @@ from typing import Any, Protocol, cast
 from cnes_domain.control_plane.environment_gate import (
     AcquireUnitPermit,
     ClosePromotionFence,
+    EnvironmentGateState,
     FenceState,
     PermitHolder,
 )
 from cnes_domain.ports.environment_gate import (
+    ExecutionObservation,
     ExecutionPresence,
     ExecutionProbePort,
 )
@@ -28,6 +31,91 @@ class MembershipSource(Protocol):
     def freeze_membership(self) -> Iterable[Mapping[str, Any]]: ...
 
     def proof_bytes(self, dispatch_id: str) -> bytes: ...
+
+
+class PersistedMembershipSource:
+    """Consome o snapshot original e a liquidação persistida pelo recovery nativo."""
+
+    def __init__(self, gate: FenceGatePort, state: Any) -> None:
+        self._gate = gate
+        self._state = state
+        self._snapshot = tuple(dict(item) for item in state.closed_membership)
+        if not state.fence.closed_membership_sha256:
+            raise DrainError("membership=fence_snapshot_missing")
+        if _sha(self._snapshot) != state.fence.closed_membership_sha256:
+            raise DrainError("membership=fence_snapshot_mismatch")
+        if len(self._snapshot) > 1:
+            raise DrainError("membership=capacity")
+        self._proofs: dict[str, bytes] = {}
+
+    def freeze_membership(self) -> Iterable[Mapping[str, Any]]:
+        state = self._gate.observe_environment_gate(self._state.environment)
+        if state.fence != self._state.fence:
+            raise DrainError("membership=fence_changed")
+        if not self._snapshot:
+            return ()
+        if state.permit is not None or state.settlement is None:
+            raise DrainError("membership=pending")
+        item = self._snapshot[0]
+        proof = state.settlement
+        receipt = json.loads(proof)
+        for key in ("tenant_id", "run_id", "dispatch_id", "token", "generation", "request_sha256"):
+            if receipt.get(key) != item.get(key) or item.get(key) is None:
+                raise DrainError("membership=settlement_binding")
+        resolution = receipt.get("resolution")
+        if resolution not in {"TERMINAL", "CANCEL_BEFORE_SEND"}:
+            raise DrainError("membership=settlement_resolution")
+        if resolution == "TERMINAL" and not receipt.get("observation"):
+            raise DrainError("membership=original_observation_required")
+        if resolution == "CANCEL_BEFORE_SEND" and not receipt.get("cancellation"):
+            raise DrainError("membership=original_cancellation_required")
+        self._validate_receipt(receipt)
+        self._proofs[item["dispatch_id"]] = proof
+        return (
+            {
+                "dispatch_id": item["dispatch_id"],
+                "generation": item["generation"],
+                "request_sha256": item["request_sha256"],
+                "initial_state": {
+                    "RESERVED": "NOT_SENT",
+                    "STARTING": "OUTCOME_UNKNOWN",
+                    "STARTED": "ACKNOWLEDGED",
+                }[item["initial_state"]],
+                **{
+                    key: receipt[key]
+                    for key in ("execution_ref", "resolution", "observed_at", "send_disabled_at")
+                },
+                "proof_sha256": hashlib.sha256(proof).hexdigest(),
+            },
+        )
+
+    @staticmethod
+    def _validate_receipt(receipt: Node) -> None:
+        from cnes_domain.control_plane.dispatch_start import request_sha256
+
+        if receipt["resolution"] == "TERMINAL":
+            native = receipt["observation"]
+            if (
+                native.get("executionArn") != receipt["execution_ref"]
+                or native.get("status") not in {"SUCCEEDED", "FAILED", "TIMED_OUT", "ABORTED"}
+                or request_sha256(json.loads(native["input"])) != receipt["request_sha256"]
+            ):
+                raise DrainError("membership=terminal_proof_content")
+        else:
+            canceled = receipt["cancellation"]
+            claim = canceled.get("start_claim") or {}
+            if (
+                canceled.get("state") != "TERMINAL"
+                or canceled.get("terminal_outcome") != "CANCELED"
+                or canceled.get("dispatch_id") != receipt["dispatch_id"]
+                or claim.get("permit_token") != receipt["token"]
+                or claim.get("generation") != receipt["generation"]
+                or claim.get("request_sha256") != receipt["request_sha256"]
+            ):
+                raise DrainError("membership=cancel_proof_content")
+
+    def proof_bytes(self, dispatch_id: str) -> bytes:
+        return self._proofs[dispatch_id]
 
 
 class FenceGatePort(Protocol):
@@ -87,11 +175,16 @@ def _member(value: Mapping[str, Any]) -> Node:
             raise DrainError(f"membership={field}")
     if isinstance(value["generation"], bool) or not isinstance(value["generation"], int):
         raise DrainError("membership=generation")
-    if value["resolution"] not in {"TERMINAL", "ABSENT_PROVEN", "CANCEL_BEFORE_SEND"}:
+    if value["resolution"] not in {
+        "PENDING",
+        "TERMINAL",
+        "ABSENT_PROVEN",
+        "CANCEL_BEFORE_SEND",
+    }:
         raise DrainError("membership=unresolved")
     if value["resolution"] == "TERMINAL" and not value["execution_ref"]:
         raise DrainError("membership=terminal_ref")
-    if value["resolution"] != "TERMINAL" and value["execution_ref"] is not None:
+    if value["resolution"] not in {"PENDING", "TERMINAL"} and value["execution_ref"] is not None:
         raise DrainError("membership=execution_ref")
     if not isinstance(value["send_disabled_at"], str):
         raise DrainError("membership=send_exclusion")
@@ -123,8 +216,20 @@ def _common(value: Mapping[str, Any], promotion_id: str) -> Node:
             raise DrainError(f"common={field}")
     if not isinstance(value.get("canary_id"), str) or len(value["canary_id"]) != 32:
         raise DrainError("common=canary_id")
-    if not isinstance(value.get("caller"), str) or not value["caller"]:
+    caller = value.get("caller")
+    required_caller = {
+        "repository",
+        "source_sha",
+        "ref",
+        "workflow_path",
+        "workflow_sha",
+        "run_id",
+        "run_attempt",
+    }
+    if not isinstance(caller, dict) or set(caller) != required_caller:
         raise DrainError("common=caller")
+    if caller["repository"] != value["repository"] or caller["source_sha"] != value["source_sha"]:
+        raise DrainError("common=caller_binding")
     if not isinstance(value.get("promotion_generation"), int) or value["promotion_generation"] < 1:
         raise DrainError("common=promotion_generation")
     return dict(value)
@@ -160,19 +265,45 @@ def _source_members(
     return sorted(members, key=lambda item: item["dispatch_id"])
 
 
-def _probe_member(member: Node, probe: ExecutionProbePort) -> None:
+def _probe_member(member: Node, probe: ExecutionProbePort) -> ExecutionObservation:
     observation = probe.probe(member["dispatch_id"])
     if member["resolution"] == "TERMINAL":
         if observation.presence is not ExecutionPresence.TERMINAL:
             raise DrainError("drain=terminal_not_observed")
         if observation.execution_ref != member["execution_ref"]:
             raise DrainError("drain=execution_ref_mismatch")
-    elif observation.presence is not ExecutionPresence.ABSENT:
-        raise DrainError("drain=absence_not_proven")
+        if observation.request_sha256 not in {None, member["request_sha256"]}:
+            raise DrainError("drain=request_mismatch")
+    elif member["resolution"] == "CANCEL_BEFORE_SEND":
+        if observation.presence is not ExecutionPresence.ABSENT:
+            raise DrainError("drain=absence_not_proven")
+    else:
+        raise DrainError("drain=unresolved")
+    return observation
 
 
-def _fixed_deadline(closed_at: datetime, expirations: Iterable[datetime]) -> datetime:
-    values = [closed_at + timedelta(seconds=1800), *expirations]
+def _fixed_deadline(closed_at: datetime, expirations: Iterable[Mapping[str, Any]]) -> datetime:
+    values = [closed_at + timedelta(seconds=1800)]
+    identities = []
+    for item in expirations:
+        if not isinstance(item, Mapping) or set(item) != {"kind", "object_sha256", "expires_at"}:
+            raise DrainError("expiry=original_descriptor_required")
+        if item["kind"] not in {
+            "envelope",
+            "artifact",
+            "platform",
+            "cost",
+            "credential",
+            "activation",
+            "plan",
+        }:
+            raise DrainError("expiry=kind")
+        if len(item["object_sha256"]) != 64:
+            raise DrainError("expiry=hash")
+        values.append(datetime.fromisoformat(item["expires_at"].replace("Z", "+00:00")))
+        identities.append((item["kind"], item["object_sha256"]))
+    if not identities or identities != sorted(set(identities)):
+        raise DrainError("expiry=complete_unique_originals")
     if any(value.tzinfo is None or value.utcoffset() != timedelta(0) for value in values):
         raise ValueError("reason=datetime_not_utc")
     return min(values)
@@ -197,75 +328,136 @@ def _close_fence(gate: FenceGatePort, environment: str, promotion_id: str, now: 
 def _drain(
     gate: FenceGatePort,
     probe: ExecutionProbePort,
-    members: list[Node],
+    source: MembershipSource,
     environment: str,
-    started: datetime,
-    deadline: datetime,
+    limit: float,
     clock: DrainClock,
-) -> None:
-    limit = clock.monotonic() + max(0.0, (deadline - started).total_seconds())
+) -> list[Node]:
     while True:
-        for member in members:
-            _probe_member(member, probe)
-        if gate.observe_environment_gate(environment).permit is None:
-            return
         if clock.monotonic() >= limit:
             raise DrainError("drain=deadline_exceeded")
+        try:
+            members = _source_members(source)
+        except DrainError as error:
+            if str(error) != "membership=pending":
+                raise
+        else:
+            for member in members:
+                _probe_member(member, probe)
+            if gate.observe_environment_gate(environment).permit is None:
+                if clock.monotonic() >= limit:
+                    raise DrainError("drain=deadline_exceeded")
+                return members
         clock.sleep(min(1.0, max(0.0, limit - clock.monotonic())))
+
+
+def _original_expirations(
+    state: EnvironmentGateState, expirations: Iterable[Mapping[str, Any]]
+) -> tuple[Mapping[str, Any], ...]:
+    receipt = state.fence.close_receipt
+    if not receipt or receipt["closed_membership_sha256"] != state.fence.closed_membership_sha256:
+        raise DrainError("fence=original_close_receipt_required")
+    expiry = {
+        "kind": "envelope",
+        "object_sha256": _sha(receipt),
+        "expires_at": receipt["expires_at"],
+    }
+    return tuple(
+        sorted([*expirations, expiry], key=lambda item: (item["kind"], item["object_sha256"]))
+    )
 
 
 def close_and_drain(
     gate: FenceGatePort,
     probe: ExecutionProbePort,
-    membership: MembershipSource | Callable[[], Iterable[Mapping[str, Any]]],
+    membership: MembershipSource | Callable[[], Iterable[Mapping[str, Any]]] | None,
     environment: str,
     promotion_id: str,
     now: datetime,
-    expirations: Iterable[datetime] = (),
+    expirations: Iterable[Mapping[str, Any]] = (),
     clock: DrainClock | None = None,
     common: Mapping[str, Any] | None = None,
 ) -> Node:
-    """Close a fence and emit a canonical close/drain observation.
-
-    The membership producer must provide original proofs; absence of a producer or
-    an unresolved dispatch fails closed and never reopens the fence.
-    """
+    """Fecha e drena usando membership persistida e provas originais do recovery."""
     if common is None:
         raise DrainError("common=original_binding_required")
     validated_common = _common(common, promotion_id)
-    state = _close_fence(gate, environment, promotion_id, now)
-    fixed_deadline = _fixed_deadline(now, expirations)
-    members = _source_members(membership)
     active_clock = clock or _SystemDrainClock()
-    _drain(gate, probe, members, environment, now, fixed_deadline, active_clock)
+    started = active_clock.monotonic()
+    expirations = tuple(expirations)
+    if _fixed_deadline(now, expirations) <= now:
+        raise DrainError("drain=deadline_exceeded")
+    state = _close_fence(gate, environment, promotion_id, now)
+    observed_close = now + timedelta(seconds=active_clock.monotonic() - started)
+    confirm = getattr(gate, "confirm_promotion_close", None)
+    if not callable(confirm):
+        raise DrainError("fence=native_confirmation_required")
+    state = cast("EnvironmentGateState", confirm(environment, promotion_id, observed_close))
+    closed_at = cast("datetime", state.fence.confirmed_at)
+    expirations = _original_expirations(state, expirations)
+    fixed_deadline = _fixed_deadline(closed_at, expirations)
+    limit = started + (fixed_deadline - now).total_seconds()
+    if membership is not None and not isinstance(membership, PersistedMembershipSource):
+        raise DrainError("membership=source_capability")
+    source = PersistedMembershipSource(gate, state)
+    if callable(source):
+        raise DrainError("membership=source_capability")
+    members = _drain(gate, probe, source, environment, limit, active_clock)
+    if any(item["generation"] >= validated_common["promotion_generation"] for item in members):
+        raise DrainError("membership=promotion_generation")
     post_state = gate.observe_environment_gate(environment)
-    if (
-        post_state.fence.state is not FenceState.CLOSED
-        or post_state.fence.promotion_id != promotion_id
-        or post_state.fence.closed_membership_sha256 != state.fence.closed_membership_sha256
-    ):
+    if post_state.fence != state.fence or post_state.permit is not None:
         raise DrainError("fence=post_drain_mismatch")
-    observed_at = _utc(now)
+    observed_at = now + timedelta(seconds=active_clock.monotonic() - started)
+    if observed_at >= fixed_deadline:
+        raise DrainError("drain=deadline_exceeded")
+    return _drain_document(
+        state,
+        validated_common,
+        members,
+        source,
+        closed_at,
+        observed_at,
+        expirations,
+        fixed_deadline,
+    )
+
+
+def _drain_document(
+    state: Any,
+    common: Node,
+    members: list[Node],
+    source: MembershipSource,
+    closed_at: datetime,
+    observed_at: datetime,
+    expirations: Iterable[Mapping[str, Any]],
+    deadline: datetime,
+) -> Node:
     return {
         "version": 1,
         "kind": "close-drain",
-        "common": validated_common,
+        "common": common,
         "fence": {
-            "environment": environment,
-            "state": FenceState.CLOSED.value,
-            "promotion_id": promotion_id,
+            "environment": state.environment,
+            "state": "CLOSED",
+            "promotion_id": state.fence.promotion_id,
             "version": state.fence.version,
-            "changed_at": _utc(cast("datetime", state.fence.changed_at)),
+            "changed_at": _utc(state.fence.changed_at),
         },
-        "close_confirmed_at": _utc(now),
-        "drain_observed_at": observed_at,
+        "close_confirmed_at": _utc(closed_at),
+        "drain_observed_at": _utc(observed_at),
         "frozen_membership_sha256": _sha(members),
-        "closed_membership_sha256": state.fence.closed_membership_sha256,
         "members": members,
-        "proofs": {item["proof_sha256"]: item for item in members},
+        "proofs": [
+            {
+                "sha256": item["proof_sha256"],
+                "bytes_base64": base64.b64encode(source.proof_bytes(item["dispatch_id"])).decode(),
+            }
+            for item in members
+        ],
         "permit": None,
-        "input_expirations": [],
-        "fixed_deadline": _utc(fixed_deadline),
+        "input_expirations": [dict(value) for value in expirations],
+        "fixed_deadline": _utc(deadline),
         "decision": None,
     }
 

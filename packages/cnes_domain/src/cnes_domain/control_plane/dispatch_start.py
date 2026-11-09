@@ -3,9 +3,55 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from hashlib import sha256
+from typing import TYPE_CHECKING, cast
 
 from pydantic import BaseModel, ConfigDict, field_validator
+
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from cnes_domain.control_plane.commands import BindRunDispatch, FinishRunDispatch
+    from cnes_domain.control_plane.entities import RunDispatch
+    from cnes_domain.ports.control_plane import ControlPlanePort
+    from cnes_domain.ports.environment_gate import DispatchDeferred, UnitAdmission
+    from cnes_domain.ports.processing import ProcessorExecutorPort, StartRunExecution
+
+
+@dataclass(frozen=True)
+class StartAdmission:
+    admission: UnitAdmission
+    now: datetime
+    lease_seconds: int
+
+    def bind(
+        self, dispatch: RunDispatch, execution_ref: str, claim: DispatchStartClaim | None
+    ) -> BindRunDispatch:
+        from cnes_domain.control_plane.commands import BindRunDispatch
+
+        return BindRunDispatch(
+            tenant_id=dispatch.tenant_id,
+            run_id=dispatch.run_id,
+            dispatch_id=dispatch.dispatch_id,
+            execution_ref=execution_ref,
+            now=self.now,
+            lease_seconds=self.lease_seconds,
+            claim=claim,
+        )
+
+    def cancel(self, dispatch: RunDispatch, claim: DispatchStartClaim | None) -> FinishRunDispatch:
+        from cnes_domain.control_plane.commands import FinishRunDispatch
+        from cnes_domain.control_plane.enums import DispatchOutcome
+
+        return FinishRunDispatch(
+            tenant_id=dispatch.tenant_id,
+            run_id=dispatch.run_id,
+            dispatch_id=dispatch.dispatch_id,
+            outcome=DispatchOutcome.CANCELED,
+            finished_at=self.now,
+            claim=claim,
+        )
 
 
 def _dispatch_id(value: str) -> str:
@@ -94,3 +140,50 @@ def claim_matches(
 
 
 __all__ = ["DispatchStartClaim", "claim_matches", "request_sha256"]
+
+
+def claim_dispatch_start(
+    control_plane: ControlPlanePort,
+    dispatch: RunDispatch,
+    request: StartRunExecution,
+    attempt: StartAdmission,
+) -> DispatchStartClaim | DispatchDeferred | None:
+    """Reivindica o único envio permitido pela admissão nativa."""
+    from cnes_domain.control_plane.commands import ClaimRunDispatchStart
+    from cnes_domain.ports.environment_gate import DeferralReason, DispatchDeferred
+
+    admission = attempt.admission
+    if admission.token is None:
+        return None
+    claim = DispatchStartClaim(
+        dispatch_id=dispatch.dispatch_id,
+        generation=dispatch.generation,
+        permit_token=admission.token,
+        fence_version=admission.fence_version or 0,
+        request_sha256=request_sha256(request),
+        promotion_id=admission.promotion_id,
+    )
+    claimed = control_plane.claim_run_dispatch_start(
+        ClaimRunDispatchStart(
+            tenant_id=dispatch.tenant_id,
+            run_id=dispatch.run_id,
+            dispatch_id=dispatch.dispatch_id,
+            claim=claim,
+            now=attempt.now,
+            lease_seconds=attempt.lease_seconds,
+            environment=admission.environment or "prod",
+        )
+    )
+    return claim if claimed is not None else DispatchDeferred(DeferralReason.PERMIT_HELD)
+
+
+def execute_dispatch_start(
+    executor: ProcessorExecutorPort,
+    request: StartRunExecution,
+    claim: DispatchStartClaim | None,
+) -> str:
+    """Envia o request original carregando o claim quando suportado pelo executor."""
+    start_with_claim = getattr(executor, "start_with_claim", None)
+    if claim is not None and callable(start_with_claim):
+        return cast("str", start_with_claim(request, claim))
+    return executor.start(request)

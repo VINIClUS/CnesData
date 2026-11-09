@@ -94,6 +94,9 @@ CONTROL_PLANE_SIGNATURES = {
         ("command", "FinalizeRunCancellation"), ("event", "OutboxEvent"),
     ),
     "reserve_run_dispatch": (("command", "ReserveRunDispatch"),),
+    "claim_run_dispatch_start": (("command", "ClaimRunDispatchStart"),),
+    "cancel_reserved_run_dispatch": (("command", "CancelReservedRunDispatch"),),
+    "get_run_dispatch": (("tenant_id", str), ("run_id", str)),
     "bind_run_dispatch": (("command", "BindRunDispatch"),),
     "finish_run_dispatch": (("command", "FinishRunDispatch"),),
     "get_active_run_dispatch": (("tenant_id", str), ("run_id", str)),
@@ -162,6 +165,9 @@ CONTROL_PLANE_RETURNS = {
     "get_dataset_version": "DatasetVersion | None", "decide_access_request": "AccessRequest",
     "get_access_request": "AccessRequest | None", "read_outbox_page": "OutboxPage",
     "advance_outbox_cursor": "bool", "get_outbox_event": "OutboxEvent | None",
+    "claim_run_dispatch_start": "RunDispatch | None",
+    "cancel_reserved_run_dispatch": "RunDispatch | None",
+    "get_run_dispatch": "RunDispatch | None",
     "mark_outbox_delivered": "None",
 }
 OTHER_RETURNS = {
@@ -182,7 +188,6 @@ def _annotation_name(annotation: object) -> object:
     }
     return annotations.get(annotation, annotation) if isinstance(annotation, str) else annotation
 
-
 def _public_parameters(method: Callable[..., Any]) -> tuple[tuple[object, ...], ...]:
     parameters = tuple(signature(method).parameters.values())[1:]
     result = []
@@ -193,7 +198,6 @@ def _public_parameters(method: Callable[..., Any]) -> tuple[tuple[object, ...], 
         result.append(item)
     return tuple(result)
 
-
 def _structural_adapter(protocol: type, missing: str | None = None) -> object:
     methods = {
         name: (lambda self, *args, **kwargs: None)
@@ -201,7 +205,6 @@ def _structural_adapter(protocol: type, missing: str | None = None) -> object:
         if name != missing
     }
     return type("AdapterEstrutural", (), methods)()
-
 
 def _start_values() -> dict[str, object]:
     return {
@@ -212,7 +215,6 @@ def _start_values() -> dict[str, object]:
         "unit_ids": ("unit-01", "unit-02"),
         "max_concurrency": 2,
     }
-
 
 def _message_values() -> dict[str, object]:
     return {
@@ -226,7 +228,6 @@ def _message_values() -> dict[str, object]:
         "lease_seconds": 30,
     }
 
-
 def _permit_values() -> dict[str, object]:
     return {
         "tenant_id": "354130",
@@ -235,7 +236,6 @@ def _permit_values() -> dict[str, object]:
         "policy_version": 0,
         "fencing_token": 0,
     }
-
 
 def _grant_values() -> dict[str, object]:
     return {

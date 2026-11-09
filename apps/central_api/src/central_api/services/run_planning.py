@@ -7,15 +7,17 @@ from typing import TYPE_CHECKING, Protocol, cast
 
 from cnes_contracts.manifests.raw import RawManifest
 from cnes_domain.control_plane.commands import (
-    BindRunDispatch,
-    ClaimRunDispatchStart,
     FinalizeRunCancellation,
     FinishRunDispatch,
     PutRunUnits,
     ReserveRunDispatch,
     TransitionRun,
 )
-from cnes_domain.control_plane.dispatch_start import DispatchStartClaim, request_sha256
+from cnes_domain.control_plane.dispatch_start import (
+    StartAdmission,
+    claim_dispatch_start,
+    execute_dispatch_start,
+)
 from cnes_domain.control_plane.entities import OutboxEvent
 from cnes_domain.control_plane.enums import DispatchOutcome, DispatchState, RunState
 from cnes_domain.control_plane.queries import (
@@ -89,9 +91,7 @@ class RunLaunchResult:
 
 
 def _launch_result(
-    run: Run,
-    plan: RunPlan,
-    outcome: str | DispatchDeferred | None,
+    run: Run, plan: RunPlan, outcome: str | DispatchDeferred | None,
 ) -> RunLaunchResult:
     if isinstance(outcome, DispatchDeferred):
         return RunLaunchResult(run=run, plan=plan, execution_ref=None, deferred=outcome.reason)
@@ -100,13 +100,9 @@ def _launch_result(
 
 def _build_event(run: Run, event_type: str, now: datetime) -> OutboxEvent:
     return OutboxEvent(
-        tenant_id=run.tenant_id,
-        event_id=f"{event_type}:{run.tenant_id}:{run.run_id}",
-        event_type=event_type,
-        aggregate_id=run.run_id,
-        payload={"dataset_name": run.dataset_name},
-        created_at=now,
-        delivered_at=None,
+        tenant_id=run.tenant_id, event_id=f"{event_type}:{run.tenant_id}:{run.run_id}",
+        event_type=event_type, aggregate_id=run.run_id,
+        payload={"dataset_name": run.dataset_name}, created_at=now, delivered_at=None,
     )
 
 
@@ -120,10 +116,8 @@ def _raw_manifest_ref(store: ObjectStorePort, ref: ManifestRef) -> RawManifestRe
     if canonical != payload:
         raise ValueError("raw_manifest_not_canonical")
     return RawManifestRef(
-        manifest_id=manifest.manifest_id,
-        manifest_key=ref.manifest_key,
-        source_type=manifest.source_type.value,
-        file_subtype=manifest.file_subtype,
+        manifest_id=manifest.manifest_id, manifest_key=ref.manifest_key,
+        source_type=manifest.source_type.value, file_subtype=manifest.file_subtype,
         partition=manifest.competencia,
     )
 
@@ -148,16 +142,10 @@ def _reserve_next_wave(
         return None
     wave_id = logical_wave_id(ready)
     unit_ids = tuple(sorted(unit.unit_id for unit in ready))
-    return control_plane.reserve_run_dispatch(
-        ReserveRunDispatch(
-            tenant_id=plan.run.tenant_id,
-            run_id=plan.run.run_id,
-            wave_id=wave_id,
-            unit_ids=unit_ids,
-            now=now,
-            lease_seconds=execution.dispatch_lease_seconds,
-        )
-    )
+    return control_plane.reserve_run_dispatch(ReserveRunDispatch(
+        tenant_id=plan.run.tenant_id, run_id=plan.run.run_id, wave_id=wave_id,
+        unit_ids=unit_ids, now=now, lease_seconds=execution.dispatch_lease_seconds,
+    ))
 
 
 def _settle_started(
@@ -184,26 +172,18 @@ def _settle_started(
 
 
 def _compensate_start(
-    control_plane: _ControlPlane,
-    executor: ProcessorExecutorPort,
-    finish: FinishRunDispatch,
-    execution_ref: str,
+    control_plane: _ControlPlane, executor: ProcessorExecutorPort,
+    finish: FinishRunDispatch, execution_ref: str,
 ) -> None:
     # An execution whose bind or started callback failed must not outlive its dispatch:
     # finishing it CANCELED makes the next resume reserve generation+1 instead of a replay.
     logger.warning(
         "dispatch_start_compensated tenant_id=%s run_id=%s dispatch_id=%s",
-        finish.tenant_id,
-        finish.run_id,
-        finish.dispatch_id,
+        finish.tenant_id, finish.run_id, finish.dispatch_id,
     )
-    executor.cancel(
-        CancelRunExecution(
-            tenant_id=finish.tenant_id,
-            run_id=finish.run_id,
-            execution_ref=execution_ref,
-        )
-    )
+    executor.cancel(CancelRunExecution(
+        tenant_id=finish.tenant_id, run_id=finish.run_id, execution_ref=execution_ref,
+    ))
     control_plane.finish_run_dispatch(finish)
 
 
@@ -221,55 +201,26 @@ def _start_and_bind(
     if permit.tenant_id != run.tenant_id or permit.run_id != run.run_id:
         raise ValueError("execution_permit_identity_mismatch")
     request: StartRunExecution = execution_request(plan, dispatch, permit.max_concurrency)
-    holder = dispatch_holder(dispatch)
+    holder = dispatch_holder(dispatch, request)
     admission = execution.admission.admit(holder, now)
     if isinstance(admission, DispatchDeferred):
         return admission
-    claim = None
-    if admission.token is not None:
-        claim = DispatchStartClaim(
-            dispatch_id=dispatch.dispatch_id,
-            generation=dispatch.generation,
-            permit_token=admission.token,
-            fence_version=admission.fence_version or 0,
-            request_sha256=request_sha256(request),
-            promotion_id=admission.promotion_id,
-        )
-        claimed = control_plane.claim_run_dispatch_start(
-            ClaimRunDispatchStart(
-                tenant_id=run.tenant_id,
-                run_id=run.run_id,
-                dispatch_id=dispatch.dispatch_id,
-                claim=claim,
-                now=now,
-                lease_seconds=execution.dispatch_lease_seconds,
-                environment=admission.environment or "prod",
-            )
-        )
-        if claimed is None:
-            execution.admission.settle(holder, now)
-            return DispatchDeferred(DeferralReason.PERMIT_HELD)
+    attempt = StartAdmission(admission, now, execution.dispatch_lease_seconds)
+    claim = claim_dispatch_start(
+        control_plane, dispatch, request,
+        attempt,
+    )
+    if isinstance(claim, DispatchDeferred):
+        execution.admission.settle(holder, now)
+        return claim
     try:
-        start_with_claim = getattr(executor, "start_with_claim", None)
-        execution_ref = (
-            cast("str", start_with_claim(request, claim))
-            if claim is not None and callable(start_with_claim)
-            else executor.start(request)
-        )
+        execution_ref = execute_dispatch_start(executor, request, claim)
     except Exception:
         execution.admission.settle(holder, now)
         raise
     try:
         bound = control_plane.bind_run_dispatch(
-            BindRunDispatch(
-                tenant_id=run.tenant_id,
-                run_id=run.run_id,
-                dispatch_id=dispatch.dispatch_id,
-                execution_ref=execution_ref,
-                now=now,
-                lease_seconds=execution.dispatch_lease_seconds,
-                claim=claim,
-            )
+            attempt.bind(dispatch, execution_ref, claim)
         )
         execution.admission.confirm(admission, execution_ref, now)
         execution.callbacks.started(run, request, execution_ref, permit)
@@ -277,14 +228,7 @@ def _start_and_bind(
         _compensate_start(
             control_plane,
             executor,
-            FinishRunDispatch(
-                tenant_id=run.tenant_id,
-                run_id=run.run_id,
-                dispatch_id=dispatch.dispatch_id,
-                outcome=DispatchOutcome.CANCELED,
-                finished_at=now,
-                claim=claim,
-            ),
+            attempt.cancel(dispatch, claim),
             execution_ref,
         )
         execution.admission.settle(holder, now)
@@ -316,11 +260,8 @@ def _dispatch_protocol(
 
 class RunPlanningService:
     def __init__(
-        self,
-        dependencies: RunPlanningDependencies,
-        execution: ExecutionPolicyConfig,
-        clock: Callable[[], datetime],
-        dispatch_enabled: bool = True,
+        self, dependencies: RunPlanningDependencies, execution: ExecutionPolicyConfig,
+        clock: Callable[[], datetime], dispatch_enabled: bool = True,
     ) -> None:
         self._dependencies = dependencies
         self._execution = execution
@@ -347,29 +288,17 @@ class RunPlanningService:
         if run.state is RunState.WAITING_INPUTS:
             return run
         event = _build_event(run, "run.waiting_inputs", now)
-        return self._dependencies.control_plane.transition_run(
-            TransitionRun(
-                tenant_id=run.tenant_id,
-                run_id=run.run_id,
-                expected_state=RunState.PLANNED,
-                new_state=RunState.WAITING_INPUTS,
-                missing_sources=missing_required,
-            ),
-            event,
-        )
+        return self._dependencies.control_plane.transition_run(TransitionRun(
+            tenant_id=run.tenant_id, run_id=run.run_id, expected_state=RunState.PLANNED,
+            new_state=RunState.WAITING_INPUTS, missing_sources=missing_required,
+        ), event)
 
     def _to_processing(self, run: Run, missing_optional: tuple[str, ...], now: datetime) -> Run:
         event = _build_event(run, "run.processing", now)
-        return self._dependencies.control_plane.transition_run(
-            TransitionRun(
-                tenant_id=run.tenant_id,
-                run_id=run.run_id,
-                expected_state=run.state,
-                new_state=RunState.PROCESSING,
-                missing_sources=missing_optional,
-            ),
-            event,
-        )
+        return self._dependencies.control_plane.transition_run(TransitionRun(
+            tenant_id=run.tenant_id, run_id=run.run_id, expected_state=run.state,
+            new_state=RunState.PROCESSING, missing_sources=missing_optional,
+        ), event)
 
     def _plan_and_dispatch(self, run: Run, now: datetime) -> RunLaunchResult:
         control_plane = self._dependencies.control_plane
@@ -377,27 +306,19 @@ class RunPlanningService:
         if definition.dependencies != run.dependencies:
             raise ValueError("dependency_definition_mismatch")
         manifests = _raw_chain(self._dependencies, run)
-        plan = plan_run(
-            PlanRequest(
-                run=run, manifests=manifests, deployment_limit=self._execution.deployment_limit
-            )
-        )
+        plan = plan_run(PlanRequest(
+            run=run, manifests=manifests, deployment_limit=self._execution.deployment_limit
+        ))
         if plan.missing_required:
             waiting = self._wait_for_inputs(run, plan.missing_required, now)
             return RunLaunchResult(run=waiting, plan=None, execution_ref=None)
-        persisted = control_plane.put_run_units(
-            PutRunUnits(
-                tenant_id=run.tenant_id,
-                run_id=run.run_id,
-                expected_run_state=run.state,
-                units=plan.units,
-            )
-        )
+        persisted = control_plane.put_run_units(PutRunUnits(
+            tenant_id=run.tenant_id, run_id=run.run_id, expected_run_state=run.state,
+            units=plan.units,
+        ))
         processing = self._to_processing(run, plan.missing_optional, now)
         full_plan = RunPlan(
-            run=processing,
-            units=persisted,
-            missing_required=(),
+            run=processing, units=persisted, missing_required=(),
             missing_optional=plan.missing_optional,
             deployment_limit=self._execution.deployment_limit,
         )
@@ -408,10 +329,7 @@ class RunPlanningService:
         control_plane = self._dependencies.control_plane
         units = control_plane.list_run_units(run.tenant_id, run.run_id)
         plan = RunPlan(
-            run=run,
-            units=units,
-            missing_required=(),
-            missing_optional=run.missing_sources,
+            run=run, units=units, missing_required=(), missing_optional=run.missing_sources,
             deployment_limit=self._execution.deployment_limit,
         )
         outcome = self._dispatch(control_plane, plan, now)
@@ -430,22 +348,15 @@ class RunPlanningService:
         # get_active_run_dispatch/claim_run_unit sao escopados a Run PROCESSING; uma vez
         # CANCEL_REQUESTED nenhum dispatch e visivel, entao o cancel e sempre best-effort.
         if self._dispatch_enabled:
-            self._dependencies.executor.cancel(
-                CancelRunExecution(
-                    tenant_id=run.tenant_id,
-                    run_id=run.run_id,
-                    execution_ref=None,
-                )
-            )
+            self._dependencies.executor.cancel(CancelRunExecution(
+                tenant_id=run.tenant_id, run_id=run.run_id, execution_ref=None,
+            ))
         event = _build_event(run, "run.canceled", now)
         canceled = self._dependencies.control_plane.finalize_run_cancellation(
             FinalizeRunCancellation(
-                tenant_id=run.tenant_id,
-                run_id=run.run_id,
-                expected_state=RunState.CANCEL_REQUESTED,
-                canceled_at=now,
-            ),
-            event,
+                tenant_id=run.tenant_id, run_id=run.run_id,
+                expected_state=RunState.CANCEL_REQUESTED, canceled_at=now,
+            ), event,
         )
         self._settle_run(canceled, now)
         return RunLaunchResult(run=canceled, plan=None, execution_ref=None)
@@ -496,9 +407,7 @@ class RunPlanningService:
             self.launch(run.tenant_id, run.run_id)
         except Exception:
             logger.exception(
-                "accepted_manifest_launch_failed tenant_id=%s run_id=%s",
-                run.tenant_id,
-                run.run_id,
+                "accepted_manifest_launch_failed tenant_id=%s run_id=%s", run.tenant_id, run.run_id,
             )
 
 

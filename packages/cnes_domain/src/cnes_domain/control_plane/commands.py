@@ -135,11 +135,15 @@ class FailJob(ControlPlaneModel):
         if is_resync and self.rejected_manifest_sha256 is None:
             raise ValueError("resync_hash_required")
         guarded = (
-            self.expected_head_manifest_id is not None or self.expected_resync_marker is not None
+            self.expected_head_manifest_id is not None
+            or self.expected_resync_marker is not None
         )
         if guarded and not is_resync:
             raise ValueError("resync_guard_forbidden")
-        if self.expected_head_manifest_id is not None and self.expected_resync_marker is not False:
+        if (
+            self.expected_head_manifest_id is not None
+            and self.expected_resync_marker is not False
+        ):
             raise ValueError("head_guard_requires_absent_marker")
         if not is_resync and self.rejected_manifest_sha256 is not None:
             raise ValueError("resync_hash_forbidden")
@@ -356,6 +360,7 @@ class CancelReservedRunDispatch(ControlPlaneModel):
     dispatch_id: str
     claim: DispatchStartClaim
     canceled_at: UtcDatetime
+    environment: str = "prod"
 
     _strings = field_validator("tenant_id", "run_id")(require_non_blank)
     _dispatch = field_validator("dispatch_id")(_require_dispatch_field)

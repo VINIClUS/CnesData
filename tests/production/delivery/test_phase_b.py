@@ -1,32 +1,46 @@
-"""Boundary tests for fence drain and Phase B route oracles."""
+"""Produtor nativo de membership e oráculos fechados de Phase B."""
 
 from __future__ import annotations
 
+import copy
 import hashlib
-from datetime import UTC, datetime, timedelta
-from typing import Any
+import json
+from datetime import timedelta
+from typing import Any, cast
 
 import pytest
+from botocore.exceptions import ClientError
 
-from cnes_domain.control_plane.environment_gate import (
-    EnvironmentGateState,
-    FenceState,
-    PermitHolder,
-    PromotionFence,
-    ReleaseUnitPermit,
-    UnitPermit,
-    release_permit,
+from cnes_domain.control_plane.commands import ClaimRunDispatchStart, PutRunUnits
+from cnes_domain.control_plane.dispatch_start import DispatchStartClaim, request_sha256
+from cnes_domain.control_plane.enums import RunStage, RunState
+from cnes_domain.control_plane.environment_gate import AcquireUnitPermit
+from cnes_domain.orchestration.dispatch_admission import EnvironmentAdmission, dispatch_holder
+from cnes_domain.ports.processing import StartRunExecution
+from cnes_infra.executor.step_functions import StepFunctionsExecutionProbe
+from packages.cnes_infra.tests.contracts.clock import MutableClock, _reserve, _run, _unit
+from packages.cnes_infra.tests.control_plane.test_dynamodb_promotion_snapshot import NOW
+from packages.cnes_infra.tests.control_plane.test_dynamodb_promotion_snapshot import (
+    ddb as ddb_fixture,
 )
-from cnes_domain.ports.environment_gate import ExecutionObservation, ExecutionPresence
-from scripts.promotion.environment_gate import (
-    DrainError,
-    acquire_initial_or_recovery,
-    close_and_drain,
+from scripts.promotion.environment_gate import DrainError, close_and_drain
+from scripts.promotion.phase_b import (
+    API_POLICY,
+    MACHINE,
+    _context_from_admitted,
+    build_phase_b_evidence,
+    review_phase_b_plan,
 )
-from scripts.promotion.phase_b import review_phase_b_plan
-from scripts.promotion.verify_routes import verify_routes
+from scripts.promotion.verify_routes import build_closed_ready
+from tests.production.delivery.test_canary import activation as activation_fixture
+from tests.production.delivery.test_canary import case as case_fixture
+from tests.production.delivery.test_canary import github as github_fixture
 
-NOW = datetime(2026, 11, 9, 12, 0, tzinfo=UTC)
+ddb = ddb_fixture
+activation = activation_fixture
+case = case_fixture
+github = github_fixture
+MACHINE_ARN = "arn:aws:states:us-east-2:123456789012:stateMachine:cnesdata-prod"
 COMMON = {
     "repository": "VINIClUS/CnesData",
     "release_id": "r1",
@@ -35,230 +49,360 @@ COMMON = {
     "canary_id": "c" * 32,
     "activation_sha256": "d" * 64,
     "promotion_id": "r1",
-    "promotion_generation": 1,
-    "caller": "caller",
+    "promotion_generation": 100,
+    "caller": {
+        "repository": "VINIClUS/CnesData",
+        "source_sha": "a" * 40,
+        "ref": "refs/heads/develop",
+        "workflow_path": ".github/workflows/promote-production.yml",
+        "workflow_sha": "a" * 40,
+        "run_id": 123,
+        "run_attempt": 1,
+    },
 }
-
-
-def _member(dispatch_id: str = "0123456789abcdef") -> dict[str, Any]:
-    return {
-        "dispatch_id": dispatch_id,
-        "request_sha256": "a" * 64,
-        "generation": 1,
-        "initial_state": "ACKNOWLEDGED",
-        "execution_ref": "arn:execution",
-        "resolution": "TERMINAL",
-        "proof_sha256": hashlib.sha256(
-            b'{"dispatch_id":"0123456789abcdef","resolution":"TERMINAL",'
-            b'"send_disabled_at":"2026-11-09T12:00:01Z"}'
-        ).hexdigest(),
-        "observed_at": "2026-11-09T12:00:00Z",
-        "send_disabled_at": "2026-11-09T12:00:01Z",
+EXPIRATIONS = [
+    {
+        "kind": "activation",
+        "object_sha256": "d" * 64,
+        "expires_at": (NOW + timedelta(hours=1)).isoformat().replace("+00:00", "Z"),
     }
+]
 
 
 class Probe:
-    def probe(self, dispatch_id: str) -> ExecutionObservation:
-        return ExecutionObservation(ExecutionPresence.TERMINAL, "arn:execution")
+    def __init__(self, request=None, terminal=False):
+        self.request, self.terminal = request, terminal
 
-
-class Source:
-    def __init__(self, member: dict[str, Any]) -> None:
-        self.member = member
-
-    def freeze_membership(self) -> list[dict[str, Any]]:
-        return [self.member]
-
-    def proof_bytes(self, dispatch_id: str) -> bytes:
-        assert dispatch_id == self.member["dispatch_id"]
-        return (
-            b'{"dispatch_id":"0123456789abcdef","resolution":"TERMINAL",'
-            b'"send_disabled_at":"2026-11-09T12:00:01Z"}'
-        )
+    def describe_execution(self, **kwargs):
+        if not self.terminal:
+            raise ClientError({"Error": {"Code": "ExecutionDoesNotExist"}}, "DescribeExecution")
+        assert self.request is not None
+        return {
+            "executionArn": kwargs["executionArn"],
+            "status": "SUCCEEDED",
+            "input": json.dumps(self.request.model_dump(mode="json"), sort_keys=True),
+        }
 
 
 class Clock:
-    def __init__(self) -> None:
-        self.value = 0.0
+    def __init__(self, recover=lambda: None):
+        self.value, self.recover = 0.0, recover
 
-    def monotonic(self) -> float:
+    def monotonic(self):
         return self.value
 
-    def sleep(self, seconds: float) -> None:
+    def sleep(self, seconds):
         self.value += seconds
+        self.recover()
 
 
 class Gate:
-    def __init__(self, permit: Any = None) -> None:
-        self.closed = False
-        self.permit = permit
-        self.close_calls = 0
+    def close_promotion_fence(self, command):
+        raise AssertionError("expired inputs must not close the fence")
 
-    def close_promotion_fence(self, command: object) -> bool:
-        self.close_calls += 1
-        if self.closed:
-            return False
-        self.closed = True
-        return True
 
-    def observe_environment_gate(self, environment: str) -> EnvironmentGateState:
-        fence = PromotionFence(environment, FenceState.CLOSED, "r1", 1, NOW)
-        return EnvironmentGateState(environment, fence, self.permit)
+class Source:
+    def __init__(self, member):
+        self.member = member
 
-    def acquire_unit_permit(self, command: Any) -> Any:
-        from cnes_domain.control_plane.environment_gate import AcquisitionStatus, PermitAcquisition
 
-        status = (
-            AcquisitionStatus.ACQUIRED
-            if command.canary_promotion_id
-            else AcquisitionStatus.FENCE_CLOSED
+def _member():
+    return {}
+
+
+def _seed(adapter):
+    run = _run("run-a")
+    adapter.put_run(run)
+    units = (_unit("unit-a"), _unit("unit-b"))
+    downstream = {"source_type": None, "file_subtype": None, "input_manifests": ()}
+    reconcile = units[0].model_copy(
+        update=downstream
+        | {
+            "unit_id": "reconcile",
+            "stage": RunStage.RECONCILE,
+            "depends_on_unit_ids": tuple(unit.unit_id for unit in units),
+        }
+    )
+    materialize = units[0].model_copy(
+        update=downstream
+        | {
+            "unit_id": "materialize",
+            "stage": RunStage.MATERIALIZE,
+            "depends_on_unit_ids": ("reconcile",),
+        }
+    )
+    adapter.put_run_units(
+        PutRunUnits(
+            tenant_id=run.tenant_id,
+            run_id=run.run_id,
+            expected_run_state=RunState.PROCESSING,
+            units=(*units, reconcile, materialize),
         )
-        return PermitAcquisition(
-            status, self.permit if status is AcquisitionStatus.ACQUIRED else None
+    )
+    dispatch = _reserve(adapter, MutableClock(NOW))
+    request = StartRunExecution(
+        tenant_id=dispatch.tenant_id,
+        run_id=dispatch.run_id,
+        wave_id=dispatch.wave_id,
+        dispatch_id=dispatch.dispatch_id,
+        unit_ids=dispatch.unit_ids,
+        max_concurrency=1,
+    )
+    holder = dispatch_holder(dispatch, request)
+    permit = adapter.acquire_unit_permit(AcquireUnitPermit("prod", holder, NOW, 300)).permit
+    return dispatch, request, permit
+
+
+def _claim(adapter, dispatch, request, permit):
+    claim = DispatchStartClaim(
+        dispatch_id=dispatch.dispatch_id,
+        generation=dispatch.generation,
+        permit_token=permit.token,
+        fence_version=0,
+        request_sha256=request_sha256(request),
+    )
+    command = ClaimRunDispatchStart(
+        tenant_id=dispatch.tenant_id,
+        run_id=dispatch.run_id,
+        dispatch_id=dispatch.dispatch_id,
+        claim=claim,
+        now=NOW,
+        lease_seconds=300,
+    )
+    assert adapter.claim_run_dispatch_start(command) is not None
+
+
+@pytest.fixture(params=["empty", "reserved", "terminal"])
+def native_close(ddb, request):
+    adapter, _ = ddb
+    mode = request.param
+    client = Probe()
+    if mode != "empty":
+        dispatch, execution, permit = _seed(adapter)
+        client.request = execution
+        if mode == "terminal":
+            _claim(adapter, dispatch, execution, permit)
+            client.terminal = True
+    probe = StepFunctionsExecutionProbe(cast("Any", client), MACHINE_ARN)
+    admission = EnvironmentAdmission(adapter, probe, "prod", 300, adapter)
+    from cnes_domain.ports.processing import ExecutionCallbacks, ExecutionPolicyConfig
+    from cnes_infra.executor.step_functions import StepFunctionsExecutor
+    from data_processor.orchestration.coordinator import (
+        CoordinatorDependencies,
+        PipelineCoordinator,
+        allow_execution,
+        noop_execution_started,
+    )
+
+    executor = StepFunctionsExecutor(cast("Any", client), MACHINE_ARN)
+    dependencies = CoordinatorDependencies(
+        adapter, executor, cast("Any", None), lambda: NOW + timedelta(seconds=1)
+    )
+    execution = ExecutionPolicyConfig(
+        1, 300, ExecutionCallbacks(allow_execution, noop_execution_started), admission
+    )
+    coordinator = PipelineCoordinator(dependencies, execution)
+    clock = Clock(lambda: coordinator.recover())
+    result = close_and_drain(
+        adapter, probe, None, "prod", "r1", NOW, expirations=EXPIRATIONS, clock=clock, common=COMMON
+    )
+    return adapter, probe, result, mode
+
+
+def test_producer_nativo_conserva_holder_e_prova_original(native_close):
+    adapter, _, close, mode = native_close
+    state = adapter.observe_environment_gate("prod")
+    assert state.permit is None
+    assert len(state.closed_membership) == (0 if mode == "empty" else 1)
+    assert len(close["members"]) == len(state.closed_membership)
+    if mode != "empty":
+        assert close["members"][0]["resolution"] == (
+            "TERMINAL" if mode == "terminal" else "CANCEL_BEFORE_SEND"
         )
+        assert close["members"][0]["request_sha256"] == state.closed_membership[0]["request_sha256"]
+    assert all(expiry in close["input_expirations"] for expiry in EXPIRATIONS)
+    assert len(close["input_expirations"]) == len(EXPIRATIONS) + 1
+    receipt = state.fence.close_receipt
+    digest = hashlib.sha256(
+        (json.dumps(receipt, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    ).hexdigest()
+    assert {
+        "kind": "envelope",
+        "object_sha256": digest,
+        "expires_at": receipt["expires_at"],
+    } in close["input_expirations"]
+    assert "closed_membership_sha256" not in close
 
 
-def test_acquire_falha_depois_do_fechamento_e_permit_drena() -> None:
-    gate = Gate()
-    result = close_and_drain(gate, Probe(), Source(_member()), "prod", "r1", NOW, common=COMMON)
-    assert result["fence"]["state"] == "CLOSED"
-    assert result["permit"] is None
-    assert gate.close_calls == 1
-
-
-def test_drain_vencido_aborta_sem_phase_b() -> None:
-    holder = PermitHolder("tenant", "run", "0123456789abcdef")
-    permit = UnitPermit("prod", 1, holder, None, NOW, NOW + timedelta(seconds=300), None)
-    gate = Gate(permit=permit)
+def test_starting_ausente_nunca_vira_cancelamento(ddb):
+    adapter, _ = ddb
+    dispatch, execution, permit = _seed(adapter)
+    _claim(adapter, dispatch, execution, permit)
+    probe = StepFunctionsExecutionProbe(cast("Any", Probe()), MACHINE_ARN)
+    admission = EnvironmentAdmission(adapter, probe, "prod", 300, adapter)
+    clock = Clock(lambda: admission.reconcile(NOW + timedelta(seconds=1)))
+    expiration = [{**EXPIRATIONS[0], "expires_at": (NOW + timedelta(seconds=2)).isoformat()}]
     with pytest.raises(DrainError, match="deadline_exceeded"):
         close_and_drain(
-            gate,
-            Probe(),
-            Source(_member()),
+            adapter,
+            probe,
+            None,
             "prod",
             "r1",
             NOW,
-            expirations=[NOW + timedelta(seconds=1)],
-            clock=Clock(),
+            expirations=expiration,
+            clock=clock,
             common=COMMON,
         )
-    assert holder.dispatch_id == "0123456789abcdef"
+    assert adapter.observe_environment_gate("prod").permit is not None
 
 
-def test_so_o_canary_ligado_adquire() -> None:
-    holder = PermitHolder("tenant", "run", "0123456789abcdef")
-    permit = UnitPermit("prod", 1, holder, None, NOW, NOW + timedelta(seconds=300), "r1")
-    gate = Gate(permit=permit)
-    assert not acquire_initial_or_recovery(gate, holder, NOW)
-    assert acquire_initial_or_recovery(gate, holder, NOW, "r1")
+def test_input_expirado_nao_fecha_nem_em_ambiente_ocioso():
+    expiration = [{**EXPIRATIONS[0], "expires_at": (NOW - timedelta(seconds=1)).isoformat()}]
+    with pytest.raises(DrainError, match="deadline_exceeded"):
+        close_and_drain(
+            cast("Any", Gate()),
+            cast("Any", Probe()),
+            None,
+            "prod",
+            "r1",
+            NOW,
+            expirations=expiration,
+            common=COMMON,
+        )
 
 
-def test_update_direto_do_semaforo_e_negado() -> None:
-    holder = PermitHolder("tenant", "run", "0123456789abcdef")
-    permit = UnitPermit("prod", 1, holder, None, NOW, NOW + timedelta(seconds=300), None)
-    command = ReleaseUnitPermit("prod", 2, NOW)
-    assert not release_permit(permit, command)
-
-
-def test_membership_sem_prova_original_recusa() -> None:
-    with pytest.raises(DrainError, match="common=original_binding_required"):
-        close_and_drain(Gate(), Probe(), lambda: [_member()], "prod", "r1", NOW)
-
-
-def test_phase_b_recusa_mudanca_de_scheduler_e_revisao_nova() -> None:
-    plan = {
-        "resource_changes": [
+def _phase_plan(context, initial):
+    machine = copy.deepcopy(context.machine)
+    old = None if initial else copy.deepcopy(machine)
+    if old is not None:
+        definition = json.loads(old["definition"])
+        definition["States"]["RunUnits"]["ItemProcessor"]["States"]["RunProcessor"]["Parameters"][
+            "TaskDefinition"
+        ] = "unit:1"
+        old["definition"] = json.dumps(definition)
+    changes = [
+        {
+            "mode": "managed",
+            "address": MACHINE,
+            "change": {
+                "actions": ["create" if initial else "update"],
+                "before": old,
+                "after": machine,
+            },
+        }
+    ]
+    if initial:
+        old_policy = {
+            "Version": "2012-10-17",
+            "Statement": [{"Effect": "Allow", "Action": "dynamodb:GetItem", "Resource": "table"}],
+        }
+        policy = copy.deepcopy(old_policy)
+        policy["Statement"] += [
             {
-                "mode": "managed",
-                "address": "module.processing.aws_sfn_state_machine.processor[0]",
-                "change": {"actions": ["update"]},
+                "Effect": "Allow",
+                "Action": ["states:DescribeStateMachine", "states:StartExecution"],
+                "Resource": machine["arn"],
             },
             {
-                "mode": "managed",
-                "address": "module.schedulers.aws_scheduler_schedule.recovery",
-                "change": {"actions": ["update"]},
+                "Effect": "Allow",
+                "Action": ["states:DescribeExecution", "states:StopExecution"],
+                "Resource": machine["arn"].replace(":stateMachine:", ":execution:") + ":*",
             },
         ]
-    }
-    with pytest.raises(ValueError, match="scheduler"):
-        review_phase_b_plan(plan, "old")
-
-
-def test_ativacao_inicial_usa_oraculo_proprio() -> None:
-    policy_before = {"Version": "2012-10-17", "Statement": []}
-    policy_after = {
-        "Version": "2012-10-17",
-        "Statement": [
-            {
-                "Action": sorted(
-                    {
-                        "states:DescribeStateMachine",
-                        "states:StartExecution",
-                        "states:DescribeExecution",
-                        "states:StopExecution",
-                    }
-                )
-            }
-        ],
-    }
-    plan = {
-        "resource_changes": [
+        changes.append(
             {
                 "mode": "managed",
-                "address": "module.processing.aws_sfn_state_machine.processor[0]",
-                "change": {"actions": ["create"]},
-            },
-            {
-                "mode": "managed",
-                "address": "module.runtime_iam.aws_iam_role_policy.api[0]",
+                "address": API_POLICY,
                 "change": {
                     "actions": ["update"],
-                    "before": {"policy": policy_before},
-                    "after": {"policy": policy_after},
+                    "before": {"policy": old_policy},
+                    "after": {"policy": policy},
                 },
-            },
-        ]
-    }
-    assert review_phase_b_plan(plan, None) == "initial"
+            }
+        )
+    return {"resource_changes": changes}
 
 
-def test_ativacao_inicial_confere_arn_da_state_machine_nas_tasks_unit_e_recovery() -> None:
-    task_definitions = {
-        mode: {
-            "environment": {"AWS_STATE_MACHINE_ARN": "arn:aws:states:us-east-2:1:stateMachine:x"}
-        }
-        for mode in ("unit", "recovery")
-    }
+@pytest.mark.parametrize("initial", [True, False])
+def test_oraculos_validam_delta_exato_e_rejeitam_role_definicao_e_grants(case, initial):
+    contract, _, _, _ = case
+    context = _context_from_admitted(contract)
+    oracle = context.oracle | {"active_before": None if initial else "unit:1"}
+    plan = _phase_plan(context, initial)
+    assert review_phase_b_plan(plan, oracle["active_before"], oracle) == (
+        "initial" if initial else "established"
+    )
+    bad = copy.deepcopy(plan)
+    bad["resource_changes"][0]["change"]["after"]["role_arn"] = "other-role"
+    with pytest.raises(ValueError):
+        review_phase_b_plan(bad, oracle["active_before"], oracle)
+    bad = copy.deepcopy(plan)
+    bad["resource_changes"][0]["change"]["after"]["definition"] = (
+        '{"StartAt":"Pass","States":{"Pass":{"Type":"Pass","End":true}}}'
+    )
+    with pytest.raises(ValueError):
+        review_phase_b_plan(bad, oracle["active_before"], oracle)
+    if initial:
+        bad = copy.deepcopy(plan)
+        bad["resource_changes"][1]["change"]["after"]["policy"]["Statement"][0]["Action"] = "s3:*"
+        with pytest.raises(ValueError, match="other_grants"):
+            review_phase_b_plan(bad, None, oracle)
+
+
+@pytest.fixture
+def original_bundle(native_close):
+    adapter, probe, close, _ = native_close
+    prefix = "arn:aws:ecs:us-east-2:123456789012:task-definition/cnesdata-prod-processor-"
     routes = {
         "mode": "initial",
-        "state_machine_arn": "arn:aws:states:us-east-2:1:stateMachine:x",
-        "unit_revision": "unit:2",
-        "recovery_revision": "recovery:1",
-        "audit_revision": "audit:1",
-        "unit_environment_state_machine_arn": "arn:aws:states:us-east-2:1:stateMachine:x",
-        "recovery_environment_state_machine_arn": "arn:aws:states:us-east-2:1:stateMachine:x",
+        "state_machine_arn": MACHINE_ARN,
+        "unit_revision": prefix + "unit:2",
+        "recovery_revision": prefix + "recovery:1",
+        "audit_revision": prefix + "audit:1",
+        "unit_environment_state_machine_arn": MACHINE_ARN,
+        "recovery_environment_state_machine_arn": MACHINE_ARN,
     }
-    assert (
-        verify_routes(
-            routes, routes["state_machine_arn"], "unit:2", "recovery:1", "audit:1", task_definitions
-        )
-        == routes
+    before = {"lineage": "lineage", "serial": 1, "state_sha256": "1" * 64, "object_version": "v1"}
+    after = {"lineage": "lineage", "serial": 2, "state_sha256": "2" * 64, "object_version": "v2"}
+    phase = build_phase_b_evidence(
+        close,
+        before,
+        after,
+        b"original binary",
+        b"independent audit",
+        b"applied binary log",
+        routes,
+        NOW + timedelta(seconds=2),
+    )
+    observed = NOW + timedelta(seconds=3)
+    ready = build_closed_ready(
+        close,
+        phase,
+        adapter,
+        probe,
+        observed,
+        COMMON["caller"],
+        COMMON["promotion_generation"],
+        observed,
+        observed + timedelta(seconds=180),
     )
 
+    def canonical(obj):
+        return (json.dumps(obj, sort_keys=True, separators=(",", ":")) + "\n").encode()
 
-def test_rota_mista_mantem_fence_fechado() -> None:
-    routes = {
-        "mode": "established",
-        "state_machine_arn": "arn:aws:states:us-east-2:1:stateMachine:x",
-        "unit_revision": "unit:2",
-        "recovery_revision": "recovery:2",
-        "audit_revision": "audit:1",
-        "unit_environment_state_machine_arn": "arn:aws:states:us-east-2:1:stateMachine:x",
-        "recovery_environment_state_machine_arn": "arn:aws:states:us-east-2:1:stateMachine:x",
-    }
-    tasks = {
-        mode: {"environment": {"AWS_STATE_MACHINE_ARN": routes["state_machine_arn"]}}
-        for mode in ("unit", "recovery")
-    }
-    with pytest.raises(ValueError, match="recovery_revision"):
-        verify_routes(routes, routes["state_machine_arn"], "unit:2", "recovery:1", "audit:1", tasks)
+    return {
+        "close-drain.json": canonical(close),
+        "phase-b.json": canonical(phase),
+        "closed-ready.json": canonical(ready),
+    }, routes
+
+
+def test_closed_ready_reobserva_provas_originais_apos_b(original_bundle):
+    files, _ = original_bundle
+    close, ready = json.loads(files["close-drain.json"]), json.loads(files["closed-ready.json"])
+    assert close["common"] == ready["common"]
+    assert len(close["members"]) == len(ready["members"])
+    for member in ready["members"]:
+        assert member["observed_at"] == ready["observed_at"]
+    assert ready["close_drain_sha256"] == hashlib.sha256(files["close-drain.json"]).hexdigest()

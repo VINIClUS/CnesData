@@ -90,7 +90,6 @@ _FENCE_DEFERRED = [(RunState.PROCESSING, DeferralReason.FENCE_CLOSED)]
 _WAITING_RUN_IDS = ("run-1", "run-2", "run-3")
 _QUOTA_DEFERRED = DeferralReason.MONTHLY_ATTEMPTS_EXHAUSTED
 
-
 @dataclass
 class _AdmissionRecorder:
     """`DispatchAdmissionPort` que só registra as chamadas recebidas."""
@@ -110,17 +109,14 @@ class _AdmissionRecorder:
     def reconcile(self, now: datetime) -> None:
         self.calls.append("reconcile")
 
-
 def _foreign(run: Run, dispatch: RunDispatch, requested_limit: int) -> ExecutionPermit:
     return ExecutionPermit(
         tenant_id=run.tenant_id, run_id="run-foreign", max_concurrency=requested_limit,
         policy_version=0, fencing_token=0,
     )
 
-
 def _throttled(dispatch_id: str) -> ExecutionObservation:
     raise ProcessorExecutionUnavailable("ThrottlingException")
-
 
 def _waiting_with_closed_fence(
     adapter: SQLiteControlPlane, store: _FakeObjectStore, gate: DynamoDBControlPlane,
@@ -131,7 +127,6 @@ def _waiting_with_closed_fence(
     _hold(gate, clock, _ORPHAN_REF)
     assert gate.close_promotion_fence(ClosePromotionFence(_ENVIRONMENT, "release-2", clock.now()))
 
-
 def _cancel_requested_with_claimed_unit(
     adapter: SQLiteControlPlane, service: RunPlanningService, clock: _MutableClock,
 ) -> None:
@@ -140,11 +135,9 @@ def _cancel_requested_with_claimed_unit(
     canceling = cast("Run", adapter.get_run(_TENANT, _RUN_ID))
     adapter.put_run(canceling.model_copy(update={"state": RunState.CANCEL_REQUESTED}))
 
-
 def _with_execution(service: RunPlanningService, **changes: Any) -> RunPlanningService:
     execution = replace(service._execution, **changes)
     return RunPlanningService(service._dependencies, execution, service._clock)
-
 
 def _ambiguous_launch(
     adapter: SQLiteControlPlane, store: _FakeObjectStore, executor: _StepFunctions,
@@ -239,14 +232,15 @@ def test_erro_ambiguo_na_reentrada_tardia_nao_libera(
     with pytest.raises(ReadTimeoutError):
         production.launch(_TENANT, _RUN_ID)
     dispatch = _active(adapter)
+    anchor = _held(gate).acquired_at
     clock.advance(timedelta(minutes=30))
 
-    with pytest.raises(ReadTimeoutError):
-        production.launch(_TENANT, _RUN_ID)
+    result = production.launch(_TENANT, _RUN_ID)
+    assert result.deferred is DeferralReason.PERMIT_HELD
 
     assert _active(adapter).dispatch_id == dispatch.dispatch_id
-    assert executor.calls == ["start", "probe", "start", "probe"]
-    assert (_held(gate).holder, _held(gate).acquired_at) == (_holder(dispatch), clock.now())
+    assert executor.calls == ["start", "probe"]
+    assert (_held(gate).holder, _held(gate).acquired_at) == (_holder(dispatch), anchor)
     executor.statuses[f"exec-{dispatch.dispatch_id}"] = ExecutionStatus.RUNNING
     rival = EnvironmentAdmission(gate, executor, _ENVIRONMENT, _LEASE_SECONDS)
     assert rival.admit(_NEXT, clock.now()) == DispatchDeferred(DeferralReason.PERMIT_HELD)
@@ -266,20 +260,24 @@ def test_reentrada_sem_bind_com_fence_fechado_nao_inicia_execucao_nova(
     results = production.recover(limit=10)
 
     assert [(result.run.state, result.execution_ref, result.deferred) for result in results] == [
-        (RunState.PROCESSING, None, DeferralReason.FENCE_CLOSED),
+        (RunState.PROCESSING, None, DeferralReason.PERMIT_HELD),
     ]
     assert (executor.calls.count("start"), executor.statuses) == (1, {})
     assert (_held(gate).holder, _held(gate).acquired_at) == (_holder(dispatch), anchor)
     clock.advance(anchor + _GRACE - clock.now())
     assert [result.deferred for result in production.recover(limit=10)] == [
-        DeferralReason.FENCE_CLOSED,
+        DeferralReason.PERMIT_HELD,
     ]
-    assert _permit(gate) is None
+    assert _held(gate).holder == _holder(dispatch)
 
 
-def test_reentrada_sem_bind_com_execucao_viva_e_fence_fechado_retoma_a_mesma_execucao(
-    adapter: SQLiteControlPlane, store: _FakeObjectStore, executor: _StepFunctions,
-    gate: DynamoDBControlPlane, service: RunPlanningService, clock: _MutableClock,
+def test_reentrada_sem_reconciliador_nativo_mantem_claim_sem_reenviar(
+    adapter: SQLiteControlPlane,
+    store: _FakeObjectStore,
+    executor: _StepFunctions,
+    gate: DynamoDBControlPlane,
+    service: RunPlanningService,
+    clock: _MutableClock,
 ) -> None:
     production = _with_execution(service, dispatch_lease_seconds=3600)
     dispatch = _ambiguous_launch(adapter, store, executor, production)
@@ -290,10 +288,10 @@ def test_reentrada_sem_bind_com_execucao_viva_e_fence_fechado_retoma_a_mesma_exe
 
     result = production.launch(_TENANT, _RUN_ID)
 
-    assert (result.execution_ref, result.deferred) == (reference, None)
-    assert executor.calls == ["start", "probe", "probe", "start"]
+    assert (result.execution_ref, result.deferred) == (None, DeferralReason.PERMIT_HELD)
+    assert executor.calls == ["start", "probe"]
     assert executor.statuses == {reference: ExecutionStatus.RUNNING}
-    assert (_held(gate).holder, _held(gate).execution_ref) == (_holder(dispatch), reference)
+    assert (_held(gate).holder, _held(gate).execution_ref) == (_holder(dispatch), None)
 
 
 def test_erro_de_probe_num_run_nao_deixa_os_seguintes_em_waiting_inputs(
@@ -471,7 +469,8 @@ def test_task_hours_fora_do_caminho_de_decisao(
     current = _active(adapter)
     assert (retry.execution_ref, retry.deferred) == (f"exec-{current.dispatch_id}", None)
     assert current.generation == 2
-    assert executor.calls == ["start", "probe", "start"]
+    assert executor.calls.count("start") == 2
+    assert executor.calls.count("probe") == 1
     assert _attempts(gate, clock) == 2
 
 
@@ -479,7 +478,7 @@ def test_task_hours_fora_do_caminho_de_decisao(
     "recover", [RunPlanningService.recover, lambda service: _coordinator(service).recover()],
     ids=["api", "processor"],
 )
-def test_reconcile_do_recover_libera_o_permit_preso_por_erro_na_quota(
+def test_reconcile_sem_cas_nativo_mantem_permit_preso_por_erro_na_quota(
     adapter: SQLiteControlPlane, store: _FakeObjectStore, executor: _StepFunctions,
     gate: DynamoDBControlPlane, service: RunPlanningService, clock: _MutableClock,
     monkeypatch: pytest.MonkeyPatch, recover: Callable[[RunPlanningService], tuple[Any, ...]],
@@ -497,4 +496,5 @@ def test_reconcile_do_recover_libera_o_permit_preso_por_erro_na_quota(
     results = recover(production)
 
     assert [result.deferred for result in results] == [_QUOTA_DEFERRED]
-    assert (_permit(gate), executor.calls) == (None, ["probe"])
+    assert _permit(gate) is not None
+    assert executor.calls == ["probe"]

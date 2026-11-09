@@ -23,6 +23,7 @@ from cnes_domain.control_plane.errors import Conflict
 from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
 from cnes_infra.control_plane import (
     sqlite_claims,
+    sqlite_dispatch_start,
     sqlite_idempotency,
     sqlite_job,
     sqlite_outbox,
@@ -273,10 +274,7 @@ class SQLiteControlPlane(
         )
 
     def put_outbox_event(
-        self,
-        connection: sqlite3.Connection,
-        event: OutboxEvent,
-        tenant_id: str,
+        self, connection: sqlite3.Connection, event: OutboxEvent, tenant_id: str,
     ) -> None:
         if event.tenant_id != tenant_id:
             raise Conflict(ErrorCode.OUTBOX_EVENT_TENANT_MISMATCH)
@@ -294,9 +292,7 @@ class SQLiteControlPlane(
             "INSERT INTO outbox_events "
             "(event_id, tenant_id, created_at, delivered_at, data) VALUES (?, ?, ?, ?, ?)",
             (
-                event.event_id,
-                event.tenant_id,
-                event.created_at.isoformat(),
+                event.event_id, event.tenant_id, event.created_at.isoformat(),
                 None,  # delivered_at eh sempre None aqui (guard acima rejeita o contrario)
                 serialize_model(event),
             ),
@@ -305,7 +301,9 @@ class SQLiteControlPlane(
     def create_job(self, job: Job, event: OutboxEvent) -> Job:
         return sqlite_job.create_job(self, job, event)
 
-    def list_claimable_jobs(self, tenant_id: str, agent_id: str, limit: int) -> tuple[Job, ...]:
+    def list_claimable_jobs(
+        self, tenant_id: str, agent_id: str, limit: int
+    ) -> tuple[Job, ...]:
         with self.read_connection() as connection:
             agent = self.get_agent_record(connection, tenant_id, agent_id)
             if agent is None or agent.state is AgentState.REVOKED:
@@ -316,15 +314,9 @@ class SQLiteControlPlane(
                 "AND (state IN (?, ?) OR (state = ? AND "
                 "(lease_until IS NULL OR lease_until <= ?))) "
                 "ORDER BY created_at, job_id LIMIT ?",
-                (
-                    tenant_id,
-                    agent_id,
-                    JobState.PENDING.value,
-                    JobState.FAILED_RETRYABLE.value,
-                    JobState.LEASED.value,
-                    self.now().isoformat(),
-                    limit,
-                ),
+                (tenant_id, agent_id, JobState.PENDING.value,
+                 JobState.FAILED_RETRYABLE.value, JobState.LEASED.value,
+                 self.now().isoformat(), limit),
                 Job,
             )
 
@@ -335,8 +327,7 @@ class SQLiteControlPlane(
         return sqlite_claims.renew_job_lease(self, command)
 
     def put_manifest_record(
-        self, connection: sqlite3.Connection, manifest: RawManifestRecord
-    ) -> None:
+        self, connection: sqlite3.Connection, manifest: RawManifestRecord) -> None:
         current = _fetch_one(
             connection,
             "SELECT data FROM raw_manifests WHERE tenant_id = ? AND manifest_id = ?",
@@ -353,19 +344,11 @@ class SQLiteControlPlane(
             "previous_manifest_sha256, manifest_sha256, created_at, data) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
-                manifest.tenant_id,
-                manifest.manifest_id,
-                manifest.agent_id,
-                manifest.source_type,
-                manifest.file_subtype,
-                manifest.competencia,
-                manifest.snapshot_id,
-                manifest.base_snapshot_id,
-                manifest.sequence,
-                manifest.previous_manifest_sha256,
-                manifest.manifest_sha256,
-                manifest.created_at.isoformat(),
-                serialize_model(manifest),
+                manifest.tenant_id, manifest.manifest_id, manifest.agent_id,
+                manifest.source_type, manifest.file_subtype, manifest.competencia,
+                manifest.snapshot_id, manifest.base_snapshot_id, manifest.sequence,
+                manifest.previous_manifest_sha256, manifest.manifest_sha256,
+                manifest.created_at.isoformat(), serialize_model(manifest),
             ),
         )
 
@@ -379,9 +362,7 @@ class SQLiteControlPlane(
         return sqlite_outbox.read_outbox_page(self, cursor, limit)
 
     def advance_outbox_cursor(
-        self,
-        expected: OutboxCursor | None,
-        next_cursor: OutboxCursor | None,
+        self, expected: OutboxCursor | None, next_cursor: OutboxCursor | None,
     ) -> bool:
         return sqlite_outbox.advance_outbox_cursor(self, expected, next_cursor)
 
@@ -465,22 +446,25 @@ class SQLiteControlPlane(
         return sqlite_claims.reserve_run_dispatch(self, command)
 
     def claim_run_dispatch_start(self, command: ClaimRunDispatchStart) -> RunDispatch | None:
-        return sqlite_claims.claim_run_dispatch_start(self, command)
+        return sqlite_dispatch_start.claim_start(self, command)
 
     def cancel_reserved_run_dispatch(
         self,
         command: CancelReservedRunDispatch,
     ) -> RunDispatch | None:
-        return sqlite_claims.cancel_reserved_run_dispatch(self, command)
+        return sqlite_dispatch_start.cancel_reserved(self, command)
 
     def bind_run_dispatch(self, command: BindRunDispatch) -> RunDispatch:
-        return sqlite_claims.bind_run_dispatch(self, command)
+        return sqlite_dispatch_start.bind_run_dispatch(self, command)
 
     def finish_run_dispatch(self, command: FinishRunDispatch) -> RunDispatch:
-        return sqlite_claims.finish_run_dispatch(self, command)
+        return sqlite_dispatch_start.finish_run_dispatch(self, command)
+
+    def get_run_dispatch(self, tenant_id: str, run_id: str) -> RunDispatch | None:
+        return sqlite_dispatch_start.get_run_dispatch(self, tenant_id, run_id)
 
     def get_active_run_dispatch(self, tenant_id: str, run_id: str) -> RunDispatch | None:
-        return sqlite_claims.get_active_run_dispatch(self, tenant_id, run_id)
+        return sqlite_dispatch_start.get_active_run_dispatch(self, tenant_id, run_id)
 
     def begin_idempotency(self, command: BeginIdempotency) -> IdempotencyOutcome:
         return sqlite_idempotency.begin_idempotency(self, command)
@@ -494,7 +478,9 @@ class SQLiteControlPlane(
     def get_dataset_version(
         self, tenant_id: str, dataset_name: str, version_id: str
     ) -> DatasetVersion | None:
-        return sqlite_publication.get_dataset_version(self, (tenant_id, dataset_name, version_id))
+        return sqlite_publication.get_dataset_version(
+            self, (tenant_id, dataset_name, version_id)
+        )
 
     def put_access_request(self, request: AccessRequest, event: OutboxEvent) -> None:
         sqlite_publication.put_access_request(self, request, event)
@@ -502,5 +488,7 @@ class SQLiteControlPlane(
     def get_access_request(self, tenant_id: str, request_id: str) -> AccessRequest | None:
         return sqlite_publication.get_access_request(self, tenant_id, request_id)
 
-    def decide_access_request(self, request: AccessRequest, event: OutboxEvent) -> AccessRequest:
+    def decide_access_request(
+        self, request: AccessRequest, event: OutboxEvent
+    ) -> AccessRequest:
         return sqlite_publication.decide_access_request(self, request, event)

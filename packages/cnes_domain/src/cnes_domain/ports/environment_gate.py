@@ -56,6 +56,8 @@ class ExecutionObservation:
 
     presence: ExecutionPresence
     execution_ref: str | None
+    request_sha256: str | None = None
+    evidence: bytes | None = None
 
     def __post_init__(self) -> None:
         if (self.presence is ExecutionPresence.ABSENT) != (self.execution_ref is None):

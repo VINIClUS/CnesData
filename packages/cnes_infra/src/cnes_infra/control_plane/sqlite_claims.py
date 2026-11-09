@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Any, cast
 from cnes_domain.control_plane.entities import RunDispatch, RunUnit
 from cnes_domain.control_plane.enums import (
     AgentState,
-    DispatchOutcome,
     DispatchState,
     JobState,
     RunState,
@@ -19,12 +18,6 @@ from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost
 from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
 from cnes_domain.control_plane.transitions import transition_run, transition_run_unit
 from cnes_infra.control_plane import sqlite_raw_registration
-from cnes_infra.control_plane.sqlite_dispatch import (
-    put_run_dispatch_bind,
-    put_run_dispatch_finish,
-    validate_run_dispatch_bind,
-    validate_run_dispatch_finish,
-)
 from cnes_infra.control_plane.sqlite_schema import (
     deserialize_model,
     put_job_cancellation,
@@ -43,18 +36,14 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from cnes_domain.control_plane.commands import (
-        BindRunDispatch,
         CancelJob,
-        CancelReservedRunDispatch,
         ClaimJob,
-        ClaimRunDispatchStart,
         ClaimRunUnit,
         CommitRunUnit,
         CompleteJob,
         FailJob,
         FailRunUnit,
         FinalizeRunCancellation,
-        FinishRunDispatch,
         PutRunUnits,
         RenewJobLease,
         ReserveRunDispatch,
@@ -81,15 +70,13 @@ def _validate_job_fence(store: Any, connection: Any, command: Any) -> Job:
 def claim_job(store: Any, command: ClaimJob) -> Job | None:
     with store.write_transaction() as connection:
         job = store.get_job_record(connection, command.tenant_id, command.job_id)
-        agent = (
-            None if job is None else store.get_agent_record(connection, job.tenant_id, job.agent_id)
-        )
+        agent = None if job is None else store.get_agent_record(
+            connection, job.tenant_id, job.agent_id)
         if job is None or agent is None or agent.state is AgentState.REVOKED:
             return None
         retryable = job.state in {JobState.PENDING, JobState.FAILED_RETRYABLE}
         expired = job.state is JobState.LEASED and (
-            job.lease_until is None or job.lease_until <= command.now
-        )
+            job.lease_until is None or job.lease_until <= command.now)
         if not retryable and not expired:
             return None
         claimed = job.model_copy(
@@ -117,20 +104,12 @@ def renew_job_lease(store: Any, command: RenewJobLease) -> Job:
 
 def _validate_manifest_identity(job: Job, manifest: Any) -> None:
     expected = (
-        job.tenant_id,
-        job.agent_id,
-        job.source_type,
-        job.file_subtype,
-        job.competencia,
-        job.requested_snapshot_mode,
+        job.tenant_id, job.agent_id, job.source_type,
+        job.file_subtype, job.competencia, job.requested_snapshot_mode,
     )
     actual = (
-        manifest.tenant_id,
-        manifest.agent_id,
-        manifest.source_type,
-        manifest.file_subtype,
-        manifest.competencia,
-        manifest.snapshot_mode,
+        manifest.tenant_id, manifest.agent_id, manifest.source_type,
+        manifest.file_subtype, manifest.competencia, manifest.snapshot_mode,
     )
     if actual != expected:
         raise Conflict(ErrorCode.MANIFEST_IDENTITY_MISMATCH)
@@ -248,8 +227,7 @@ def put_run_units(store: Any, command: PutRunUnits) -> tuple[RunUnit, ...]:
         registry = "\x1e".join(serialize_model(unit) for unit in canonical)
         row = connection.execute(
             "SELECT unit_registry_data FROM runs WHERE tenant_id = ? AND run_id = ?",
-            (command.tenant_id, command.run_id),
-        ).fetchone()
+            (command.tenant_id, command.run_id)).fetchone()
         if current:
             if row[0] != registry:
                 raise Conflict(ErrorCode.UNITS_CONFLICT)
@@ -260,12 +238,11 @@ def put_run_units(store: Any, command: PutRunUnits) -> tuple[RunUnit, ...]:
             _put_run_unit(connection, unit)
         connection.execute(
             "UPDATE runs SET unit_registry_data = ? WHERE tenant_id = ? AND run_id = ?",
-            (registry, command.tenant_id, command.run_id),
-        )
+            (registry, command.tenant_id, command.run_id))
         return canonical
 
 
-def _get_dispatch(connection: Any, tenant_id: str, run_id: str) -> RunDispatch | None:
+def read_dispatch_record(connection: Any, tenant_id: str, run_id: str) -> RunDispatch | None:
     row = connection.execute(
         "SELECT data FROM run_dispatches WHERE tenant_id = ? AND run_id = ?",
         (tenant_id, run_id),
@@ -273,7 +250,7 @@ def _get_dispatch(connection: Any, tenant_id: str, run_id: str) -> RunDispatch |
     return None if row is None else deserialize_model(row[0], RunDispatch)
 
 
-def _put_dispatch(connection: Any, dispatch: RunDispatch) -> None:
+def write_dispatch_record(connection: Any, dispatch: RunDispatch) -> None:
     connection.execute(
         "INSERT INTO run_dispatches (tenant_id, run_id, dispatch_id, wave_id, generation, "
         "state, lease_until, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
@@ -316,8 +293,16 @@ def reserve_run_dispatch(store: Any, command: ReserveRunDispatch) -> RunDispatch
         if any(unit_id not in registered for unit_id in command.unit_ids):
             raise Conflict(ErrorCode.DISPATCH_UNIT_MISSING)
         validate_run_dispatch_wave(connection, command)
-        current = _get_dispatch(connection, command.tenant_id, command.run_id)
+        current = read_dispatch_record(connection, command.tenant_id, command.run_id)
         same_wave = current is not None and current.wave_id == command.wave_id
+        if (
+            current is not None
+            and current.start_claim is not None
+            and current.state is not DispatchState.TERMINAL
+        ):
+            if same_wave:
+                return current
+            raise Conflict(ErrorCode.DISPATCH_LIVE)
         replay = (
             same_wave
             and cast("RunDispatch", current).lease_until > command.now
@@ -346,119 +331,8 @@ def reserve_run_dispatch(store: Any, command: ReserveRunDispatch) -> RunDispatch
             state=DispatchState.RESERVED,
             lease_until=command.now + timedelta(seconds=command.lease_seconds),
         )
-        _put_dispatch(connection, dispatch)
+        write_dispatch_record(connection, dispatch)
         return dispatch
-
-
-def get_active_run_dispatch(store: Any, tenant_id: str, run_id: str) -> RunDispatch | None:
-    with store.read_connection() as connection:
-        row = connection.execute(
-            "SELECT d.data FROM run_dispatches d JOIN runs r "
-            "ON r.tenant_id = d.tenant_id AND r.run_id = d.run_id "
-            "WHERE d.tenant_id = ? AND d.run_id = ? AND r.state = ?",
-            (tenant_id, run_id, RunState.PROCESSING.value),
-        ).fetchone()
-    dispatch = None if row is None else deserialize_model(row[0], RunDispatch)
-    if dispatch is None or dispatch.state is DispatchState.TERMINAL:
-        return None
-    if dispatch.state in {DispatchState.RESERVED, DispatchState.STARTING}:
-        return dispatch
-    return dispatch if dispatch.lease_until > store.now() else None
-
-
-def bind_run_dispatch(store: Any, command: BindRunDispatch) -> RunDispatch:
-    with store.write_transaction() as connection:
-        replay = validate_run_dispatch_bind(connection, command)
-        if replay is not None:
-            return replay
-        run = store.get_run_record(connection, command.tenant_id, command.run_id)
-        if run is None or run.state is not RunState.PROCESSING:
-            raise Conflict(ErrorCode.PARENT_NOT_PROCESSING)
-        dispatch = _get_dispatch(connection, command.tenant_id, command.run_id)
-        if dispatch is None or dispatch.dispatch_id != command.dispatch_id:
-            raise Conflict(ErrorCode.DISPATCH_STALE)
-        if dispatch.lease_until <= command.now:
-            raise Conflict(ErrorCode.DISPATCH_EXPIRED)
-        if dispatch.state is not DispatchState.RESERVED:
-            if dispatch.state is DispatchState.STARTED and command.claim == dispatch.start_claim:
-                return dispatch
-            raise Conflict(ErrorCode.DISPATCH_TERMINAL)
-        if command.claim is not None and dispatch.start_claim != command.claim:
-            raise Conflict(ErrorCode.DISPATCH_BINDING_CONFLICT)
-        started = dispatch.model_copy(
-            update={
-                "state": DispatchState.STARTED,
-                "execution_ref": command.execution_ref,
-                "lease_until": command.now + timedelta(seconds=command.lease_seconds),
-                "start_claim": command.claim,
-            }
-        )
-        _put_dispatch(connection, started)
-        put_run_dispatch_bind(connection, command, started)
-        return started
-
-
-def claim_run_dispatch_start(
-    store: Any,
-    command: ClaimRunDispatchStart,
-) -> RunDispatch | None:
-    with store.write_transaction() as connection:
-        dispatch = _get_dispatch(connection, command.tenant_id, command.run_id)
-        if dispatch is None or dispatch.dispatch_id != command.dispatch_id:
-            return None
-        if dispatch.state is DispatchState.STARTING and dispatch.start_claim == command.claim:
-            return dispatch
-        if dispatch.state is not DispatchState.RESERVED:
-            return None
-        if dispatch.lease_until <= command.now or dispatch.generation != command.claim.generation:
-            return None
-        claimed = dispatch.model_copy(
-            update={"state": DispatchState.STARTING, "start_claim": command.claim}
-        )
-        _put_dispatch(connection, claimed)
-        return claimed
-
-
-def cancel_reserved_run_dispatch(
-    store: Any,
-    command: CancelReservedRunDispatch,
-) -> RunDispatch | None:
-    with store.write_transaction() as connection:
-        dispatch = _get_dispatch(connection, command.tenant_id, command.run_id)
-        if dispatch is None or dispatch.dispatch_id != command.dispatch_id:
-            return None
-        if (
-            dispatch.state is not DispatchState.RESERVED
-            or dispatch.generation != command.claim.generation
-        ):
-            return None
-        canceled = dispatch.model_copy(
-            update={"state": DispatchState.TERMINAL, "terminal_outcome": DispatchOutcome.CANCELED}
-        )
-        _put_dispatch(connection, canceled)
-        return canceled
-
-
-def finish_run_dispatch(store: Any, command: FinishRunDispatch) -> RunDispatch:
-    with store.write_transaction() as connection:
-        replay = validate_run_dispatch_finish(connection, command)
-        if replay is not None:
-            return replay
-        dispatch = _get_dispatch(connection, command.tenant_id, command.run_id)
-        if dispatch is None or dispatch.dispatch_id != command.dispatch_id:
-            raise Conflict(ErrorCode.DISPATCH_STALE)
-        if dispatch.lease_until <= command.finished_at:
-            raise Conflict(ErrorCode.DISPATCH_EXPIRED)
-        if dispatch.state is DispatchState.STARTING and command.claim != dispatch.start_claim:
-            raise Conflict(ErrorCode.DISPATCH_BINDING_CONFLICT)
-        if command.claim is not None and command.claim != dispatch.start_claim:
-            raise Conflict(ErrorCode.DISPATCH_BINDING_CONFLICT)
-        finished = dispatch.model_copy(
-            update={"state": DispatchState.TERMINAL, "terminal_outcome": command.outcome}
-        )
-        _put_dispatch(connection, finished)
-        put_run_dispatch_finish(connection, command, finished)
-        return finished
 
 
 def claim_run_unit(store: Any, command: ClaimRunUnit) -> RunUnit | None:
@@ -466,7 +340,7 @@ def claim_run_unit(store: Any, command: ClaimRunUnit) -> RunUnit | None:
         units = _list_run_units(connection, command.tenant_id, command.run_id)
         unit = next((item for item in units if item.unit_id == command.unit_id), None)
         run = store.get_run_record(connection, command.tenant_id, command.run_id)
-        dispatch = _get_dispatch(connection, command.tenant_id, command.run_id)
+        dispatch = read_dispatch_record(connection, command.tenant_id, command.run_id)
         valid_dispatch = (
             dispatch is not None
             and dispatch.dispatch_id == command.dispatch_id
@@ -505,7 +379,7 @@ def _validate_unit_fence(store: Any, connection: Any, command: Any) -> tuple[Run
     units = _list_run_units(connection, command.tenant_id, command.run_id)
     unit = next((item for item in units if item.unit_id == command.unit_id), None)
     run = store.get_run_record(connection, command.tenant_id, command.run_id)
-    dispatch = _get_dispatch(connection, command.tenant_id, command.run_id)
+    dispatch = read_dispatch_record(connection, command.tenant_id, command.run_id)
     if run is None or run.state is not RunState.PROCESSING:
         raise LeaseLost(ErrorCode.PARENT_NOT_PROCESSING)
     if dispatch is None or dispatch.dispatch_id != command.dispatch_id:
@@ -531,12 +405,8 @@ def _validate_unit_fence(store: Any, connection: Any, command: Any) -> tuple[Run
 def commit_run_unit(store: Any, command: CommitRunUnit, event: OutboxEvent) -> RunUnit:
     with store.write_transaction() as connection:
         current = next(
-            (
-                unit
-                for unit in _list_run_units(connection, command.tenant_id, command.run_id)
-                if unit.unit_id == command.unit_id
-            ),
-            None,
+            (unit for unit in _list_run_units(connection, command.tenant_id, command.run_id)
+             if unit.unit_id == command.unit_id), None
         )
         if current is not None and current.state is RunUnitState.SUCCEEDED:
             return validate_run_unit_terminal_replay(connection, current, command, event)
@@ -557,12 +427,8 @@ def commit_run_unit(store: Any, command: CommitRunUnit, event: OutboxEvent) -> R
 def fail_run_unit(store: Any, command: FailRunUnit, event: OutboxEvent) -> RunUnit:
     with store.write_transaction() as connection:
         current = next(
-            (
-                unit
-                for unit in _list_run_units(connection, command.tenant_id, command.run_id)
-                if unit.unit_id == command.unit_id
-            ),
-            None,
+            (unit for unit in _list_run_units(connection, command.tenant_id, command.run_id)
+             if unit.unit_id == command.unit_id), None
         )
         terminal = {
             RunUnitState.FAILED_RETRYABLE,
@@ -605,18 +471,15 @@ def finalize_run_cancellation(
         if run is None or run.state is not RunState.CANCEL_REQUESTED:
             raise Conflict(ErrorCode.RUN_NOT_CANCELING)
         terminal = {
-            RunUnitState.SUCCEEDED,
-            RunUnitState.SUCCEEDED_DEGRADED,
-            RunUnitState.FAILED_FINAL,
-            RunUnitState.CANCELED,
+            RunUnitState.SUCCEEDED, RunUnitState.SUCCEEDED_DEGRADED,
+            RunUnitState.FAILED_FINAL, RunUnitState.CANCELED,
         }
         units = _list_run_units(connection, command.tenant_id, command.run_id)
         store.put_outbox_event(connection, event, command.tenant_id)
         for unit in units:
             if unit.state not in terminal:
                 canceled = transition_run_unit(unit, RunUnitState.CANCELED, run).model_copy(
-                    update={"lease_owner": None, "lease_until": None}
-                )
+                    update={"lease_owner": None, "lease_until": None})
                 _put_run_unit(connection, canceled)
         canceled_run = transition_run(run, RunState.CANCELED)
         store.put_run_record(connection, canceled_run)

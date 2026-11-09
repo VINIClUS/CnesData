@@ -109,3 +109,56 @@ def test_revogacao_cancela_executor_de_dispatch_started_com_lease_expirado(env: 
 
     assert executor.refs() == {(RUN_ID, dispatch.execution_ref)}
     assert stored_run(env, RUN_ID).state is RunState.CANCELED
+
+
+@pytest.mark.parametrize("bound", [False, True])
+def test_revogacao_preserva_claim_e_permit_ate_reconciliacao_nativa(env, bound):
+    from cnes_domain.control_plane.commands import BindRunDispatch, ClaimRunDispatchStart
+    from cnes_domain.control_plane.dispatch_start import DispatchStartClaim
+    from cnes_domain.control_plane.environment_gate import AcquireUnitPermit, PermitHolder
+    from packages.cnes_infra.tests.billing.revocation_support import bind_command, reserve_wave
+
+    create_run(env)
+    put_units(env, (make_unit("unit-a"),))
+    dispatch = reserve_wave(env, ("unit-a",), None)
+    holder = PermitHolder(TENANT, RUN_ID, dispatch.dispatch_id, dispatch.generation, "a" * 64)
+    permit = env.plane.acquire_unit_permit(
+        AcquireUnitPermit("prod", holder, env.clock.now(), 300)
+    ).permit
+    claim = DispatchStartClaim(
+        dispatch_id=dispatch.dispatch_id,
+        generation=dispatch.generation,
+        permit_token=permit.token,
+        fence_version=0,
+        request_sha256="a" * 64,
+    )
+    env.plane.claim_run_dispatch_start(
+        ClaimRunDispatchStart(
+            tenant_id=TENANT,
+            run_id=RUN_ID,
+            dispatch_id=dispatch.dispatch_id,
+            claim=claim,
+            now=env.clock.now(),
+            lease_seconds=300,
+        )
+    )
+    if bound:
+        env.plane.bind_run_dispatch(
+            BindRunDispatch(
+                tenant_id=TENANT,
+                run_id=RUN_ID,
+                dispatch_id=dispatch.dispatch_id,
+                execution_ref="exec-1",
+                now=env.clock.now(),
+                lease_seconds=300,
+                claim=claim,
+            )
+        )
+        env.plane.bind_run_execution(bind_command(env, dispatch, "exec-1", None))
+    executor = RecordingExecutor()
+    build_service(env, executor).revoke(COMMAND)
+    settled = env.plane.get_run_dispatch(TENANT, RUN_ID)
+    assert settled.start_claim == claim
+    assert settled.state is DispatchState.TERMINAL
+    assert env.plane.observe_environment_gate("prod").permit is not None
+    assert env.plane.observe_environment_gate("prod").settlement is None

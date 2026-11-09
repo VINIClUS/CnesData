@@ -50,7 +50,6 @@ OTHER = PermitHolder("354130", "run-02", "fedcba9876543210")
 _GATE_OPERATIONS = {"get_item", "update_item", "transact_write_items"}
 type _Gate = tuple[DynamoDBControlPlane, "ScriptedClient"]
 
-
 class ScriptedClient:
     """Repassa ao moto, registra chamadas e executa efeitos injetados antes de cada uma."""
 
@@ -80,7 +79,6 @@ class ScriptedClient:
 
         return call
 
-
 def _raise(code: str, *reasons: str) -> Callable[[], object]:
     def effect() -> object:
         response: dict[str, Any] = {"Error": {"Code": code, "Message": code}}
@@ -90,7 +88,6 @@ def _raise(code: str, *reasons: str) -> Callable[[], object]:
 
     return effect
 
-
 @pytest.fixture
 def gate() -> Iterator[_Gate]:
     with mock_aws():
@@ -99,33 +96,27 @@ def gate() -> Iterator[_Gate]:
         scripted = ScriptedClient(client)
         yield DynamoDBControlPlane(scripted, _TABLE_NAME, lambda: NOW), scripted
 
-
 def _acquire(
     holder: PermitHolder = HOLDER, *, canary: str | None = None, now: datetime = NOW,
 ) -> AcquireUnitPermit:
     return AcquireUnitPermit(ENV, holder, now, 300, canary)
 
-
 def _permit(acquisition: PermitAcquisition) -> UnitPermit:
     assert acquisition.permit is not None
     return acquisition.permit
-
 
 def _raw(client: ScriptedClient, key: tuple[str, str]) -> dict[str, Any]:
     response = client.client.get_item(TableName=_TABLE_NAME, Key=item_key(*key))
     return response["Item"]
 
-
 def _rival(client: ScriptedClient) -> DynamoDBControlPlane:
     return DynamoDBControlPlane(client.client, _TABLE_NAME, lambda: NOW)
-
 
 def test_chaves_do_gate_sao_texto_puro_em_particoes_distintas() -> None:
     assert fence_key("prod") == ("ENV#prod#FENCE", "FENCE")
     assert semaphore_key("prod") == ("ENV#prod#SEMAPHORE", "UNIT")
     assert attempts_key("prod", "2026-10") == ("ENV#prod#ATTEMPTS", "MONTH#2026-10")
     assert OUTBOX_CURSOR_KEY == ("OUTBOX#CURSOR", "CURSOR")
-
 
 @pytest.mark.parametrize("environment", ["", "Prod", "prod#x", "prod/x", "1prod", "a" * 33])
 @pytest.mark.parametrize(
@@ -137,18 +128,15 @@ def test_ambiente_invalido_nao_vira_chave(
     with pytest.raises(ValueError, match="reason=invalid_environment"):
         build(environment)
 
-
 @pytest.mark.parametrize("period", ["2026-13", "2026-00", "2026-1", "202610", "2026-10-01", ""])
 def test_periodo_invalido_nao_vira_chave(period: str) -> None:
     with pytest.raises(ValueError, match="reason=invalid_period"):
         attempts_key("prod", period)
 
-
 def test_adapter_implementa_a_porta_do_gate(gate: _Gate) -> None:
     adapter, _ = gate
 
     assert isinstance(adapter, EnvironmentGatePort)
-
 
 def test_ambiente_sem_itens_e_fence_aberto_sem_permit(gate: _Gate) -> None:
     adapter, client = gate
@@ -161,7 +149,6 @@ def test_ambiente_sem_itens_e_fence_aberto_sem_permit(gate: _Gate) -> None:
         item_key(*fence_key(ENV)), item_key(*semaphore_key(ENV)),
     ]
     assert all(request["ConsistentRead"] is True for request in client.requests("get_item"))
-
 
 def test_acquire_e_uma_transacao_de_fence_e_semaforo(gate: _Gate) -> None:
     adapter, client = gate
@@ -179,7 +166,6 @@ def test_acquire_e_uma_transacao_de_fence_e_semaforo(gate: _Gate) -> None:
     assert claim["UpdateExpression"].endswith(" ADD #token :one")
     assert adapter.observe_environment_gate(ENV).permit == expected
 
-
 def test_mesmo_dispatch_reentra_mesmo_com_fence_fechado(gate: _Gate) -> None:
     adapter, _ = gate
     first = _permit(adapter.acquire_unit_permit(_acquire()))
@@ -191,7 +177,6 @@ def test_mesmo_dispatch_reentra_mesmo_com_fence_fechado(gate: _Gate) -> None:
     assert again == PermitAcquisition(AcquisitionStatus.REENTERED, first)
     assert other == PermitAcquisition(AcquisitionStatus.FENCE_CLOSED, first)
 
-
 def test_lease_vencido_nao_permite_takeover(gate: _Gate) -> None:
     adapter, _ = gate
     first = _permit(adapter.acquire_unit_permit(_acquire()))
@@ -200,7 +185,6 @@ def test_lease_vencido_nao_permite_takeover(gate: _Gate) -> None:
 
     assert late == PermitAcquisition(AcquisitionStatus.HELD, first)
     assert adapter.observe_environment_gate(ENV).permit == first
-
 
 def test_fence_fechado_so_admite_o_canary_vinculado(gate: _Gate) -> None:
     adapter, _ = gate
@@ -218,9 +202,10 @@ def test_fence_fechado_so_admite_o_canary_vinculado(gate: _Gate) -> None:
     )
     assert adapter.bind_unit_permit(BindUnitPermit(ENV, permit.token, "exec-canary", NOW)) is True
     assert adapter.observe_environment_gate(ENV).permit == replace(
-        permit, execution_ref="exec-canary",
+        permit,
+        execution_ref="exec-canary",
+        start_state="STARTED",
     )
-
 
 def test_bind_renew_release_sao_condicionais_no_token(gate: _Gate) -> None:
     adapter, _ = gate
@@ -234,14 +219,16 @@ def test_bind_renew_release_sao_condicionais_no_token(gate: _Gate) -> None:
     assert adapter.renew_unit_permit(RenewUnitPermit(ENV, token + 1, LATER, 600)) is False
     assert adapter.renew_unit_permit(RenewUnitPermit(ENV, token, LATER, 600)) is True
     assert adapter.observe_environment_gate(ENV).permit == replace(
-        permit, execution_ref="exec-1", lease_until=LATER + timedelta(seconds=600),
+        permit,
+        execution_ref="exec-1",
+        start_state="STARTED",
+        lease_until=LATER + timedelta(seconds=600),
     )
     assert adapter.release_unit_permit(ReleaseUnitPermit(ENV, token + 1, LATER)) is False
     assert adapter.release_unit_permit(ReleaseUnitPermit(ENV, token, LATER)) is True
     assert adapter.release_unit_permit(ReleaseUnitPermit(ENV, token, LATER)) is False
     assert adapter.renew_unit_permit(RenewUnitPermit(ENV, token, LATER, 600)) is False
     assert adapter.observe_environment_gate(ENV).permit is None
-
 
 def test_reanchor_e_condicional_no_token_e_no_permit_sem_bind(gate: _Gate) -> None:
     adapter, client = gate
@@ -259,10 +246,10 @@ def test_reanchor_e_condicional_no_token_e_no_permit_sem_bind(gate: _Gate) -> No
     assert write["UpdateExpression"] == "SET #acquired = :now, #updated = :now"
     assert write["ConditionExpression"] == (
         "#token = :token AND attribute_exists(#holder_dispatch) "
-        "AND attribute_not_exists(#execution_ref) AND #acquired <= :now"
+        "AND attribute_not_exists(#execution_ref) AND #acquired <= :now "
+        "AND (attribute_not_exists(#start) OR #start = :reserved)"
     )
     assert {"put_item", "delete_item", "scan"}.isdisjoint(client.operations())
-
 
 def test_reanchor_nunca_recua_o_anchor(gate: _Gate) -> None:
     adapter, _ = gate
@@ -275,7 +262,6 @@ def test_reanchor_nunca_recua_o_anchor(gate: _Gate) -> None:
     assert adapter.reanchor_unit_permit(ReanchorUnitPermit(ENV, permit.token, later)) is True
     assert adapter.observe_environment_gate(ENV).permit == replace(permit, acquired_at=later)
 
-
 def test_release_por_ausencia_exige_o_anchor_e_o_permit_sem_bind(gate: _Gate) -> None:
     adapter, _ = gate
     token = _permit(adapter.acquire_unit_permit(_acquire())).token
@@ -286,8 +272,9 @@ def test_release_por_ausencia_exige_o_anchor_e_o_permit_sem_bind(gate: _Gate) ->
     bound = _permit(adapter.acquire_unit_permit(_acquire(OTHER)))
     adapter.bind_unit_permit(BindUnitPermit(ENV, bound.token, "exec-2", NOW))
     assert adapter.release_unit_permit(ReleaseUnitPermit(ENV, bound.token, LATER, NOW)) is False
-    assert adapter.observe_environment_gate(ENV).permit == replace(bound, execution_ref="exec-2")
-
+    assert adapter.observe_environment_gate(ENV).permit == replace(
+        bound, execution_ref="exec-2", start_state="STARTED"
+    )
 
 def test_release_preserva_item_e_token_monotonico_sem_ttl(gate: _Gate) -> None:
     adapter, client = gate
@@ -302,12 +289,16 @@ def test_release_preserva_item_e_token_monotonico_sem_ttl(gate: _Gate) -> None:
     assert adapter.release_unit_permit(ReleaseUnitPermit(ENV, 1, LATER)) is False
     assert "delete_item" not in client.operations()
 
-
 def test_close_e_reopen_usam_cas_de_versao_no_fence(gate: _Gate) -> None:
     adapter, client = gate
 
     assert adapter.close_promotion_fence(ClosePromotionFence(ENV, PROMOTION, NOW)) is True
-    assert client.requests("update_item")[-1]["ConditionExpression"] == "attribute_not_exists(pk)"
+    assert (
+        client.requests("transact_write_items")[-1]["TransactItems"][0]["Update"][
+            "ConditionExpression"
+        ]
+        == "attribute_not_exists(pk)"
+    )
     assert adapter.close_promotion_fence(ClosePromotionFence(ENV, OTHER_PROMOTION, LATER)) is False
     assert adapter.reopen_promotion_fence(
         ReopenPromotionFence(ENV, OTHER_PROMOTION, LATER),
@@ -317,13 +308,28 @@ def test_close_e_reopen_usam_cas_de_versao_no_fence(gate: _Gate) -> None:
     assert last_write["ConditionExpression"] == "#version = :expected"
     assert last_write["ExpressionAttributeValues"][":expected"] == {"N": "1"}
     assert adapter.observe_environment_gate(ENV).fence == PromotionFence(
-        ENV, FenceState.OPEN, PROMOTION, 2, LATER,
+        ENV,
+        FenceState.OPEN,
+        PROMOTION,
+        2,
+        LATER,
+        closed_membership_sha256="37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        close_receipt=adapter.observe_environment_gate(ENV).fence.close_receipt,
     )
     assert set(_raw(client, fence_key(ENV))) == {
-        "pk", "sk", "entity", "state", "promotion_id", "version", "changed_at",
+        "pk",
+        "sk",
+        "entity",
+        "state",
+        "promotion_id",
+        "version",
+        "changed_at",
+        "closed_membership",
+        "closed_membership_sha256",
+        "close_receipt",
     }
-    assert len(client.requests("update_item")) == 2
-
+    assert len(client.requests("update_item")) == 1
+    assert len(client.requests("transact_write_items")) == 1
 
 def test_replay_de_close_e_reopen_nao_regrava_o_fence(gate: _Gate) -> None:
     adapter, client = gate
@@ -334,8 +340,8 @@ def test_replay_de_close_e_reopen_nao_regrava_o_fence(gate: _Gate) -> None:
     assert adapter.close_promotion_fence(close) is True
     assert adapter.reopen_promotion_fence(reopen) is True
     assert adapter.reopen_promotion_fence(reopen) is True
-    assert len(client.requests("update_item")) == 2
-
+    assert len(client.requests("update_item")) == 1
+    assert len(client.requests("transact_write_items")) == 1
 
 def test_close_atrasado_apos_reopen_da_mesma_promocao_nao_refecha(gate: _Gate) -> None:
     adapter, client = gate
@@ -345,10 +351,16 @@ def test_close_atrasado_apos_reopen_da_mesma_promocao_nao_refecha(gate: _Gate) -
     assert adapter.reopen_promotion_fence(ReopenPromotionFence(ENV, PROMOTION, LATER)) is True
     assert adapter.close_promotion_fence(close) is False
     assert adapter.observe_environment_gate(ENV).fence == PromotionFence(
-        ENV, FenceState.OPEN, PROMOTION, 2, LATER,
+        ENV,
+        FenceState.OPEN,
+        PROMOTION,
+        2,
+        LATER,
+        closed_membership_sha256="37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        close_receipt=adapter.observe_environment_gate(ENV).fence.close_receipt,
     )
-    assert len(client.requests("update_item")) == 2
-
+    assert len(client.requests("update_item")) == 1
+    assert len(client.requests("transact_write_items")) == 1
 
 def test_reopen_de_fence_nunca_fechado_e_rejeitado_sem_escrita(gate: _Gate) -> None:
     adapter, client = gate
@@ -356,20 +368,18 @@ def test_reopen_de_fence_nunca_fechado_e_rejeitado_sem_escrita(gate: _Gate) -> N
     assert adapter.reopen_promotion_fence(ReopenPromotionFence(ENV, PROMOTION, NOW)) is False
     assert "update_item" not in client.operations()
 
-
 @pytest.mark.parametrize(("rival", "expected"), [(PROMOTION, True), (OTHER_PROMOTION, False)])
 def test_cas_perdido_rele_e_reavalia_o_fence(gate: _Gate, rival: str, expected: bool) -> None:
     adapter, client = gate
     competitor = _rival(client)
     client.inject(
-        "update_item",
+        "transact_write_items",
         lambda: competitor.close_promotion_fence(ClosePromotionFence(ENV, rival, NOW)),
     )
 
     assert adapter.close_promotion_fence(ClosePromotionFence(ENV, PROMOTION, NOW)) is expected
     assert adapter.observe_environment_gate(ENV).fence.promotion_id == rival
-    assert len(client.requests("update_item")) == 1
-
+    assert len(client.requests("transact_write_items")) == 1
 
 def test_conflito_transacional_no_update_e_retentado(gate: _Gate) -> None:
     adapter, client = gate
@@ -378,7 +388,6 @@ def test_conflito_transacional_no_update_e_retentado(gate: _Gate) -> None:
 
     assert adapter.bind_unit_permit(BindUnitPermit(ENV, 1, "exec-1", NOW)) is True
     assert len(client.requests("update_item")) == 2
-
 
 @pytest.mark.parametrize(
     "change",
@@ -392,7 +401,17 @@ def test_conflito_transacional_persistente_esgota_tentativas(
 ) -> None:
     adapter, client = gate
     adapter.acquire_unit_permit(_acquire())
-    client.inject("update_item", *(_raise("TransactionConflictException") for _ in range(3)))
+    operation = (
+        "transact_write_items"
+        if "close_promotion_fence" in change.__code__.co_names
+        else "update_item"
+    )
+    error = (
+        _raise("TransactionCanceledException", "TransactionConflict")
+        if operation == "transact_write_items"
+        else _raise("TransactionConflictException")
+    )
+    client.inject(operation, *(error for _ in range(3)))
 
     with pytest.raises(Conflict) as error:
         change(adapter)
@@ -400,14 +419,12 @@ def test_conflito_transacional_persistente_esgota_tentativas(
     assert error.value.code is ErrorCode.TRANSACTION_CONFLICT
     assert adapter.observe_environment_gate(ENV).permit is not None
 
-
 def test_erro_inesperado_no_update_propaga(gate: _Gate) -> None:
     adapter, client = gate
     client.inject("update_item", _raise("ProvisionedThroughputExceededException"))
 
     with pytest.raises(ClientError, match="ProvisionedThroughputExceededException"):
         adapter.renew_unit_permit(RenewUnitPermit(ENV, 1, NOW, 300))
-
 
 @pytest.mark.parametrize(
     "reasons", [("None", "TransactionConflict"), ("ConditionalCheckFailed", "None")],

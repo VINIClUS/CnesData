@@ -170,10 +170,16 @@ def _finalize_billing_revocation(
     executor.cancel(CancelRunExecution(
         tenant_id=_TENANT, run_id=_RUN_ID, execution_ref=dispatch.execution_ref,
     ))
-    adapter.finish_run_dispatch(FinishRunDispatch(
-        tenant_id=_TENANT, run_id=_RUN_ID, dispatch_id=dispatch.dispatch_id,
-        outcome=DispatchOutcome.CANCELED, finished_at=now,
-    ))
+    adapter.finish_run_dispatch(
+        FinishRunDispatch(
+            tenant_id=_TENANT,
+            run_id=_RUN_ID,
+            dispatch_id=dispatch.dispatch_id,
+            outcome=DispatchOutcome.CANCELED,
+            finished_at=now,
+            claim=dispatch.start_claim,
+        )
+    )
     adapter.finalize_run_cancellation(FinalizeRunCancellation(
         tenant_id=_TENANT, run_id=_RUN_ID, expected_state=RunState.CANCEL_REQUESTED,
         canceled_at=now,
@@ -261,14 +267,15 @@ def test_erro_ambiguo_na_reentrada_tardia_nao_libera(
     production = _production(coordinator)
     dispatch = _ambiguous_start(adapter, executor, production)
     executor.start_error = ReadTimeoutError(endpoint_url=_ENDPOINT)
+    anchor = _held(gate).acquired_at
     clock.advance(timedelta(minutes=30))
 
-    with pytest.raises(ReadTimeoutError):
-        production.resume(_TENANT, _RUN_ID)
+    result = production.resume(_TENANT, _RUN_ID)
+    assert result.deferred is DeferralReason.PERMIT_HELD
 
     assert _active(adapter).dispatch_id == dispatch.dispatch_id
-    assert executor.calls == ["start", "probe", "start", "probe"]
-    assert (_held(gate).holder, _held(gate).acquired_at) == (_holder(dispatch), clock.now())
+    assert executor.calls == ["start", "probe"]
+    assert (_held(gate).holder, _held(gate).acquired_at) == (_holder(dispatch), anchor)
     executor.statuses[f"exec-{dispatch.dispatch_id}"] = ExecutionStatus.RUNNING
     assert _rival(gate, executor).admit(_NEXT, clock.now()) == _PERMIT_HELD
 
@@ -287,20 +294,23 @@ def test_reentrada_sem_bind_com_fence_fechado_nao_inicia_execucao_nova(
     results = production.recover(limit=10)
 
     assert [(result.state, result.execution_ref, result.deferred) for result in results] == (
-        _FENCE_DEFERRED
+        [(RunState.PROCESSING, None, DeferralReason.PERMIT_HELD)]
     )
     assert (executor.calls.count("start"), executor.statuses) == (1, {})
     assert (_held(gate).holder, _held(gate).acquired_at) == (_holder(dispatch), anchor)
     clock.advance(anchor + _GRACE - clock.now())
     assert [result.deferred for result in production.recover(limit=10)] == [
-        DeferralReason.FENCE_CLOSED,
+        DeferralReason.PERMIT_HELD,
     ]
-    assert _permit(gate) is None
+    assert _held(gate).holder == _holder(dispatch)
 
 
-def test_reentrada_sem_bind_com_execucao_viva_e_fence_fechado_retoma_a_mesma_execucao(
-    adapter: SQLiteControlPlane, executor: _StepFunctions, gate: DynamoDBControlPlane,
-    coordinator: PipelineCoordinator, clock: _MutableClock,
+def test_reentrada_sem_reconciliador_nativo_mantem_claim_sem_reenviar(
+    adapter: SQLiteControlPlane,
+    executor: _StepFunctions,
+    gate: DynamoDBControlPlane,
+    coordinator: PipelineCoordinator,
+    clock: _MutableClock,
 ) -> None:
     production = _production(coordinator)
     dispatch = _ambiguous_start(adapter, executor, production)
@@ -311,10 +321,10 @@ def test_reentrada_sem_bind_com_execucao_viva_e_fence_fechado_retoma_a_mesma_exe
 
     result = production.resume(_TENANT, _RUN_ID)
 
-    assert (result.execution_ref, result.deferred) == (reference, None)
-    assert executor.calls == ["start", "probe", "probe", "start"]
+    assert (result.execution_ref, result.deferred) == (None, DeferralReason.PERMIT_HELD)
+    assert executor.calls == ["start", "probe"]
     assert executor.statuses == {reference: ExecutionStatus.RUNNING}
-    assert (_held(gate).holder, _held(gate).execution_ref) == (_holder(dispatch), reference)
+    assert (_held(gate).holder, _held(gate).execution_ref) == (_holder(dispatch), None)
 
 
 def test_reconcile_abre_a_passada_antes_de_listar_os_runs(
