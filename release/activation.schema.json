@@ -1,0 +1,427 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Activation pós-Phase A com referências históricas assinadas",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "project",
+    "environment",
+    "schema_version",
+    "repository",
+    "release_id",
+    "source_sha",
+    "candidate_sha256",
+    "binding_sha256",
+    "canary_id",
+    "derivation",
+    "revisions",
+    "ecr_uri",
+    "phase_a_evidence_digest",
+    "inputs"
+  ],
+  "properties": {
+    "project": {"type": "string", "const": "cnesdata"},
+    "environment": {"type": "string", "const": "prod"},
+    "schema_version": {"type": "integer", "const": 1},
+    "repository": {"type": "string", "const": "VINIClUS/CnesData"},
+    "release_id": {
+      "type": "string",
+      "pattern": "^candidate-[0-9a-f]{40}-[1-9][0-9]*-[1-9][0-9]*$",
+      "maxLength": 512
+    },
+    "source_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "candidate_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "binding_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "canary_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+    "derivation": {"type": "string", "const": "cnesdata:prod:canary:v1"},
+    "revisions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["unit", "recovery", "audit"],
+      "properties": {
+        "unit": {
+          "type": "string",
+          "pattern":
+          "^arn:aws:ecs:us-east-2:[0-9]{12}:task-definition/[A-Za-z0-9_-]{1,255}:[1-9][0-9]{0,9}$"
+        },
+        "recovery": {
+          "type": "string",
+          "pattern":
+          "^arn:aws:ecs:us-east-2:[0-9]{12}:task-definition/[A-Za-z0-9_-]{1,255}:[1-9][0-9]{0,9}$"
+        },
+        "audit": {
+          "type": "string",
+          "pattern":
+          "^arn:aws:ecs:us-east-2:[0-9]{12}:task-definition/[A-Za-z0-9_-]{1,255}:[1-9][0-9]{0,9}$"
+        }
+      }
+    },
+    "ecr_uri": {
+      "type": "string",
+      "pattern":
+      "^[0-9]{12}\\.dkr\\.ecr\\.us-east-2\\.amazonaws\\.com/[a-z0-9_./-]+@sha256:[0-9a-f]{64}$"
+    },
+    "phase_a_evidence_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required":
+      ["candidate_reference", "phase_a_reference", "retained_unit_task_definition_arns"],
+      "properties": {
+        "candidate_reference": {"$ref": "#/$defs/reference"},
+        "phase_a_reference": {"$ref": "#/$defs/reference"},
+        "retained_unit_task_definition_arns": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern":
+            "^arn:aws:ecs:us-east-2:[0-9]{12}:task-definition/[A-Za-z0-9_-]{1,255}:[1-9][0-9]{0,9}$"
+          },
+          "maxItems": 128,
+          "uniqueItems": true
+        }
+      }
+    }
+  },
+  "$defs": {
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "run_id",
+        "run_attempt",
+        "artifact_id",
+        "artifact_digest",
+        "workflow_path",
+        "workflow_sha",
+        "source_sha"
+      ],
+      "properties": {
+        "repository": {"type": "string", "const": "VINIClUS/CnesData"},
+        "run_id": {"type": "string", "pattern": "^[1-9][0-9]{0,15}$"},
+        "run_attempt": {"type": "string", "pattern": "^[1-9][0-9]{0,15}$"},
+        "artifact_id": {"type": "string", "pattern": "^[1-9][0-9]{0,15}$"},
+        "artifact_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "workflow_path":
+        {"type": "string", "pattern": "^\\.github/workflows/[A-Za-z0-9_-]+\\.yml$"},
+        "workflow_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "source_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
+      }
+    }
+  },
+  "x-consumed-schemas": {
+    "phase-a": {
+      "repository": "VINIClUS/CnesData",
+      "source_sha": "519e41f125c8ecaf640d234f59fc86b6a7156995",
+      "path": "release/phase-a-evidence.schema.json",
+      "blob_sha1": "7573c9576b378c24f2671fe061a9b710eebe1755",
+      "sha256": "6eace00058868ba71f0d6793d2732d762133b6c6d20fa5d16ff833164a8976d2",
+      "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": "Evidência Phase A pré-assinatura, privada e vinculada a readbacks reais",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema_version",
+          "repository",
+          "source_sha",
+          "release_id",
+          "candidate_sha256",
+          "canary_id",
+          "binding_sha256",
+          "derivation",
+          "ecr_image",
+          "image_digest",
+          "processor_task_definition_arns",
+          "active_before",
+          "retained_before",
+          "retained_after",
+          "state_sha256",
+          "outputs_sha256",
+          "plan_binding_sha256",
+          "source_provenance_sha256",
+          "references",
+          "r1_verification",
+          "r1_artifacts",
+          "promotion",
+          "iam",
+          "network_sha256",
+          "created_at",
+          "expires_at",
+          "resource_fingerprints",
+          "grant_fingerprints",
+          "route_fingerprints",
+          "cost"
+        ],
+        "properties": {
+          "schema_version": {"type": "integer", "const": 1},
+          "repository": {"type": "string", "const": "VINIClUS/CnesData"},
+          "source_sha": {"$ref": "#/$defs/source"},
+          "release_id": {"type": "string", "minLength": 1},
+          "candidate_sha256": {"$ref": "#/$defs/sha"},
+          "canary_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+          "binding_sha256": {"$ref": "#/$defs/sha"},
+          "derivation": {"type": "string", "const": "cnesdata:prod:canary:v1"},
+          "ecr_image": {"type": "string", "minLength": 1},
+          "image_digest": {"$ref": "#/$defs/digest"},
+          "processor_task_definition_arns": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["unit", "recovery", "audit"],
+            "properties": {
+              "unit": {"$ref": "#/$defs/arn"},
+              "recovery": {"$ref": "#/$defs/arn"},
+              "audit": {"$ref": "#/$defs/arn"}
+            }
+          },
+          "active_before": {"type": ["string", "null"]},
+          "retained_before": {
+            "type": "array",
+            "items": {"$ref": "#/$defs/arn"},
+            "minItems": 0,
+            "maxItems": 128,
+            "uniqueItems": true
+          },
+          "retained_after": {
+            "type": "array",
+            "items": {"$ref": "#/$defs/arn"},
+            "minItems": 1,
+            "maxItems": 128,
+            "uniqueItems": true
+          },
+          "state_sha256": {"$ref": "#/$defs/sha"},
+          "outputs_sha256": {"$ref": "#/$defs/sha"},
+          "plan_binding_sha256": {"$ref": "#/$defs/sha"},
+          "source_provenance_sha256": {"$ref": "#/$defs/sha"},
+          "references": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["candidate", "planned", "applied", "publication"],
+            "properties": {
+              "candidate": {"$ref": "#/$defs/reference"},
+              "planned": {"$ref": "#/$defs/reference"},
+              "applied": {"$ref": "#/$defs/reference"},
+              "publication": {"$ref": "#/$defs/reference"}
+            }
+          },
+          "r1_verification": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "attempt", "check_suite_id", "completed_at"],
+            "properties": {
+              "id": {"type": "integer", "minimum": 1, "maximum": 9007199254740991},
+              "attempt": {"type": "integer", "minimum": 1, "maximum": 9007199254740991},
+              "check_suite_id": {"type": "integer", "minimum": 1, "maximum": 9007199254740991},
+              "completed_at": {"$ref": "#/$defs/utc"}
+            }
+          },
+          "r1_artifacts": {
+            "type": "array",
+            "items": {"$ref": "#/$defs/r1_artifact"},
+            "minItems": 6,
+            "maxItems": 6,
+            "uniqueItems": true
+          },
+          "promotion": {"$ref": "#/$defs/promotion"},
+          "iam": {"$ref": "#/$defs/iam"},
+          "network_sha256": {"$ref": "#/$defs/sha"},
+          "created_at": {"$ref": "#/$defs/utc"},
+          "expires_at": {"$ref": "#/$defs/utc"},
+          "resource_fingerprints": {
+            "type": "array",
+            "items": {"$ref": "#/$defs/fingerprint"},
+            "minItems": 0,
+            "maxItems": 64,
+            "uniqueItems": true
+          },
+          "grant_fingerprints": {
+            "type": "array",
+            "items": {"$ref": "#/$defs/fingerprint"},
+            "minItems": 0,
+            "maxItems": 64,
+            "uniqueItems": true
+          },
+          "route_fingerprints": {
+            "type": "array",
+            "items": {"$ref": "#/$defs/fingerprint"},
+            "minItems": 0,
+            "maxItems": 64,
+            "uniqueItems": true
+          },
+          "cost": {"$ref": "#/$defs/active_cost"}
+        },
+        "$defs": {
+          "sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "source": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+          "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+          "utc": {
+            "type": "string",
+            "pattern": "^20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+          },
+          "arn": {
+            "type": "string",
+            "pattern": "^arn:aws:ecs:[^:]+:[0-9]{12}:task-definition/[^:]+:[1-9][0-9]*$"
+          },
+          "fingerprint": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["address", "fingerprint_sha256"],
+            "properties": {
+              "address": {"type": "string", "minLength": 1},
+              "fingerprint_sha256": {"$ref": "#/$defs/sha"}
+            }
+          },
+          "reference": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "repository",
+              "run_id",
+              "run_attempt",
+              "artifact_id",
+              "artifact_digest",
+              "workflow_path",
+              "workflow_sha",
+              "source_sha"
+            ],
+            "properties": {
+              "repository": {"type": "string", "const": "VINIClUS/CnesData"},
+              "run_id": {"type": "integer", "minimum": 1, "maximum": 9007199254740991},
+              "run_attempt": {"type": "integer", "minimum": 1, "maximum": 9007199254740991},
+              "artifact_id": {"type": "integer", "minimum": 1, "maximum": 9007199254740991},
+              "artifact_digest": {"$ref": "#/$defs/digest"},
+              "workflow_path": {"type": "string", "minLength": 1},
+              "workflow_sha": {"$ref": "#/$defs/source"},
+              "source_sha": {"$ref": "#/$defs/source"}
+            }
+          },
+          "r1_artifact": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "id",
+              "sha256",
+              "expires_at",
+              "source_sha",
+              "run_id",
+              "run_attempt"
+            ],
+            "properties": {
+              "name": {"type": "string", "minLength": 1},
+              "id": {"type": "integer", "minimum": 1, "maximum": 9007199254740991},
+              "sha256": {"$ref": "#/$defs/sha"},
+              "expires_at": {"$ref": "#/$defs/utc"},
+              "source_sha": {"$ref": "#/$defs/source"},
+              "run_id": {"type": "integer", "minimum": 1, "maximum": 9007199254740991},
+              "run_attempt": {"type": "integer", "minimum": 1, "maximum": 9007199254740991}
+            }
+          },
+          "iam": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "proof_kind",
+              "first_readback_seconds",
+              "second_readback_seconds",
+              "deadline_seconds",
+              "readback_sha256",
+              "matrix_sha256"
+            ],
+            "properties": {
+              "proof_kind": {"type": "string", "const": "iam-readback-and-evaluation"},
+              "first_readback_seconds": {"type": "string", "pattern": "^[0-9]+\\.[0-9]{6}$"},
+              "second_readback_seconds": {"type": "string", "pattern": "^[0-9]+\\.[0-9]{6}$"},
+              "deadline_seconds": {"type": "integer", "const": 300},
+              "readback_sha256": {"$ref": "#/$defs/sha"},
+              "matrix_sha256": {"$ref": "#/$defs/sha"}
+            }
+          },
+          "promotion": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "config_digest",
+              "manifest_sha256",
+              "blob_digests",
+              "scan_sha256",
+              "scan_artifact_id",
+              "scan_artifact_sha256",
+              "scan_job_id",
+              "scan_workflow_sha256",
+              "sbom_sha256"
+            ],
+            "properties": {
+              "config_digest": {"$ref": "#/$defs/digest"},
+              "manifest_sha256": {"$ref": "#/$defs/sha"},
+              "blob_digests": {
+                "type": "array",
+                "items": {"$ref": "#/$defs/digest"},
+                "minItems": 1,
+                "maxItems": 129
+              },
+              "scan_sha256": {"$ref": "#/$defs/sha"},
+              "scan_artifact_id": {"type": "integer", "minimum": 1, "maximum": 9007199254740991},
+              "scan_artifact_sha256": {"$ref": "#/$defs/sha"},
+              "scan_job_id": {"type": "integer", "minimum": 1, "maximum": 9007199254740991},
+              "scan_workflow_sha256": {"$ref": "#/$defs/sha"},
+              "sbom_sha256": {"$ref": "#/$defs/sha"}
+            }
+          },
+          "cloudfront": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "plan",
+              "status",
+              "subscription_sha256",
+              "distribution_sha256",
+              "waf_binding_sha256",
+              "observed_at",
+              "expires_at"
+            ],
+            "properties": {
+              "plan": {"type": "string", "const": "FREE"},
+              "status": {"type": "string", "const": "ACTIVE"},
+              "subscription_sha256": {"$ref": "#/$defs/sha"},
+              "distribution_sha256": {"$ref": "#/$defs/sha"},
+              "waf_binding_sha256": {"$ref": "#/$defs/sha"},
+              "observed_at": {"$ref": "#/$defs/utc"},
+              "expires_at": {"$ref": "#/$defs/utc"}
+            }
+          },
+          "active_cost": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "verdict",
+              "evidence_sha256",
+              "manifest_sha256",
+              "product_monthly_usd",
+              "aggregate_monthly_usd",
+              "paid_actions_limit_usd",
+              "calculated_at",
+              "expires_at",
+              "scope",
+              "cloudfront"
+            ],
+            "properties": {
+              "verdict": {"type": "string", "const": "pass"},
+              "evidence_sha256": {"$ref": "#/$defs/sha"},
+              "manifest_sha256": {"$ref": "#/$defs/sha"},
+              "product_monthly_usd": {"type": "string", "pattern": "^(0|[1-9][0-9]*)\\.[0-9]{2}$"},
+              "aggregate_monthly_usd":
+              {"type": "string", "pattern": "^(0|[1-9][0-9]*)\\.[0-9]{2}$"},
+              "paid_actions_limit_usd": {"type": "string", "const": "0.00"},
+              "calculated_at": {"$ref": "#/$defs/utc"},
+              "expires_at": {"$ref": "#/$defs/utc"},
+              "scope": {"type": "string", "const": "active"},
+              "cloudfront": {"$ref": "#/$defs/cloudfront"}
+            }
+          }
+        }
+      }
+    }
+  }
+}
