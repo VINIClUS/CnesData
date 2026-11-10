@@ -40,6 +40,7 @@ _TRIGGER_PATHS = [
     "schemas/**",
     "scripts/promotion/**",
     "release/verify_candidate.py",
+    "release/verify_activation.py",
     "release/build_candidate.py",
     "release/plan-apply-evidence.schema.json",
     ".github/workflows/infra-plan.yml",
