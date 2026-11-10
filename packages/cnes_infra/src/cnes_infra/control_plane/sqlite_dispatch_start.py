@@ -5,8 +5,13 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
-from cnes_domain.control_plane.entities import RunDispatch
-from cnes_domain.control_plane.enums import DispatchOutcome, DispatchState, RunState
+from cnes_domain.control_plane.entities import Run, RunDispatch, RunUnit
+from cnes_domain.control_plane.enums import (
+    DispatchOutcome,
+    DispatchState,
+    RunState,
+    RunUnitState,
+)
 from cnes_domain.control_plane.errors import Conflict
 from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
 from cnes_infra.control_plane.sqlite_claims import read_dispatch_record, write_dispatch_record
@@ -48,13 +53,56 @@ def get_active_run_dispatch(store: Any, tenant_id: str, run_id: str) -> RunDispa
     return dispatch if dispatch.lease_until > store.now() else None
 
 
+_LATE_BIND_RUN_STATES = frozenset(
+    {
+        RunState.PUBLISHED,
+        RunState.PUBLISHED_DEGRADED,
+        RunState.FAILED,
+        RunState.CANCELED,
+    }
+)
+_COMPLETED_UNIT_STATES = frozenset(
+    {RunUnitState.SUCCEEDED, RunUnitState.SUCCEEDED_DEGRADED, RunUnitState.FAILED_FINAL}
+)
+
+
+def _late_bind_proof(
+    connection: Any, run: Run, dispatch: RunDispatch, command: Any
+) -> bool:
+    if run.state not in _LATE_BIND_RUN_STATES:
+        return False
+    if dispatch.state not in {
+        DispatchState.RESERVED,
+        DispatchState.STARTING,
+        DispatchState.STARTED,
+    }:
+        return False
+    if dispatch.start_claim != command.claim:
+        return False
+    units = tuple(
+        deserialize_model(row[0], RunUnit)
+        for row in connection.execute(
+            "SELECT data FROM run_units WHERE tenant_id = ? AND run_id = ?",
+            (run.tenant_id, run.run_id),
+        ).fetchall()
+    )
+    completed = {
+        unit.unit_id
+        for unit in units
+        if unit.dispatch_id == dispatch.dispatch_id and unit.state in _COMPLETED_UNIT_STATES
+    }
+    return bool(dispatch.unit_ids) and set(dispatch.unit_ids) <= completed
+
+
 def bind_run_dispatch(store: Any, command: BindRunDispatch) -> RunDispatch:
     with store.write_transaction() as connection:
         replay = validate_run_dispatch_bind(connection, command)
         if replay is not None:
             return replay
         run = store.get_run_record(connection, command.tenant_id, command.run_id)
-        if run is None or run.state is not RunState.PROCESSING:
+        if run is None:
+            raise Conflict(ErrorCode.PARENT_NOT_PROCESSING)
+        if run.state is not RunState.PROCESSING and run.state not in _LATE_BIND_RUN_STATES:
             raise Conflict(ErrorCode.PARENT_NOT_PROCESSING)
         dispatch = read_dispatch_record(connection, command.tenant_id, command.run_id)
         if dispatch is None or dispatch.dispatch_id != command.dispatch_id:
@@ -72,6 +120,10 @@ def bind_run_dispatch(store: Any, command: BindRunDispatch) -> RunDispatch:
             raise Conflict(ErrorCode.DISPATCH_TERMINAL)
         if dispatch.start_claim != command.claim:
             raise Conflict(ErrorCode.DISPATCH_BINDING_CONFLICT)
+        if run.state is not RunState.PROCESSING and not _late_bind_proof(
+            connection, run, dispatch, command
+        ):
+            raise Conflict(ErrorCode.PARENT_NOT_PROCESSING)
         started = dispatch.model_copy(
             update={
                 "state": DispatchState.STARTED,

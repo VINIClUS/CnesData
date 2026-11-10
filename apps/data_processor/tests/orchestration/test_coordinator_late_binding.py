@@ -155,7 +155,10 @@ def test_publicacao_dentro_do_start_preserva_resultado_sem_compensar(
     units = race.adapter.list_run_units(_TENANT, _RUN_ID)
     assert all(unit.state is RunUnitState.SUCCEEDED for unit in units if unit.dispatch_id)
     assert race.executor.canceled == []
-    assert _stored_dispatch(race.adapter).terminal_outcome is not DispatchOutcome.CANCELED
+    dispatch = _stored_dispatch(race.adapter)
+    assert dispatch.state is DispatchState.STARTED
+    assert dispatch.execution_ref == result.execution_ref
+    assert dispatch.terminal_outcome is None
 
 
 def test_falha_final_dentro_do_start_preserva_run_falho_sem_compensar(race: _Race) -> None:
@@ -361,8 +364,8 @@ def test_outro_conflito_do_bind_nao_e_suprimido_apos_publicar(race: _Race) -> No
         race.coordinator().resume(_TENANT, _RUN_ID)
 
     assert race.run().state is RunState.PUBLISHED
-    assert _stored_dispatch(race.adapter).terminal_outcome is DispatchOutcome.CANCELED
-    assert len(race.executor.canceled) == 1
+    assert _stored_dispatch(race.adapter).terminal_outcome is None
+    assert race.executor.canceled == []
 
 
 def test_parent_not_processing_do_callback_started_nao_e_suprimido(race: _Race) -> None:
@@ -386,5 +389,5 @@ def test_parent_not_processing_do_callback_started_nao_e_suprimido(race: _Race) 
         coordinator.resume(_TENANT, _RUN_ID)
 
     assert race.run().state is RunState.FAILED
-    assert _stored_dispatch(race.adapter).terminal_outcome is DispatchOutcome.CANCELED
-    assert len(race.executor.canceled) == 1
+    assert _stored_dispatch(race.adapter).terminal_outcome is None
+    assert race.executor.canceled == []

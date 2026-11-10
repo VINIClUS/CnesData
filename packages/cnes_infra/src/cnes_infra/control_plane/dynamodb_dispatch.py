@@ -62,6 +62,39 @@ class DynamoDBDispatch(DynamoDBHost):
         if dispatch.lease_until <= now and dispatch.start_claim is None:
             raise LeaseLost(ErrorCode.DISPATCH_EXPIRED)
 
+    def _late_bind_units(
+        self, run: Run, dispatch: RunDispatch, command: BindRunDispatch
+    ) -> tuple[Item, ...] | None:
+        late_states = {
+            RunState.PUBLISHED,
+            RunState.PUBLISHED_DEGRADED,
+            RunState.FAILED,
+            RunState.CANCELED,
+        }
+        completed_states = {
+            RunUnitState.SUCCEEDED,
+            RunUnitState.SUCCEEDED_DEGRADED,
+            RunUnitState.FAILED_FINAL,
+        }
+        if run.state not in late_states or dispatch.start_claim != command.claim:
+            return None
+        if dispatch.state not in {
+            DispatchState.RESERVED,
+            DispatchState.STARTING,
+            DispatchState.STARTED,
+        }:
+            return None
+        items: list[Item] = []
+        for unit_id in dispatch.unit_ids:
+            unit_item = self._get_item(unit_key(run.tenant_id, run.run_id, unit_id))
+            if unit_item is None:
+                return None
+            unit = decode_model(unit_item, RunUnit)
+            if unit.dispatch_id != dispatch.dispatch_id or unit.state not in completed_states:
+                return None
+            items.append(unit_item)
+        return tuple(items) if items else None
+
     def reserve_run_dispatch(self, command: ReserveRunDispatch) -> RunDispatch:
         """Reserva uma geração de dispatch do run."""
         run_item = self._get_item(run_entity_key(command.tenant_id, command.run_id))
@@ -144,7 +177,15 @@ class DynamoDBDispatch(DynamoDBHost):
     def bind_run_dispatch(self, command: BindRunDispatch) -> RunDispatch:
         """Vincula o dispatch a uma execução externa."""
         run_item = self._get_item(run_entity_key(command.tenant_id, command.run_id))
-        if run_item is None or decode_model(run_item, Run).state is not RunState.PROCESSING:
+        if run_item is None:
+            raise Conflict(ErrorCode.RUN_NOT_PROCESSING)
+        run = decode_model(run_item, Run)
+        if run.state is not RunState.PROCESSING and run.state not in {
+            RunState.PUBLISHED,
+            RunState.PUBLISHED_DEGRADED,
+            RunState.FAILED,
+            RunState.CANCELED,
+        }:
             raise Conflict(ErrorCode.RUN_NOT_PROCESSING)
         item, dispatch = self._required_dispatch(command.tenant_id, command.run_id)
         self._validate_dispatch_lease(dispatch, command.dispatch_id, command.now)
@@ -160,6 +201,9 @@ class DynamoDBDispatch(DynamoDBHost):
                 raise Conflict(ErrorCode.DISPATCH_BINDING_CONFLICT)
         if dispatch.start_claim != command.claim:
             raise Conflict(ErrorCode.DISPATCH_BINDING_CONFLICT)
+        late_units = self._late_bind_units(run, dispatch, command)
+        if run.state is not RunState.PROCESSING and late_units is None:
+            raise Conflict(ErrorCode.RUN_NOT_PROCESSING)
         updated = dispatch.model_copy(
             update={
                 "state": DispatchState.STARTED,
@@ -167,12 +211,10 @@ class DynamoDBDispatch(DynamoDBHost):
                 "lease_until": command.now + timedelta(seconds=command.lease_seconds),
             }
         )
-        self._transact(
-            (
-                check_action(self._table_name, run_item),
-                put_action(self._table_name, self._dispatch_item(updated), payload(item)),
-            )
-        )
+        checked = (run_item, *(() if late_units is None else late_units))
+        actions = [check_action(self._table_name, checked_item) for checked_item in checked]
+        actions.append(put_action(self._table_name, self._dispatch_item(updated), payload(item)))
+        self._transact(tuple(actions))
         return updated
 
     def claim_run_dispatch_start(self, command: ClaimRunDispatchStart) -> RunDispatch | None:

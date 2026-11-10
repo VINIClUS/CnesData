@@ -269,17 +269,18 @@ def _start_and_bind(
         execution.admission.settle(holder, now)
         raise
     completed_before_binding = False
+    bind_command = attempt.bind(dispatch, execution_ref, claim)
     try:
-        bound = _bind_dispatch(
-            control_plane,
-            attempt.bind(dispatch, execution_ref, claim),
-            dispatch.unit_ids,
+        bound = _bind_dispatch(control_plane, bind_command, dispatch.unit_ids)
+        terminal_after_bind = control_plane.get_run(run.tenant_id, run.run_id)
+        completed_before_binding = bound is None or (
+            terminal_after_bind is not None and terminal_after_bind.state in _TERMINAL_RUN_STATES
         )
-        completed_before_binding = bound is None
         execution.admission.confirm(admission, execution_ref, now)
         execution.callbacks.started(run, request, execution_ref, permit)
     except Exception:
-        if completed_before_binding:
+        completed = _completed_before_bind(control_plane, bind_command, dispatch.unit_ids)
+        if completed_before_binding or completed:
             raise
         _compensate_start(
             control_plane,
@@ -289,10 +290,16 @@ def _start_and_bind(
         )
         execution.admission.settle(holder, now)
         raise
-    if bound is None:
-        execution.admission.settle(holder, now)
-        return execution_ref
-    return cast("str", bound.execution_ref)
+        current_run = control_plane.get_run(run.tenant_id, run.run_id)
+        if completed_before_binding or (
+            current_run is not None and current_run.state in _TERMINAL_RUN_STATES
+        ):
+            settled_dispatch = control_plane.get_run_dispatch(run.tenant_id, run.run_id)
+            execution.admission.settle(
+                dispatch_holder(settled_dispatch or dispatch, request), now
+            )
+            return execution_ref
+    return execution_ref if bound is None else cast("str", bound.execution_ref)
 
 
 def _dispatch_protocol(
@@ -314,7 +321,15 @@ def _dispatch_protocol(
         active = _reserve_next_wave(control_plane, plan, execution, now)
         if active is None:
             return None
-    return _start_and_bind(control_plane, executor, execution, plan, active, now)
+    outcome = _start_and_bind(control_plane, executor, execution, plan, active, now)
+    current = control_plane.get_run(plan.run.tenant_id, plan.run.run_id)
+    if (
+        current is not None
+        and current.state in _TERMINAL_RUN_STATES
+        and execution.admission is not UNGATED_ADMISSION
+    ):
+        execution.admission.reconcile(now)
+    return outcome
 
 
 def _fail_run(
@@ -380,7 +395,6 @@ class PipelineCoordinator:
     ) -> None:
         self._dependencies = dependencies
         self._execution = execution
-
     def resume(self, tenant_id: str, run_id: str, *, settle: bool = True) -> CoordinatorResult:
         """Args: settle: False no after_persist, que roda dentro da própria execução.
 
@@ -397,7 +411,6 @@ class PipelineCoordinator:
         if settle and result.state in _TERMINAL_RUN_STATES:
             self._settle_run(run, now)
         return result
-
     def _advance(self, run: Run, now: datetime) -> CoordinatorResult:
         if run.state is RunState.CANCEL_REQUESTED:
             return _cancel(self._dependencies, run, now)
@@ -407,7 +420,6 @@ class PipelineCoordinator:
         if run.state is RunState.PROCESSING:
             return self._resume_processing(run, now)
         raise ValueError(f"unsupported_run_state:{run.state}")
-
     def _settle_run(self, run: Run, now: datetime) -> None:
         admission = self._execution.admission
         if admission is UNGATED_ADMISSION:
@@ -416,7 +428,6 @@ class PipelineCoordinator:
         # permit as the Run ends. Any other holder waits for the periodic reconcile.
         units = self._dependencies.control_plane.list_run_units(run.tenant_id, run.run_id)
         settle_run_dispatches(admission, units, now)
-
     def _resume_processing(self, run: Run, now: datetime) -> CoordinatorResult:
         control_plane = self._dependencies.control_plane
         units = control_plane.list_run_units(run.tenant_id, run.run_id)

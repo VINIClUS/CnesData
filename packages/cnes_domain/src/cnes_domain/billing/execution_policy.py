@@ -44,6 +44,9 @@ class ExecutionBindingPort(Protocol):
     def get_active_run_dispatch(self, tenant_id: str, run_id: str) -> RunDispatch | None:
         raise NotImplementedError
 
+    def get_run_dispatch(self, tenant_id: str, run_id: str) -> RunDispatch | None:
+        raise NotImplementedError
+
     def get_run_billing_state(self, tenant_id: str, run_id: str) -> RunBillingState | None:
         raise NotImplementedError
 
@@ -231,13 +234,19 @@ def _require_matching_identity(
 
 
 def _require_started(
-    active: RunDispatch | None, context: RunExecutionPermit, execution_ref: str
+    dispatch: RunDispatch | None,
+    context: RunExecutionPermit,
+    execution_ref: str,
+    unit_ids: tuple[str, ...],
 ) -> None:
     started = (
-        active is not None
-        and active.state is DispatchState.STARTED
-        and active.dispatch_id == context.dispatch_id
-        and active.execution_ref == execution_ref
+        dispatch is not None
+        and dispatch.state is DispatchState.STARTED
+        and dispatch.dispatch_id == context.dispatch_id
+        and dispatch.wave_id == context.wave_id
+        and dispatch.generation == context.generation
+        and dispatch.execution_ref == execution_ref
+        and dispatch.unit_ids == unit_ids
     )
     if not started:
         raise PermanentBillingError("dispatch_not_started")
@@ -299,7 +308,8 @@ class BillingExecutionStarted:
         context = _require_context(permit)
         _require_matching_identity(run, request, permit, context)
         active = control_plane.get_active_run_dispatch(run.tenant_id, run.run_id)
-        _require_started(active, context, execution_ref)
+        persisted = active or control_plane.get_run_dispatch(run.tenant_id, run.run_id)
+        _require_started(persisted, context, execution_ref, request.unit_ids)
         state = control_plane.get_run_billing_state(run.tenant_id, run.run_id)
         if state is None:
             if self._dependencies.mode is BillingMode.STRIPE:
