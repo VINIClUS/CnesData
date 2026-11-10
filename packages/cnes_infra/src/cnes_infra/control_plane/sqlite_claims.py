@@ -311,8 +311,6 @@ def reserve_run_dispatch(store: Any, command: ReserveRunDispatch) -> RunDispatch
         )
         if replay:
             return cast("RunDispatch", current)
-        if current is not None and current.state is DispatchState.STARTING:
-            raise Conflict(ErrorCode.DISPATCH_LIVE)
         live = current and current.state is not DispatchState.TERMINAL
         lease_live = current is not None and current.lease_until > command.now
         if _has_live_unit_lease(connection, command, current) or (live and lease_live):

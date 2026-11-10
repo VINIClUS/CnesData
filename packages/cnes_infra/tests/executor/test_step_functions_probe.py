@@ -203,3 +203,58 @@ def test_prova_preserva_input_original_e_hash_da_requisicao():
     observation = _probe(client).probe(_DISPATCH_ID)
     assert observation.request_sha256 == request_sha256(request)
     assert observation.evidence == _original(native)
+
+
+@pytest.mark.parametrize("changed", ["dispatch_id", "tenant_id", "unit_ids"])
+def test_claim_de_outra_requisicao_nao_envia_execucao(changed):
+    from cnes_domain.control_plane.dispatch_start import DispatchStartClaim, request_sha256
+    from cnes_infra.executor.step_functions import StepFunctionsExecutor
+    from packages.cnes_infra.tests.executor.test_step_functions import _request
+
+    request = _request()
+    claim = DispatchStartClaim(
+        dispatch_id=request.dispatch_id,
+        generation=1,
+        permit_token=1,
+        fence_version=0,
+        request_sha256=request_sha256(request),
+    )
+    replacements = {"dispatch_id": "0" * 16, "tenant_id": "other", "unit_ids": ("other",)}
+    client = MagicMock()
+    executor = StepFunctionsExecutor(client, _STATE_MACHINE_ARN)
+    with pytest.raises(ProcessorExecutionUnavailable, match="dispatch_start_claim_mismatch"):
+        executor.start_with_claim(
+            request.model_copy(update={changed: replacements[changed]}), claim
+        )
+    assert client.mock_calls == []
+
+
+def test_claim_valido_envia_payload_original_sem_a_prova():
+    from cnes_domain.control_plane.dispatch_start import DispatchStartClaim, request_sha256
+    from cnes_infra.executor.step_functions import StepFunctionsExecutor
+    from packages.cnes_infra.tests.executor.test_step_functions import _request, _start_params
+
+    request = _request()
+    claim = DispatchStartClaim(
+        dispatch_id=request.dispatch_id,
+        generation=1,
+        permit_token=1,
+        fence_version=0,
+        request_sha256=request_sha256(request),
+    )
+    client = _client()
+    params = _start_params(request) | {"stateMachineArn": _STATE_MACHINE_ARN}
+    with Stubber(client) as stubber:
+        stubber.add_response(
+            "start_execution",
+            {
+                "executionArn": _EXECUTION_ARN,
+                "startDate": _NOW,
+            },
+            params,
+        )
+        assert (
+            StepFunctionsExecutor(client, _STATE_MACHINE_ARN).start_with_claim(request, claim)
+            == _EXECUTION_ARN
+        )
+        stubber.assert_no_pending_responses()

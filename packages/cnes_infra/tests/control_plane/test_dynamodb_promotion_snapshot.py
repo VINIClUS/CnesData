@@ -15,7 +15,9 @@ from cnes_domain.control_plane.environment_gate import (
     ClosePromotionFence,
     PermitHolder,
     ReleaseUnitPermit,
+    ReopenPromotionFence,
 )
+from cnes_domain.control_plane.errors import Conflict
 from cnes_domain.orchestration.dispatch_admission import EnvironmentAdmission
 from cnes_domain.ports.environment_gate import ExecutionObservation, ExecutionPresence
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
@@ -23,6 +25,9 @@ from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
 from packages.cnes_infra.tests.contracts.clock import MutableClock, _prepare_unit
 from packages.cnes_infra.tests.control_plane.test_dynamodb_adapter import _TABLE_NAME, _create_table
 from packages.cnes_infra.tests.control_plane.test_environment_gate import ScriptedClient
+from packages.cnes_infra.tests.control_plane.test_environment_gate import (
+    _raise as raise_client_error,
+)
 
 NOW = datetime(2026, 11, 9, 12, tzinfo=UTC)
 
@@ -306,3 +311,112 @@ def test_sqlite_cancelamento_reserved_registra_prova_distinta(tmp_path):
         )
         is None
     )
+
+
+def test_confirmacao_do_close_e_duravel_e_idempotente(ddb):
+    adapter, _ = ddb
+    state = adapter.close_promotion_fence_snapshot(ClosePromotionFence("prod", "release-a", NOW))
+    assert state.fence.closed_membership == ()
+    assert state.fence.confirmed_at is None
+    confirmed = adapter.confirm_promotion_close("prod", "release-a", NOW)
+    assert confirmed.fence.confirmed_at == NOW
+    assert confirmed.fence.closed_membership_sha256 == state.fence.closed_membership_sha256
+    assert (
+        adapter.confirm_promotion_close("prod", "release-a", NOW + timedelta(hours=1)) == confirmed
+    )
+
+
+@pytest.mark.parametrize("closed", [False, True])
+def test_confirmacao_nao_aceita_fence_aberto_ou_promocao_alheia(ddb, closed):
+    adapter, _ = ddb
+    if closed:
+        adapter.close_promotion_fence(ClosePromotionFence("prod", "release-a", NOW))
+    before = adapter.observe_environment_gate("prod")
+    with pytest.raises(Conflict, match="transaction_conflict"):
+        adapter.confirm_promotion_close("prod", "release-b", NOW)
+    assert adapter.observe_environment_gate("prod") == before
+
+
+def test_snapshot_de_promocao_alheia_falha_sem_substituir_o_existente(ddb):
+    adapter, _ = ddb
+    before = adapter.close_promotion_fence_snapshot(ClosePromotionFence("prod", "release-a", NOW))
+    with pytest.raises(Conflict, match="transaction_conflict"):
+        adapter.close_promotion_fence_snapshot(ClosePromotionFence("prod", "release-b", NOW))
+    assert adapter.observe_environment_gate("prod") == before
+
+
+def test_novo_close_apos_reopen_cria_snapshot_novo_sem_confirmacao_antiga(ddb):
+    adapter, _ = ddb
+    adapter.close_promotion_fence_snapshot(ClosePromotionFence("prod", "release-a", NOW))
+    adapter.confirm_promotion_close("prod", "release-a", NOW)
+    assert adapter.reopen_promotion_fence(ReopenPromotionFence("prod", "release-a", NOW))
+    seed(adapter)
+    state = adapter.close_promotion_fence_snapshot(ClosePromotionFence("prod", "release-b", NOW))
+    assert state.fence.version == 3
+    assert state.fence.promotion_id == "release-b"
+    assert len(state.fence.closed_membership) == 1
+    assert state.fence.confirmed_at is None
+
+
+def test_erro_de_servico_no_close_nao_grava_snapshot(ddb):
+    from botocore.exceptions import ClientError
+
+    adapter, client = ddb
+    client.inject("transact_write_items", raise_client_error("InternalServerError"))
+    with pytest.raises(ClientError):
+        adapter.close_promotion_fence(ClosePromotionFence("prod", "release-a", NOW))
+    assert adapter.observe_environment_gate("prod").fence.version == 0
+
+
+@pytest.mark.parametrize("reclose", [False, True])
+def test_confirmacao_perdida_por_cas_nao_confirma_outra_versao(ddb, reclose):
+    adapter, client = ddb
+    adapter.close_promotion_fence(ClosePromotionFence("prod", "release-a", NOW))
+    rival = DynamoDBControlPlane(client.client, _TABLE_NAME, lambda: NOW)
+
+    def replace_fence():
+        assert rival.reopen_promotion_fence(ReopenPromotionFence("prod", "release-a", NOW))
+        if reclose:
+            rival.close_promotion_fence(ClosePromotionFence("prod", "release-b", NOW))
+            rival.confirm_promotion_close("prod", "release-b", NOW)
+
+    client.inject("update_item", replace_fence)
+    with pytest.raises(Conflict, match="transaction_conflict"):
+        adapter.confirm_promotion_close("prod", "release-a", NOW)
+    state = adapter.observe_environment_gate("prod")
+    assert state.fence.version == (3 if reclose else 2)
+    assert state.fence.promotion_id == ("release-b" if reclose else "release-a")
+
+
+@pytest.mark.parametrize("persistent", [False, True])
+def test_reopen_retenta_conflito_sem_abrir_promocao_errada(ddb, persistent):
+    adapter, client = ddb
+    adapter.close_promotion_fence(ClosePromotionFence("prod", "release-a", NOW))
+    conflict = raise_client_error("TransactionConflictException")
+    client.inject("update_item", *([conflict] * (3 if persistent else 1)))
+    command = ReopenPromotionFence("prod", "release-a", NOW)
+    if persistent:
+        with pytest.raises(Conflict, match="transaction_conflict"):
+            adapter.reopen_promotion_fence(command)
+    else:
+        assert adapter.reopen_promotion_fence(command)
+    state = adapter.observe_environment_gate("prod")
+    assert state.fence.state.value == ("CLOSED" if persistent else "OPEN")
+
+
+def test_reopen_nao_sobrescreve_fence_legado_sem_versao(ddb):
+    from cnes_infra.control_plane.dynamodb_environment_gate import fence_key
+    from cnes_infra.control_plane.dynamodb_keys import item_key
+
+    adapter, client = ddb
+    adapter.close_promotion_fence(ClosePromotionFence("prod", "release-a", NOW))
+    client.client.update_item(
+        TableName=_TABLE_NAME,
+        Key=item_key(*fence_key("prod")),
+        UpdateExpression="SET version = :zero",
+        ExpressionAttributeValues={":zero": {"N": "0"}},
+    )
+    before = adapter.observe_environment_gate("prod")
+    with pytest.raises(Conflict, match="transaction_conflict"):
+        adapter.reopen_promotion_fence(ReopenPromotionFence("prod", "release-a", NOW))
+    assert adapter.observe_environment_gate("prod") == before
