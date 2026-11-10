@@ -16,7 +16,9 @@ STRING = r'"(?:\\.|\$\{[^}\n]*\}|[^"\\\n])*"'
 TOKEN = re.compile(
     rf"\s+|\#[^\n]*|//[^\n]*|/\*[\s\S]*?\*/|{STRING}|[A-Za-z_][\w-]*|[0-9]+|==|!=|\|\||=>|[^\s]"
 )
-FUNCTIONS = {"jsonencode", "trimsuffix", "concat", "sort", "setunion", "length", "one"}
+FUNCTIONS = {
+    "jsonencode", "trimsuffix", "concat", "sort", "setunion", "length", "one", "replace", "format",
+}
 
 
 @dataclass
@@ -288,8 +290,14 @@ class Evaluator:
 
 
 def function(name: str, args: list[Any]) -> Any:
-    arity = {"jsonencode": 1, "trimsuffix": 2, "sort": 1, "length": 1, "one": 1}
+    arity = {
+        "jsonencode": 1, "trimsuffix": 2, "sort": 1, "length": 1, "one": 1,
+        "replace": 3, "format": 3,
+    }
     require(name in FUNCTIONS and (name not in arity or len(args) == arity[name]), "iam=arity")
+    if name in {"format", "replace"}:
+        converters = {"format": own_state_machine_format, "replace": execution_arn_replace}
+        return converters[name](args)
     if name == "length":
         require(type(args[0]) in (dict, list, str), "iam=length_type")
         return len(args[0])
@@ -301,6 +309,26 @@ def function(name: str, args: list[Any]) -> Any:
         require(all(type(item) is str for item in args), "iam=trimsuffix_type")
         return args[0].removesuffix(args[1])
     return collection_function(name, args)
+
+
+def own_state_machine_format(args: list[Any]) -> str:
+    require(
+        all(type(item) is str and len(item) <= 4096 for item in args), "iam=format_type_or_size"
+    )
+    require(
+        args[0] == "arn:aws:states:us-east-2:%s:stateMachine:%s" and args[2] == "cnesdata-prod",
+        "iam=format_scope",
+    )
+    require(bool(re.fullmatch(r"[0-9]{12}", args[1])), "iam=format_account")
+    return f"arn:aws:states:us-east-2:{args[1]}:stateMachine:cnesdata-prod"
+
+
+def execution_arn_replace(args: list[Any]) -> str | Pending:
+    require(args[1:] == [":stateMachine:", ":execution:"], "iam=replace_scope")
+    if isinstance(args[0], Pending):
+        return Pending("replace")
+    require(type(args[0]) is str and len(args[0]) <= 4096, "iam=replace_type_or_size")
+    return args[0].replace(args[1], args[2])
 
 
 def collection_function(name: str, args: list[Any]) -> Any:
