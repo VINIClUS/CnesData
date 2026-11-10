@@ -1,3 +1,9 @@
+output "mode_canary_capabilities" {
+  description = "Private commitments of the exact owner-bound mode capabilities, or null."
+  sensitive   = true
+  value       = module.runtime_iam.mode_canary_capabilities
+}
+
 output "demo_seed_iam_contract" {
   description = "Unmodified dedicated demo seed IAM contract, or null."
   value       = module.runtime_iam.demo_seed_iam_contract

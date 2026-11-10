@@ -6,6 +6,7 @@ import re
 import shutil
 from collections.abc import Iterator
 from pathlib import Path
+from tempfile import mkdtemp
 from typing import Any
 
 import pytest
@@ -18,6 +19,7 @@ from tests.production.infra._processing_native import (
     _configuration_address,
     _configuration_resources,
     _discovered_identities,
+    _native_plan_events,
     _native_result,
     _processing_runs,
     _save_plans,
@@ -252,7 +254,6 @@ def fixture_all_root_plans(processing_native: NativePlans, scheduled_plan: Node)
 
 
 def phase_b_root_plans(tofu: Tofu, prod_root: Path, artifacts: Node) -> dict[str, Node]:
-    from tests.production.infra._processing_native import _native_plan_events
     evidence = Path(tofu[1]["TF_DATA_DIR"])
     identities = json.loads((evidence / "processing-identity-overrides.json").read_text())
     shared = json.loads((evidence / "processing-shared-input.json").read_text())
@@ -279,6 +280,7 @@ def phase_b_root_plans(tofu: Tofu, prod_root: Path, artifacts: Node) -> dict[str
             f'run "{name}" {{\n  command = plan', f'run "{name}" {{\n  command = apply'
         )
     mock_root, source_hashes = _phase_b_mock_root(prod_root, evidence)
+    evidence = mock_root.parent
     directory = mock_root / "env/prod/.terraform/processing-tests"
     directory.mkdir(parents=True)
     (directory / "processing.tftest.hcl").write_text(suite)
@@ -305,7 +307,8 @@ def phase_b_root_plans(tofu: Tofu, prod_root: Path, artifacts: Node) -> dict[str
 
 
 def _phase_b_mock_root(prod_root: Path, evidence: Path) -> tuple[Path, Node]:
-    mock_root = evidence / "phase-b-mock-root"
+    evidence = Path(mkdtemp(prefix="phase-b-mock-", dir=evidence))
+    mock_root = evidence / "root"
     shutil.copytree(prod_root.parents[1], mock_root, ignore=shutil.ignore_patterns(".terraform"))
     source_hashes = {}
     for source in (prod_root.parents[1] / "modules").rglob("*.tf"):

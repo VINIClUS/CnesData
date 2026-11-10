@@ -1,5 +1,6 @@
 """Wiring canary observado no plan nativo da raiz, sem override de módulo."""
 
+import hashlib
 import json
 
 import pytest
@@ -325,3 +326,47 @@ def test_format_iam_rejeita_template_prefixo_conta_ou_tipo_nao_governados(argume
 
     with pytest.raises(ValueError, match=r"iam=(arity|format_)"):
         function("format", argumentos)
+
+
+@pytest.mark.parametrize("alterar_origem", [False, True])
+def test_copias_phase_b_repetidas_isolam_fontes_estado_e_evidencias(tmp_path, alterar_origem):
+    from tests.production.infra._athena_root_plan import _phase_b_mock_root
+
+    origem = tmp_path / "origem"
+    prod = origem / "env/prod"
+    prod.mkdir(parents=True)
+    modulo = origem / "modules/contrato"
+    modulo.mkdir(parents=True)
+    fonte = modulo / "main.tf"
+    inicial = b"prevent_destroy = true\n" * 7
+    fonte.write_bytes(inicial)
+    (prod / ".terraform").mkdir()
+    (prod / ".terraform/estado-antigo").write_bytes(b"estado-origem")
+    evidencia = tmp_path / "evidencia"
+    evidencia.mkdir()
+    primeira, hashes_primeira = _phase_b_mock_root(prod, evidencia)
+    (primeira / "plano.json").write_bytes(b"plano-primeira")
+    (primeira / "estado.tfstate").write_bytes(b"estado-primeira")
+    original = inicial + (b"# segunda origem\n" if alterar_origem else b"")
+    fonte.write_bytes(original)
+
+    segunda, hashes_segunda = _phase_b_mock_root(prod, evidencia)
+
+    relativo = "modules/contrato/main.tf"
+    assert primeira != segunda
+    assert (primeira / relativo).read_bytes() == inicial.replace(b"true", b"false")
+    assert (segunda / relativo).read_bytes() == original.replace(b"true", b"false")
+    assert fonte.read_bytes() == original
+    assert (primeira / "plano.json").read_bytes() == b"plano-primeira"
+    assert (primeira / "estado.tfstate").read_bytes() == b"estado-primeira"
+    assert not (segunda / "plano.json").exists()
+    assert not (segunda / "estado.tfstate").exists()
+    for raiz, hashes, conteudo in (
+        (primeira, hashes_primeira, inicial), (segunda, hashes_segunda, original)
+    ):
+        assert hashes == {relativo: {
+            "sha256": hashlib.sha256(conteudo).hexdigest(), "mock_cleanup_overrides": 7,
+        }}
+        assert not (raiz / "env/prod/.terraform").exists()
+        registro = raiz.parent / "phase-b-mock-lifecycle.json"
+        assert json.loads(registro.read_text()) == hashes
