@@ -299,6 +299,18 @@ def _start_and_bind(
             and bound_elsewhere.dispatch_id == bind_command.dispatch_id
             and bound_elsewhere.state is DispatchState.STARTED
         ):
+            same_execution = (
+                bound_elsewhere.generation == dispatch.generation
+                and bound_elsewhere.execution_ref == bind_command.execution_ref
+                and bound_elsewhere.start_claim == bind_command.claim
+            )
+            if not same_execution and bound_elsewhere.execution_ref != bind_command.execution_ref:
+                executor.cancel(CancelRunExecution(
+                    tenant_id=bind_command.tenant_id,
+                    run_id=bind_command.run_id,
+                    execution_ref=bind_command.execution_ref,
+                ))
+            execution.admission.settle(holder, now)
             raise
         _compensate_start(control_plane, executor, attempt.cancel(dispatch, claim), execution_ref)
         execution.admission.settle(holder, now)
