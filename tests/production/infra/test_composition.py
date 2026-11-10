@@ -365,7 +365,7 @@ def test_inventario_de_outputs_publica_interfaces_do_static_web(
         "cluster_arn", "state_machine_arn", "step_functions_role_id", "step_functions_role_arn",
     ]
     expected = static | OPERATIONS_OUTPUTS | {f"processor_{name}" for name in names}
-    expected |= {"demo_seed_iam_contract"}
+    expected |= {"demo_seed_iam_contract", "mode_canary_capabilities"}
     assert set(outputs) == expected, f"processing_public_inventory={sorted(outputs)}"
     assert outputs["api_loopback_contract"]["expression"] == {"constant_value": None}
     for name in outputs.keys() - {"api_loopback_contract"}:
