@@ -43,7 +43,7 @@ from cnes_domain.control_plane.enums import (
 )
 from cnes_domain.control_plane.errors import Conflict, ControlPlaneErrorCode
 from cnes_domain.orchestration.dispatch_admission import EnvironmentAdmission
-from cnes_domain.ports.processing import ExecutionPermit, ExecutionStatus
+from cnes_domain.ports.processing import CancelRunExecution, ExecutionPermit, ExecutionStatus
 from data_processor.orchestration.coordinator import PipelineCoordinator
 from data_processor.orchestration.unit_worker import (
     UnitWorker,
@@ -382,6 +382,45 @@ def test_conclusao_por_outro_dispatch_nao_e_atribuida_ao_start_antigo(race: _Rac
     assert _stored_dispatch(race.adapter).dispatch_id == replacements[0]
     assert _stored_dispatch(race.adapter).terminal_outcome is not DispatchOutcome.CANCELED
     assert race.run().state is RunState.PUBLISHED
+
+
+def test_ack_antigo_compensa_execucao_quando_nova_geracao_ja_iniciou(race: _Race) -> None:
+    race.prepare_last_wave()
+    newer: list[str] = []
+    start_real = race.executor.start
+
+    def replaced_and_started(request: StartRunExecution) -> None:
+        stale = _stored_dispatch(race.adapter)
+        race.adapter.finish_run_dispatch(FinishRunDispatch(
+            tenant_id=_TENANT, run_id=_RUN_ID, dispatch_id=stale.dispatch_id,
+            outcome=DispatchOutcome.FAILED, finished_at=race.clock.now(),
+        ))
+        replacement = race.adapter.reserve_run_dispatch(ReserveRunDispatch(
+            tenant_id=_TENANT, run_id=_RUN_ID, wave_id=request.wave_id,
+            unit_ids=request.unit_ids, now=race.clock.now(), lease_seconds=300,
+        ))
+        newer.append(replacement.dispatch_id)
+        replacement_request = request.model_copy(update={"dispatch_id": replacement.dispatch_id})
+        execution_ref = start_real(replacement_request)
+        race.adapter.bind_run_dispatch(BindRunDispatch(
+            tenant_id=_TENANT, run_id=_RUN_ID, dispatch_id=replacement.dispatch_id,
+            execution_ref=execution_ref, now=race.clock.now(), lease_seconds=300,
+        ))
+
+    race.inside_start(replaced_and_started)
+
+    with pytest.raises(Conflict):
+        race.coordinator().resume(_TENANT, _RUN_ID)
+
+    old = race.executor.started[-2]
+    assert newer != [old.dispatch_id]
+    assert race.executor.canceled == [
+        CancelRunExecution(
+            tenant_id=_TENANT, run_id=_RUN_ID, execution_ref=f"exec-{old.dispatch_id}",
+        ),
+    ]
+    assert _stored_dispatch(race.adapter).dispatch_id == newer[0]
+    assert _stored_dispatch(race.adapter).state is DispatchState.STARTED
 
 
 def test_outro_conflito_do_bind_nao_e_suprimido_apos_publicar(race: _Race) -> None:

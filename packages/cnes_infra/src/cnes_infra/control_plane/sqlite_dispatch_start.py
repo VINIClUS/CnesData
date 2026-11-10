@@ -67,18 +67,8 @@ _COMPLETED_UNIT_STATES = frozenset(
 
 
 def _late_bind_proof(
-    connection: Any, run: Run, dispatch: RunDispatch, command: Any
+    connection: Any, run: Run, dispatch: RunDispatch
 ) -> bool:
-    if run.state not in _LATE_BIND_RUN_STATES:
-        return False
-    if dispatch.state not in {
-        DispatchState.RESERVED,
-        DispatchState.STARTING,
-        DispatchState.STARTED,
-    }:
-        return False
-    if dispatch.start_claim != command.claim:
-        return False
     units = tuple(
         deserialize_model(row[0], RunUnit)
         for row in connection.execute(
@@ -120,9 +110,7 @@ def bind_run_dispatch(store: Any, command: BindRunDispatch) -> RunDispatch:
             raise Conflict(ErrorCode.DISPATCH_TERMINAL)
         if dispatch.start_claim != command.claim:
             raise Conflict(ErrorCode.DISPATCH_BINDING_CONFLICT)
-        if run.state is not RunState.PROCESSING and not _late_bind_proof(
-            connection, run, dispatch, command
-        ):
+        if run.state is not RunState.PROCESSING and not _late_bind_proof(connection, run, dispatch):
             raise Conflict(ErrorCode.PARENT_NOT_PROCESSING)
         started = dispatch.model_copy(
             update={

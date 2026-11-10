@@ -293,7 +293,12 @@ def _start_and_bind(
             execution.admission.settle(holder, now)
             raise
         bound_elsewhere = control_plane.get_run_dispatch(plan.run.tenant_id, plan.run.run_id)
-        if not bound and bound_elsewhere and bound_elsewhere.state is DispatchState.STARTED:
+        if (
+            not bound
+            and bound_elsewhere is not None
+            and bound_elsewhere.dispatch_id == bind_command.dispatch_id
+            and bound_elsewhere.state is DispatchState.STARTED
+        ):
             raise
         _compensate_start(control_plane, executor, attempt.cancel(dispatch, claim), execution_ref)
         execution.admission.settle(holder, now)
@@ -422,8 +427,6 @@ class PipelineCoordinator:
         admission = self._execution.admission
         if admission is UNGATED_ADMISSION:
             return
-        # The units name the dispatches that ran; settling them releases a finished execution's
-        # permit as the Run ends. Any other holder waits for the periodic reconcile.
         units = self._dependencies.control_plane.list_run_units(run.tenant_id, run.run_id)
         settle_run_dispatches(admission, units, now)
     def _resume_processing(self, run: Run, now: datetime) -> CoordinatorResult:
@@ -452,7 +455,6 @@ class PipelineCoordinator:
         try:
             self._execution.admission.reconcile(now)
         except Exception as error:
-            # The pass still recovers the runs, then fails chained to this error with its summary.
             logger.exception("unit_permit_reconcile_failed")
             results, failed = self._recover_runs(now, limit)
             raise RecoveryFailed(results, failed, reconcile_failed=True) from error

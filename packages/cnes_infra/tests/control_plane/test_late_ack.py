@@ -83,3 +83,15 @@ def test_ack_tardio_recusa_ref_divergente_no_replay_sem_escrita(started_store_fi
         adapter.bind_run_dispatch(divergent)
 
     assert adapter.get_run_dispatch(dispatch.tenant_id, dispatch.run_id) == started
+
+
+def test_ack_tardio_recusa_parent_em_estado_nao_terminal(started_store_fixture):  # noqa: F811
+    adapter, (dispatch, _, _, claim, command) = started_store_fixture
+    claimed = adapter.claim_run_dispatch_start(command)
+    assert claimed is not None
+    run = adapter.get_run(dispatch.tenant_id, dispatch.run_id)
+    assert run is not None
+    adapter.put_run(run.model_copy(update={"state": RunState.CANCEL_REQUESTED}))
+
+    with pytest.raises(Conflict, match=r"(?:parent|run)_not_processing"):
+        adapter.bind_run_dispatch(_bind(dispatch, claim))

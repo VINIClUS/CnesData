@@ -78,12 +78,6 @@ class DynamoDBDispatch(DynamoDBHost):
         }
         if run.state not in late_states or dispatch.start_claim != command.claim:
             return None
-        if dispatch.state not in {
-            DispatchState.RESERVED,
-            DispatchState.STARTING,
-            DispatchState.STARTED,
-        }:
-            return None
         items: list[Item] = []
         for unit_id in dispatch.unit_ids:
             unit_item = self._get_item(unit_key(run.tenant_id, run.run_id, unit_id))
