@@ -197,7 +197,7 @@ def test_billing_seguido_de_ausencia_retem_permit_ate_terminal_real(env, bound):
 
     client = NativeClient()
     probe = StepFunctionsExecutionProbe(
-        client, "arn:aws:states:us-east-1:123456789012:stateMachine:processor"
+        cast("Any", client), "arn:aws:states:us-east-1:123456789012:stateMachine:processor"
     )
     admission = EnvironmentAdmission(env.plane, probe, "prod", 300, env.plane)
     env.clock.advance(timedelta(hours=2))

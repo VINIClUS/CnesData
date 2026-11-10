@@ -1,11 +1,20 @@
 """Confirmação forte tardia e replay preservam a janela original."""
 
 from datetime import timedelta
+from typing import Any, cast
 
 import pytest
 
+from cnes_infra.executor.step_functions import StepFunctionsExecutionProbe
 from scripts.promotion.environment_gate import DrainError, close_and_drain
-from tests.production.delivery.test_phase_b import COMMON, EXPIRATIONS, NOW, Clock, Probe
+from tests.production.delivery.test_phase_b import (
+    COMMON,
+    EXPIRATIONS,
+    MACHINE_ARN,
+    NOW,
+    Clock,
+    Probe,
+)
 from tests.production.delivery.test_phase_b import ddb as ddb_fixture
 
 ddb = ddb_fixture
@@ -24,7 +33,7 @@ def test_close_demora_e_replay_nao_rearma_o_prazo(ddb):
     client.transact_write_items = delayed
     first = close_and_drain(
         adapter,
-        Probe(),
+        StepFunctionsExecutionProbe(cast("Any", Probe()), MACHINE_ARN),
         None,
         "prod",
         "r1",
@@ -38,7 +47,7 @@ def test_close_demora_e_replay_nao_rearma_o_prazo(ddb):
     receipt = adapter.observe_environment_gate("prod").fence.close_receipt
     replay = close_and_drain(
         adapter,
-        Probe(),
+        StepFunctionsExecutionProbe(cast("Any", Probe()), MACHINE_ARN),
         None,
         "prod",
         "r1",
@@ -53,7 +62,7 @@ def test_close_demora_e_replay_nao_rearma_o_prazo(ddb):
     with pytest.raises(DrainError, match="deadline_exceeded"):
         close_and_drain(
             adapter,
-            Probe(),
+            StepFunctionsExecutionProbe(cast("Any", Probe()), MACHINE_ARN),
             None,
             "prod",
             "r1",
@@ -68,7 +77,6 @@ def test_close_demora_e_replay_nao_rearma_o_prazo(ddb):
                                            ("ABORTED", "CANCELED")])
 def test_reconcile_conserva_o_resultado_terminal_original(ddb, status, outcome):
     from cnes_domain.orchestration.dispatch_admission import EnvironmentAdmission
-    from cnes_infra.executor.step_functions import StepFunctionsExecutionProbe
     from tests.production.delivery.test_phase_b import MACHINE_ARN, _claim, _seed
 
     adapter, _ = ddb
@@ -80,7 +88,7 @@ def test_reconcile_conserva_o_resultado_terminal_original(ddb, status, outcome):
             response = super().describe_execution(**kwargs)
             return response | {"status": status}
 
-    probe = StepFunctionsExecutionProbe(Terminal(request, terminal=True), MACHINE_ARN)
+    probe = StepFunctionsExecutionProbe(cast("Any", Terminal(request, terminal=True)), MACHINE_ARN)
     EnvironmentAdmission(adapter, probe, "prod", 300, adapter).reconcile(NOW)
     settled = adapter.get_run_dispatch(dispatch.tenant_id, dispatch.run_id)
     assert settled.terminal_outcome.value == outcome
@@ -92,7 +100,6 @@ def test_cancelamento_reserved_persistido_retoma_apos_falha_de_release(ddb):
     from cnes_domain.control_plane.dispatch_start import DispatchStartClaim, request_sha256
     from cnes_domain.control_plane.environment_gate import ClosePromotionFence
     from cnes_domain.orchestration.dispatch_admission import EnvironmentAdmission
-    from cnes_infra.executor.step_functions import StepFunctionsExecutionProbe
     from tests.production.delivery.test_phase_b import MACHINE_ARN, _seed
 
     adapter, _ = ddb
@@ -114,7 +121,7 @@ def test_cancelamento_reserved_persistido_retoma_apos_falha_de_release(ddb):
     )
     assert adapter.cancel_reserved_run_dispatch(command).canceled_before_send is True
     assert adapter.observe_environment_gate("prod").permit is not None
-    probe = StepFunctionsExecutionProbe(Probe(request), MACHINE_ARN)
+    probe = StepFunctionsExecutionProbe(cast("Any", Probe(request)), MACHINE_ARN)
     EnvironmentAdmission(adapter, probe, "prod", 300, adapter).reconcile(NOW)
     result = close_and_drain(
         adapter,

@@ -288,10 +288,11 @@ def test_sqlite_cancelamento_reserved_registra_prova_distinta(tmp_path):
             canceled_at=NOW,
         )
     )
+    assert canceled is not None
     assert canceled.canceled_before_send is True
-    assert (
-        adapter.get_run_dispatch(dispatch.tenant_id, dispatch.run_id).canceled_before_send is True
-    )
+    reloaded = adapter.get_run_dispatch(dispatch.tenant_id, dispatch.run_id)
+    assert reloaded is not None
+    assert reloaded.canceled_before_send is True
     assert (
         adapter.claim_run_dispatch_start(
             ClaimRunDispatchStart(

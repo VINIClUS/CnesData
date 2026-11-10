@@ -299,10 +299,10 @@ class NativePhaseB:
             raise ValueError("phase_b=machine_readback")
         revisions = {
             "unit": context.canary["revisions"]["unit"],
-            **self._scheduler_revisions(previous),
+            **self._routing_revisions(context, previous),
         }
         tasks = {}
-        for mode in ("unit", "recovery"):
+        for mode in ("unit", "recovery", "audit"):
             task = self.clients["ecs"].describe_task_definition(taskDefinition=revisions[mode])[
                 "taskDefinition"
             ]
@@ -322,6 +322,16 @@ class NativePhaseB:
         return verify_routes(
             route, expected, revisions["unit"], revisions["recovery"], revisions["audit"], tasks
         )
+
+    def _routing_revisions(self, context: PhaseBContext, state: Node) -> Node:
+        if context.phase_a["active_before"] is not None:
+            return self._scheduler_revisions(state)
+        if any(
+            resource.get("type") == "aws_scheduler_schedule" and resource.get("instances")
+            for resource in state["resources"]
+        ):
+            raise ValueError("phase_b=initial_schedulers_must_be_absent")
+        return {mode: context.canary["revisions"][mode] for mode in ("recovery", "audit")}
 
     def _scheduler_revisions(self, state: Node) -> Node:
         revisions = {}

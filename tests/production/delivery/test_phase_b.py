@@ -279,7 +279,7 @@ def _phase_plan(context, initial):
         definition = json.loads(old["definition"])
         definition["States"]["RunUnits"]["ItemProcessor"]["States"]["RunProcessor"]["Parameters"][
             "TaskDefinition"
-        ] = "unit:1"
+        ] = context.phase_a["active_before"] or "unit:1"
         old["definition"] = json.dumps(definition)
     changes = [
         {
@@ -363,8 +363,9 @@ def original_bundle(native_close):
         "unit_environment_state_machine_arn": MACHINE_ARN,
         "recovery_environment_state_machine_arn": MACHINE_ARN,
     }
-    before = {"lineage": "lineage", "serial": 1, "state_sha256": "1" * 64, "object_version": "v1"}
-    after = {"lineage": "lineage", "serial": 2, "state_sha256": "2" * 64, "object_version": "v2"}
+    before = {"serial": 1, "state_sha256": "1" * 64, "object_version": "v1"}
+    before["lineage"] = "synthetic-phase-b-state"
+    after = before | {"serial": 2, "state_sha256": "2" * 64, "object_version": "v2"}
     phase = build_phase_b_evidence(
         close,
         before,

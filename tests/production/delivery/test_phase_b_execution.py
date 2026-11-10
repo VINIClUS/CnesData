@@ -8,14 +8,17 @@ import json
 import subprocess
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 
+from cnes_infra.executor.step_functions import StepFunctionsExecutionProbe
 from scripts.promotion.environment_gate import close_and_drain
 from scripts.promotion.phase_b import _context_from_admitted, execute_reviewed_phase_b
+from scripts.promotion.run_canary import _contract
 from scripts.promotion.verify_routes import NativePhaseB
-from tests.production.delivery.test_activation_manifest import prepare
-from tests.production.delivery.test_phase_b import COMMON, Clock, Probe, _phase_plan
+from tests.production.delivery.test_activation_manifest import _reseal_phase, admit, prepare
+from tests.production.delivery.test_phase_b import COMMON, MACHINE_ARN, Clock, Probe, _phase_plan
 from tests.production.delivery.test_phase_b import activation as activation_fixture
 from tests.production.delivery.test_phase_b import case as case_fixture
 from tests.production.delivery.test_phase_b import ddb as ddb_fixture
@@ -32,8 +35,8 @@ class Boundary:
         self.context, self.serial, self.calls = context, 1, []
         self.failure = None
         self.drift = False
-        prefix = context.canary["revisions"]["unit"].rsplit("unit:", 1)[0]
-        self.revisions = {mode: prefix + mode + ":1" for mode in ("recovery", "audit")}
+        self.revisions = {}
+        self.scheduler_reads, self.task_reads = [], []
 
     def get_object(self, **_):
         resources = []
@@ -51,7 +54,8 @@ class Boundary:
             resources.append(
                 {"type": "aws_scheduler_schedule", "instances": [{"attributes": attributes}]}
             )
-        state = {"lineage": "original", "serial": self.serial, "resources": resources}
+        state = {"serial": self.serial, "resources": resources}
+        state["lineage"] = "synthetic-phase-b-state"
         return {"VersionId": f"v{self.serial}", "Body": io.BytesIO(json.dumps(state).encode())}
 
     def describe_state_machine(self, **_):
@@ -61,6 +65,7 @@ class Boundary:
         }
 
     def get_schedule(self, **request):
+        self.scheduler_reads.append(request)
         return {
             "Target": {
                 "Arn": self.context.canary["cluster"],
@@ -72,6 +77,7 @@ class Boundary:
         }
 
     def describe_task_definition(self, **request):
+        self.task_reads.append(request["taskDefinition"])
         return {
             "taskDefinition": {
                 "taskDefinitionArn": request["taskDefinition"],
@@ -88,7 +94,8 @@ class Boundary:
     def run(self, args, **_):
         self.calls.append(args)
         if args[1] == "show":
-            raw = json.dumps(_phase_plan(self.context, True)).encode()
+            initial = self.context.phase_a["active_before"] is None
+            raw = json.dumps(_phase_plan(self.context, initial)).encode()
         elif args[1] == "apply":
             self.serial += 1
             if self.failure:
@@ -104,6 +111,7 @@ def operation(case, activation, ddb, tmp_path, monkeypatch):
     contract, *_ = case
     context = _context_from_admitted(contract, prepare(activation))
     adapter, client = ddb
+    assert context.activation is not None
     now = datetime.now(UTC)
     common = {
         **COMMON,
@@ -116,7 +124,7 @@ def operation(case, activation, ddb, tmp_path, monkeypatch):
     }
     close = close_and_drain(
         adapter,
-        Probe(),
+        StepFunctionsExecutionProbe(cast("Any", Probe()), MACHINE_ARN),
         None,
         "prod",
         contract["release_id"],
@@ -132,11 +140,10 @@ def operation(case, activation, ddb, tmp_path, monkeypatch):
         ],
     )
     boundary = Boundary(context)
-    clients = dict.fromkeys(("s3", "stepfunctions", "ecs", "scheduler"), boundary)
+    clients: dict[str, Any] = dict.fromkeys(("s3", "stepfunctions", "ecs", "scheduler"), boundary)
     clients["dynamodb"] = client
     native = NativePhaseB(
-        tmp_path,
-        clients,
+        tmp_path, clients,
         {"bucket": "state", "key": "prod", "control_plane_table": adapter._table_name},
     )
     monkeypatch.setattr("scripts.promotion.verify_routes.subprocess.run", boundary.run)
@@ -180,10 +187,13 @@ def test_recusa_mutacao_antes_de_aplicar(operation, changed):
 
 
 @pytest.mark.parametrize("failure", ["partial_apply", "scheduler_drift"])
-def test_falha_apos_mutacao_mantem_closed_sem_emitir_sucesso(operation, failure):
+def test_falha_apos_mutacao_mantem_closed_sem_emitir_sucesso(
+    operation, failure, tmp_path, activation
+):
     if failure == "partial_apply":
         operation.boundary.failure = subprocess.CalledProcessError(1, "tofu apply")
     else:
+        _establish(operation, tmp_path, activation)
         operation.boundary.drift = True
     with pytest.raises((subprocess.CalledProcessError, ValueError)):
         execute(operation)
@@ -228,3 +238,63 @@ def _approved_binary(tmp_path, native, common):
         "audit_sha256": hashlib.sha256(audit.read_bytes()).hexdigest(),
     }
     return binary, audit, approval
+
+
+def test_phase_b_inicial_aceita_state_sem_schedulers(operation):
+    assert operation.boundary.revisions == {}
+    result = execute(operation)
+    assert result["routes"]["mode"] == "initial"
+    for mode in ("unit", "recovery", "audit"):
+        assert result["routes"][f"{mode}_revision"] == operation.context.canary["revisions"][mode]
+    assert operation.adapter.observe_environment_gate("prod").fence.state.value == "CLOSED"
+
+    assert operation.boundary.scheduler_reads == []
+    assert set(operation.boundary.task_reads) == set(operation.context.canary["revisions"].values())
+
+
+def _establish(operation, tmp_path, activation):
+    payload = json.loads(prepare(activation))
+    unit = operation.context.canary["revisions"]["unit"]
+    old = unit.rsplit(":", 1)[0] + ":1"
+    activation["proof"].update(
+        active_before=old, retained_before=[old], retained_after=sorted([old, unit])
+    )
+    activation["request"]["inputs"]["retained_unit_task_definition_arns"] = sorted([old, unit])
+    raw = _reseal_phase(activation, payload)
+    contract = _contract(admit(activation, raw), operation.context.canary["_governed"])
+    operation.context = _context_from_admitted(contract, raw)
+    operation.close["common"]["activation_sha256"] = hashlib.sha256(raw).hexdigest()
+    operation.boundary.context = operation.context
+    prefix = operation.context.canary["revisions"]["unit"].rsplit("unit:", 1)[0]
+    operation.boundary.revisions = {mode: prefix + mode + ":1" for mode in ("recovery", "audit")}
+    _, _, operation.approval = _approved_binary(
+        tmp_path, operation.native, operation.close["common"]
+    )
+
+
+def test_phase_b_estabelecida_preserva_ambos_schedulers_originais(operation, tmp_path, activation):
+    _establish(operation, tmp_path, activation)
+    result = execute(operation)
+    assert result["routes"]["mode"] == "established"
+    for mode, revision in operation.boundary.revisions.items():
+        assert result["routes"][f"{mode}_revision"] == revision
+        assert revision != operation.context.canary["revisions"][mode]
+    assert len(operation.boundary.scheduler_reads) == 2
+
+
+@pytest.mark.parametrize("missing", [("recovery",), ("audit",), ("recovery", "audit")])
+def test_phase_b_estabelecida_rejeita_scheduler_ausente(operation, tmp_path, missing, activation):
+    _establish(operation, tmp_path, activation)
+    for mode in missing:
+        del operation.boundary.revisions[mode]
+    _, state = operation.native.checkpoint()
+    with pytest.raises(ValueError, match="original_schedulers_required"):
+        operation.native.routes(operation.context, state)
+
+
+@pytest.mark.parametrize("mode", ["recovery", "audit"])
+def test_phase_b_inicial_rejeita_scheduler_ja_existente(operation, mode):
+    operation.boundary.revisions[mode] = operation.context.canary["revisions"][mode]
+    _, state = operation.native.checkpoint()
+    with pytest.raises(ValueError, match="initial_schedulers_must_be_absent"):
+        operation.native.routes(operation.context, state)

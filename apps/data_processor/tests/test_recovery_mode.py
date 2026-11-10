@@ -277,15 +277,16 @@ def test_mesmo_dispatch_reservado_concorrente_reutiliza_cas_sem_nova_task(
     assert sorted(schedule.arrived) == [0, 1]
     assert schedule.submitted[0] == winner
     assert [result.recovered for result in results] == [1, 1]
-    assert len(executions.calls) == 2
-    assert executions.calls[0] == executions.calls[1]
+    assert len(executions.calls) == 1
+    assert executions.calls[0]["name"] == reserved.dispatch_id
+    assert json.loads(executions.calls[0]["input"])["dispatch_id"] == reserved.dispatch_id
     assert len(executions.stored) == 1
     _assert_active(offline_aws, executions)
     before = _snapshot(offline_aws)
     assert (before[0].dispatch_id, before[0].generation) == (reserved.dispatch_id, 1)
     assert _runtime(offline_aws).recovery.run_once(100).recovered == 1
     assert _snapshot(offline_aws) == before
-    assert len(executions.calls) == 2
+    assert len(executions.calls) == 1
     record_property("wire_and_creation", json.dumps({
         "wire": executions.calls, "stored": executions.stored, "snapshot": repr(before),
     }))
