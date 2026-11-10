@@ -43,7 +43,7 @@ from cnes_domain.control_plane.enums import (
 )
 from cnes_domain.control_plane.errors import Conflict, ControlPlaneErrorCode
 from cnes_domain.orchestration.dispatch_admission import EnvironmentAdmission
-from cnes_domain.ports.processing import ExecutionStatus
+from cnes_domain.ports.processing import ExecutionPermit, ExecutionStatus
 from data_processor.orchestration.coordinator import PipelineCoordinator
 from data_processor.orchestration.unit_worker import (
     UnitWorker,
@@ -246,6 +246,44 @@ def test_bind_tardio_liquida_admissao_apos_executor_concluido(
 
     assert result.execution_ref is not None
     assert race.run().state is RunState.PUBLISHED
+    assert _permit(gate) is None
+    assert race.executor.canceled == []
+
+
+@pytest.mark.parametrize(
+    "complete_before_bind", [True, False],
+    ids=["conclusao-antes-do-bind", "conclusao-apos-o-bind"],
+)
+def test_callback_falho_apos_conclusao_liquida_a_mesma_admissao(
+    race: _Race, gate: DynamoDBControlPlane, complete_before_bind: bool,
+) -> None:
+    race.prepare_last_wave()
+
+    def started(
+        _run: Run, request: StartRunExecution, execution_ref: str, _permit: ExecutionPermit,
+    ) -> None:
+        if not complete_before_bind:
+            for unit_id in request.unit_ids:
+                race.worker().execute(race.claim(request, unit_id))
+        race.executor.set_status(execution_ref, ExecutionStatus.SUCCEEDED)
+        raise RuntimeError("callback=after-complete")
+
+    admission = EnvironmentAdmission(gate, race.executor, _ENVIRONMENT, _LEASE_SECONDS)
+    coordinator = PipelineCoordinator(
+        _dependencies(race.adapter, race.executor, race.store, race.clock),
+        replace(_execution(started=started), admission=admission),
+    )
+
+    if complete_before_bind:
+        def complete(request: StartRunExecution) -> None:
+            for unit_id in request.unit_ids:
+                race.worker().execute(race.claim(request, unit_id))
+
+        race.inside_start(complete)
+
+    with pytest.raises(RuntimeError, match="callback=after-complete"):
+        coordinator.resume(_TENANT, _RUN_ID)
+
     assert _permit(gate) is None
     assert race.executor.canceled == []
 

@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from cnes_domain.control_plane.entities import Run, RunDispatch, RunUnit
+    from cnes_domain.control_plane.environment_gate import PermitHolder
     from cnes_domain.ports.control_plane import ControlPlanePort
     from cnes_domain.ports.processing import (
         ExecutionPolicyConfig,
@@ -195,8 +196,6 @@ def _compensate_start(
     control_plane: ControlPlanePort, executor: ProcessorExecutorPort,
     finish: FinishRunDispatch, execution_ref: str,
 ) -> None:
-    # An execution whose bind or started callback failed must not outlive its dispatch:
-    # finishing it CANCELED makes the next resume reserve generation+1 instead of a replay.
     logger.warning(
         "dispatch_start_compensated tenant_id=%s run_id=%s dispatch_id=%s",
         finish.tenant_id, finish.run_id, finish.dispatch_id,
@@ -213,7 +212,19 @@ def _completed_before_bind(
     run = control_plane.get_run(command.tenant_id, command.run_id)
     if run is None or run.state not in _TERMINAL_RUN_STATES | {RunState.PUBLISHING}:
         return False
+    dispatch = control_plane.get_run_dispatch(command.tenant_id, command.run_id)
+    if dispatch is None or dispatch.dispatch_id != command.dispatch_id:
+        return False
+    if dispatch.state not in {
+        DispatchState.RESERVED, DispatchState.STARTING, DispatchState.STARTED,
+    }:
+        return False
+    if dispatch.unit_ids != unit_ids or dispatch.start_claim != command.claim:
+        return False
+    if dispatch.state is DispatchState.STARTED and dispatch.execution_ref != command.execution_ref:
+        return False
     units = control_plane.list_run_units(command.tenant_id, command.run_id)
+    dispatched = {unit.unit_id for unit in units if unit.dispatch_id == command.dispatch_id}
     completed = {
         unit.unit_id for unit in units
         if unit.dispatch_id == command.dispatch_id
@@ -221,7 +232,18 @@ def _completed_before_bind(
             RunUnitState.SUCCEEDED, RunUnitState.SUCCEEDED_DEGRADED, RunUnitState.FAILED_FINAL,
         }
     }
-    return bool(unit_ids) and set(unit_ids) <= completed
+    return bool(unit_ids) and dispatched == set(unit_ids) and completed == dispatched
+
+
+def _prepare_start(
+    execution: ExecutionPolicyConfig, plan: RunPlan, dispatch: RunDispatch,
+) -> tuple[StartRunExecution, PermitHolder, ExecutionPermit]:
+    requested_limit = min(len(dispatch.unit_ids), execution.deployment_limit)
+    permit = execution.callbacks.policy(plan.run, dispatch, requested_limit)
+    if permit.tenant_id != plan.run.tenant_id or permit.run_id != plan.run.run_id:
+        raise ValueError("execution_permit_identity_mismatch")
+    request = execution_request(plan, dispatch, permit.max_concurrency)
+    return request, dispatch_holder(dispatch, request), permit
 
 
 def _bind_dispatch(
@@ -245,21 +267,12 @@ def _start_and_bind(
     dispatch: RunDispatch,
     now: datetime,
 ) -> str | DispatchDeferred:
-    run = plan.run
-    requested_limit = min(len(dispatch.unit_ids), execution.deployment_limit)
-    permit = execution.callbacks.policy(run, dispatch, requested_limit)
-    if permit.tenant_id != run.tenant_id or permit.run_id != run.run_id:
-        raise ValueError("execution_permit_identity_mismatch")
-    request = execution_request(plan, dispatch, permit.max_concurrency)
-    holder = dispatch_holder(dispatch, request)
+    request, holder, permit = _prepare_start(execution, plan, dispatch)
     admission = execution.admission.admit(holder, now)
     if isinstance(admission, DispatchDeferred):
         return admission
     attempt = StartAdmission(admission, now, execution.dispatch_lease_seconds)
-    claim = claim_dispatch_start(
-        control_plane, dispatch, request,
-        attempt,
-    )
+    claim = claim_dispatch_start(control_plane, dispatch, request, attempt)
     if isinstance(claim, DispatchDeferred):
         execution.admission.settle(holder, now)
         return claim
@@ -268,37 +281,25 @@ def _start_and_bind(
     except Exception:
         execution.admission.settle(holder, now)
         raise
-    completed_before_binding = False
     bind_command = attempt.bind(dispatch, execution_ref, claim)
+    bound: RunDispatch | None = None
     try:
         bound = _bind_dispatch(control_plane, bind_command, dispatch.unit_ids)
-        terminal_after_bind = control_plane.get_run(run.tenant_id, run.run_id)
-        completed_before_binding = bound is None or (
-            terminal_after_bind is not None and terminal_after_bind.state in _TERMINAL_RUN_STATES
-        )
         execution.admission.confirm(admission, execution_ref, now)
-        execution.callbacks.started(run, request, execution_ref, permit)
+        execution.callbacks.started(plan.run, request, execution_ref, permit)
     except Exception:
         completed = _completed_before_bind(control_plane, bind_command, dispatch.unit_ids)
-        if completed_before_binding or completed:
+        if completed:
+            execution.admission.settle(holder, now)
             raise
-        _compensate_start(
-            control_plane,
-            executor,
-            attempt.cancel(dispatch, claim),
-            execution_ref,
-        )
+        bound_elsewhere = control_plane.get_run_dispatch(plan.run.tenant_id, plan.run.run_id)
+        if not bound and bound_elsewhere and bound_elsewhere.state is DispatchState.STARTED:
+            raise
+        _compensate_start(control_plane, executor, attempt.cancel(dispatch, claim), execution_ref)
         execution.admission.settle(holder, now)
         raise
-        current_run = control_plane.get_run(run.tenant_id, run.run_id)
-        if completed_before_binding or (
-            current_run is not None and current_run.state in _TERMINAL_RUN_STATES
-        ):
-            settled_dispatch = control_plane.get_run_dispatch(run.tenant_id, run.run_id)
-            execution.admission.settle(
-                dispatch_holder(settled_dispatch or dispatch, request), now
-            )
-            return execution_ref
+    if _completed_before_bind(control_plane, bind_command, dispatch.unit_ids):
+        execution.admission.settle(holder, now)
     return execution_ref if bound is None else cast("str", bound.execution_ref)
 
 
@@ -366,9 +367,6 @@ def _publish_now(
 
 
 def _cancel(dependencies: CoordinatorDependencies, run: Run, now: datetime) -> CoordinatorResult:
-    # get_active_run_dispatch and claim_run_unit are both scoped to PROCESSING runs;
-    # once CANCEL_REQUESTED, no dispatch is visible or claimable. Cancellation is
-    # therefore best-effort and has no execution_ref (RunUnitState.CANCELED covers the rest).
     dependencies.executor.cancel(CancelRunExecution(
         tenant_id=run.tenant_id, run_id=run.run_id, execution_ref=None,
     ))
