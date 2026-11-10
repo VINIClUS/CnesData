@@ -23,7 +23,6 @@ from apps.data_processor.tests.test_aws_unit_composition import (
     _complete,
     _dispatch,
     _event,
-    _hold,
     _message,
     _offline_aws,
     _prepare_materialize,
@@ -33,12 +32,21 @@ from apps.data_processor.tests.test_aws_unit_composition import (
 from cnes_domain.billing import BillingConcurrencyPolicy, RunExecutionPermit
 from cnes_domain.billing.commands import SnapshotWrite
 from cnes_domain.billing.errors import EntitlementDenied
+from cnes_domain.billing.execution import RunExecutionBindingCommand
 from cnes_domain.billing.models import ReadConsistency, SubscriptionStatus
-from cnes_domain.control_plane.commands import TransitionRun
+from cnes_domain.control_plane.commands import ReserveRunDispatch, TransitionRun
+from cnes_domain.control_plane.dispatch_start import (
+    DispatchStartClaim,
+    StartAdmission,
+    claim_dispatch_start,
+)
 from cnes_domain.control_plane.entities import RunDispatch
 from cnes_domain.control_plane.enums import DispatchState, RunState
+from cnes_domain.control_plane.environment_gate import AcquireUnitPermit, BindUnitPermit
 from cnes_domain.control_plane.errors import ControlPlaneErrorCode, LeaseLost
-from cnes_domain.ports.processing import ExecutionPermit
+from cnes_domain.orchestration.dispatch_admission import dispatch_holder
+from cnes_domain.ports.environment_gate import UnitAdmission
+from cnes_domain.ports.processing import ExecutionPermit, StartRunExecution
 from cnes_infra.aws.processor_settings import AwsRecoverySettings, AwsUnitSettings
 from cnes_infra.billing.dynamodb_projection import DynamoEntitlementProjection
 from cnes_infra.billing.settings import BillingSettings
@@ -75,16 +83,64 @@ def _sf_schedule(aws: _OfflineAws, prior: RunDispatch | None = None, status: str
     def describe(**request: str) -> dict[str, str]:
         arn = request["executionArn"]
         if prior is not None and arn == prior.execution_ref:
-            return {"status": status}
+            return {
+                "status": status, "executionArn": arn,
+                "input": _start_request(prior).model_dump_json(),
+            }
         name = aws.step_functions.start_execution.call_args.kwargs["name"]
         assert arn == _EXECUTION_PREFIX + name
-        return {"status": "RUNNING"}
+        return {"status": "RUNNING", "executionArn": arn,
+                "input": aws.step_functions.start_execution.call_args.kwargs["input"]}
 
     def start(**request: Any) -> dict[str, str]:
         return {"executionArn": _EXECUTION_PREFIX + request["name"]}
 
     aws.step_functions.start_execution.side_effect = start
     aws.step_functions.describe_execution.side_effect = describe
+
+
+def _start_request(dispatch: RunDispatch) -> StartRunExecution:
+    return StartRunExecution(
+        tenant_id=dispatch.tenant_id, run_id=dispatch.run_id, wave_id=dispatch.wave_id,
+        dispatch_id=dispatch.dispatch_id, unit_ids=dispatch.unit_ids, max_concurrency=1,
+    )
+
+
+def _native_dispatch(aws: _OfflineAws) -> RunDispatch:
+    dispatch = aws.control_plane.reserve_run_dispatch(ReserveRunDispatch(
+        tenant_id=_TENANT, run_id=_RUN, wave_id=f"{1:016x}", unit_ids=("unit-n",),
+        now=_NOW, lease_seconds=3600,
+    ))
+    request = _start_request(dispatch)
+    acquisition = aws.control_plane.acquire_unit_permit(AcquireUnitPermit(
+        "prod", dispatch_holder(dispatch, request), _NOW, 3600,
+    ))
+    permit = acquisition.permit
+    assert permit is not None
+    attempt = StartAdmission(UnitAdmission("prod", permit.token, permit.fence_version), _NOW, 3600)
+    claim = claim_dispatch_start(aws.control_plane, dispatch, request, attempt)
+    assert isinstance(claim, DispatchStartClaim)
+    execution_ref = _EXECUTION_PREFIX + dispatch.dispatch_id
+    bound = aws.control_plane.bind_run_dispatch(attempt.bind(dispatch, execution_ref, claim))
+    assert aws.control_plane.bind_unit_permit(BindUnitPermit(
+        "prod", permit.token, execution_ref, _NOW,
+    ))
+    _bind_fixture_billing(aws, bound)
+    assert bound.start_claim == claim
+    return bound
+
+
+def _bind_fixture_billing(aws: _OfflineAws, dispatch: RunDispatch) -> None:
+    state = aws.control_plane.get_run_billing_state(_TENANT, _RUN)
+    assert state is not None
+    aws.control_plane.bind_run_execution(RunExecutionBindingCommand(
+        tenant_id=_TENANT, run_id=_RUN, wave_id=dispatch.wave_id,
+        dispatch_id=dispatch.dispatch_id, generation=dispatch.generation,
+        execution_ref=str(dispatch.execution_ref), unit_ids=dispatch.unit_ids,
+        expected_previous_dispatch_id=state.execution_dispatch_id,
+        expected_previous_execution_ref=state.execution_ref,
+        expected_entitlement_version=1, expected_fencing_token=0, bound_at=_NOW,
+    ))
 
 
 def _binding_callback(
@@ -153,8 +209,9 @@ def test_callback_de_unidade_observa_binding_persistido_e_permit_original(
     offline_aws: _OfflineAws, status: str,
 ) -> None:
     _seed_graph(offline_aws, "disabled")
-    dispatch = _dispatch(offline_aws, "unit-n", 1)
-    held = _hold(offline_aws, dispatch)
+    dispatch = _native_dispatch(offline_aws)
+    held = offline_aws.control_plane.observe_environment_gate("prod").permit
+    assert held is not None
     before = offline_aws.control_plane.get_run_billing_state(_TENANT, _RUN)
     _sf_schedule(offline_aws, dispatch, status)
     with _policy_returns() as produced:
@@ -294,9 +351,7 @@ def test_factory_transporta_callback_e_relogio_explicitos(
 ) -> None:
     clock = _NOW + timedelta(seconds=17)
     _seed_graph(offline_aws, "disabled" if mode == "unit" else "stripe")
-    dispatch = _dispatch(offline_aws, "unit-n", 1) if mode == "unit" else None
-    if dispatch is not None:
-        _hold(offline_aws, dispatch)
+    dispatch = _native_dispatch(offline_aws) if mode == "unit" else None
     _sf_schedule(offline_aws, dispatch, "ABORTED")
     with _policy_returns() as produced:
         started, received = _binding_callback(

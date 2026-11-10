@@ -382,9 +382,11 @@ def _validate_unit_fence(store: Any, connection: Any, command: Any) -> tuple[Run
         raise LeaseLost(ErrorCode.PARENT_NOT_PROCESSING)
     if dispatch is None or dispatch.dispatch_id != command.dispatch_id:
         raise LeaseLost(ErrorCode.DISPATCH_MISMATCH)
-    if dispatch.state not in {DispatchState.RESERVED, DispatchState.STARTED}:
+    if dispatch.state not in {
+        DispatchState.RESERVED, DispatchState.STARTING, DispatchState.STARTED,
+    }:
         raise LeaseLost(ErrorCode.DISPATCH_INACTIVE)
-    if dispatch.lease_until <= store.now():
+    if dispatch.lease_until <= store.now() and dispatch.start_claim is None:
         raise LeaseLost(ErrorCode.DISPATCH_EXPIRED)
     if unit is None or unit.state is not RunUnitState.LEASED:
         raise LeaseLost(ErrorCode.UNIT_NOT_LEASED)

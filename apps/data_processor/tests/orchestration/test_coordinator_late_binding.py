@@ -37,6 +37,7 @@ from cnes_domain.control_plane.commands import (
 )
 from cnes_domain.control_plane.enums import (
     DispatchOutcome,
+    DispatchState,
     RunState,
     RunUnitState,
 )
@@ -224,6 +225,9 @@ def test_bind_tardio_liquida_admissao_apos_executor_concluido(
 
     def complete(request: StartRunExecution) -> None:
         assert _permit(gate) is not None
+        dispatch = _stored_dispatch(race.adapter)
+        assert dispatch.state is DispatchState.STARTING
+        assert dispatch.start_claim is not None
         for unit_id in request.unit_ids:
             race.worker().execute(race.claim(request, unit_id))
         race.executor.set_status(f"exec-{request.dispatch_id}", ExecutionStatus.SUCCEEDED)

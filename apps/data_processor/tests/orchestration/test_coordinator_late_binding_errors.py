@@ -23,7 +23,12 @@ from apps.data_processor.tests.orchestration.test_coordinator_late_binding impor
     race,
     store,
 )
-from cnes_domain.control_plane.enums import DispatchOutcome, RunState, RunUnitState
+from cnes_domain.control_plane.enums import (
+    DispatchOutcome,
+    DispatchState,
+    RunState,
+    RunUnitState,
+)
 from cnes_domain.control_plane.errors import Conflict, ControlPlaneErrorCode
 from cnes_domain.orchestration.dispatch_admission import EnvironmentAdmission, UnitPermitLost
 from cnes_domain.ports.processing import ExecutionStatus
@@ -87,6 +92,8 @@ def test_reconcile_terminal_antes_do_confirm_nao_cancela_onda_concluida(
 
     def complete_then_reconcile(request: StartRunExecution) -> None:
         assert _permit(gate) is not None
+        assert _stored_dispatch(race.adapter).state is DispatchState.STARTING
+        assert _stored_dispatch(race.adapter).start_claim is not None
         _complete_wave(race, request)
         admission.reconcile(race.clock.now())
         assert _permit(gate) is None
@@ -116,6 +123,8 @@ def test_erro_probe_no_settle_apos_conclusao_propaga_sem_cancelar_onda(
         raise failure
 
     def complete_then_lose_probe(request: StartRunExecution) -> None:
+        assert _stored_dispatch(race.adapter).state is DispatchState.STARTING
+        assert _stored_dispatch(race.adapter).start_claim is not None
         _complete_wave(race, request)
         race.executor.probe = reject_probe
 

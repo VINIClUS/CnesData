@@ -8,15 +8,24 @@ from cnes_domain.control_plane.commands import (
     BindRunDispatch,
     CancelReservedRunDispatch,
     ClaimRunDispatchStart,
+    FailRunUnit,
     FinishRunDispatch,
     ReserveRunDispatch,
 )
 from cnes_domain.control_plane.dispatch_start import DispatchStartClaim
-from cnes_domain.control_plane.enums import DispatchOutcome, DispatchState
-from cnes_domain.control_plane.errors import Conflict
+from cnes_domain.control_plane.enums import DispatchOutcome, DispatchState, RunUnitState
+from cnes_domain.control_plane.errors import Conflict, FenceRejected, LeaseLost
+from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
 from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
 from cnes_infra.control_plane.sqlite_claims import write_dispatch_record
-from packages.cnes_infra.tests.contracts.clock import MutableClock, _prepare_unit
+from packages.cnes_infra.tests.contracts.clock import (
+    MutableClock,
+    _claim_unit_command,
+    _commit_command,
+    _event,
+    _prepare_unit,
+)
+from packages.cnes_infra.tests.control_plane.test_dynamodb_adapter import _TABLE_NAME
 from packages.cnes_infra.tests.control_plane.test_dynamodb_promotion_snapshot import (
     NOW,
     seed,
@@ -257,3 +266,138 @@ def test_sqlite_starting_corrompido_sem_claim_falha_fechado(tmp_path):
         )
     with adapter.read_connection() as connection:
         assert connection.execute("SELECT state FROM run_dispatches").fetchone() == ("STARTING",)
+
+
+def _settle_unit(adapter, dispatch, claimed, failure):
+    command = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
+    event = _event("starting-unit-finished")
+    if failure:
+        failed = FailRunUnit(
+            tenant_id=command.tenant_id, run_id=command.run_id, unit_id=command.unit_id,
+            dispatch_id=command.dispatch_id, owner=command.owner,
+            fencing_token=command.fencing_token, error_code="processing_failed", retryable=False,
+        )
+        result = adapter.fail_run_unit(failed, event)
+        assert result.error_code == "processing_failed"
+    else:
+        result = adapter.commit_run_unit(command, event)
+        assert result.output_manifests == command.output_manifests
+    assert adapter.read_outbox_page(None, 100).events.count(event) == 1
+    return result
+
+
+@pytest.mark.parametrize("failure", [False, True], ids=["commit", "fail"])
+def test_unidade_starting_persiste_antes_do_ack_sem_alterar_dispatch(started_store, failure):
+    adapter, (dispatch, _, _, _, command) = started_store
+    starting = adapter.claim_run_dispatch_start(command)
+    claimed = adapter.claim_run_unit(_claim_unit_command(
+        dispatch.dispatch_id, "worker-a", MutableClock(NOW),
+    ))
+    assert claimed is not None
+    result = _settle_unit(adapter, dispatch, claimed, failure)
+    assert result.state is (RunUnitState.FAILED_FINAL if failure else RunUnitState.SUCCEEDED)
+    assert result.lease_owner is result.lease_until is None
+    assert result.dispatch_id == dispatch.dispatch_id
+    assert adapter.get_run_dispatch(dispatch.tenant_id, dispatch.run_id) == starting
+
+
+@pytest.mark.parametrize(
+    ("update", "code"),
+    [
+        ({"owner": "intruder"}, "owner_mismatch"),
+        ({"fencing_token": 999}, "fence_mismatch"),
+        ({"dispatch_id": "0" * 16}, "dispatch_mismatch"),
+    ],
+)
+def test_sqlite_starting_recusa_fence_divergente_sem_efeito(tmp_path, update, code):
+    adapter = SQLiteControlPlane(tmp_path / "fence.sqlite", lambda: NOW)
+    adapter.initialize()
+    dispatch, _, _, _, command = _sqlite_seed(adapter)
+    starting = adapter.claim_run_dispatch_start(command)
+    claimed = adapter.claim_run_unit(_claim_unit_command(
+        dispatch.dispatch_id, "worker-a", MutableClock(NOW),
+    ))
+    assert claimed is not None
+    commit = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
+    before = adapter.list_run_units(dispatch.tenant_id, dispatch.run_id)
+    events = adapter.read_outbox_page(None, 100).events
+    with pytest.raises((FenceRejected, LeaseLost), match=code):
+        adapter.commit_run_unit(commit.model_copy(update=update), _event("rejected"))
+    assert adapter.list_run_units(dispatch.tenant_id, dispatch.run_id) == before
+    assert adapter.read_outbox_page(None, 100).events == events
+    assert adapter.get_run_dispatch(dispatch.tenant_id, dispatch.run_id) == starting
+
+
+@pytest.fixture(params=["sqlite", "dynamodb"])
+def timed_store(request, tmp_path):
+    clock = MutableClock(NOW)
+    if request.param == "dynamodb":
+        _, client = request.getfixturevalue("ddb")
+        adapter = DynamoDBControlPlane(client, _TABLE_NAME, clock.now)
+        initial = seed(adapter)
+    else:
+        adapter = SQLiteControlPlane(tmp_path / "clock.sqlite", clock.now)
+        adapter.initialize()
+        initial = _sqlite_seed(adapter)
+    dispatch, _, _, claim, command = initial
+    assert adapter.claim_run_dispatch_start(command) is not None
+    bound = adapter.bind_run_dispatch(_bind(dispatch, claim))
+    unit_command = _claim_unit_command(dispatch.dispatch_id, "worker-a", clock)
+    claimed = adapter.claim_run_unit(unit_command.model_copy(update={"lease_seconds": 600}))
+    assert claimed is not None
+    return adapter, clock, bound, claimed
+
+
+@pytest.mark.parametrize("failure", [False, True], ids=["commit", "fail"])
+def test_claim_duravel_preserva_settlement_com_lease_da_unidade_vigente(timed_store, failure):
+    adapter, clock, dispatch, claimed = timed_store
+    clock.advance(timedelta(seconds=300))
+    assert dispatch.lease_until == clock.now()
+    assert claimed.lease_until > clock.now()
+    result = _settle_unit(adapter, dispatch, claimed, failure)
+    assert result.state is (RunUnitState.FAILED_FINAL if failure else RunUnitState.SUCCEEDED)
+    assert adapter.get_run_dispatch(dispatch.tenant_id, dispatch.run_id) == dispatch
+
+
+def test_claim_duravel_nao_dispensa_lease_da_unidade(timed_store):
+    adapter, clock, dispatch, claimed = timed_store
+    clock.advance(timedelta(seconds=600))
+    command = _commit_command(dispatch.dispatch_id, "worker-a", claimed.fencing_token)
+    before = adapter.list_run_units(dispatch.tenant_id, dispatch.run_id)
+    events = adapter.read_outbox_page(None, 100).events
+    with pytest.raises(LeaseLost, match="lease_expired"):
+        adapter.commit_run_unit(command, _event("unit-expired"))
+    assert adapter.list_run_units(dispatch.tenant_id, dispatch.run_id) == before
+    assert adapter.read_outbox_page(None, 100).events == events
+
+
+def test_claim_duravel_nao_autoriza_nova_admissao_apos_expirar_dispatch(timed_store):
+    adapter, clock, dispatch, _ = timed_store
+    clock.advance(timedelta(seconds=600))
+    before = adapter.list_run_units(dispatch.tenant_id, dispatch.run_id)
+    command = _claim_unit_command(dispatch.dispatch_id, "new-worker", clock)
+    assert adapter.claim_run_unit(command) is None
+    assert adapter.list_run_units(dispatch.tenant_id, dispatch.run_id) == before
+
+
+def test_sqlite_starting_finalizado_nao_aceita_commit_nem_evento(tmp_path):
+    adapter = SQLiteControlPlane(tmp_path / "terminal.sqlite", lambda: NOW)
+    adapter.initialize()
+    dispatch, _, _, claim, command = _sqlite_seed(adapter)
+    adapter.claim_run_dispatch_start(command)
+    unit = adapter.claim_run_unit(_claim_unit_command(
+        dispatch.dispatch_id, "worker-a", MutableClock(NOW),
+    ))
+    assert unit is not None
+    finished = adapter.finish_run_dispatch(FinishRunDispatch(
+        tenant_id=dispatch.tenant_id, run_id=dispatch.run_id, dispatch_id=dispatch.dispatch_id,
+        outcome=DispatchOutcome.CANCELED, finished_at=NOW, claim=claim,
+    ))
+    commit = _commit_command(dispatch.dispatch_id, "worker-a", unit.fencing_token)
+    before = adapter.list_run_units(dispatch.tenant_id, dispatch.run_id)
+    events = adapter.read_outbox_page(None, 100).events
+    with pytest.raises(LeaseLost, match="dispatch_inactive"):
+        adapter.commit_run_unit(commit, _event("terminal-rejected"))
+    assert adapter.list_run_units(dispatch.tenant_id, dispatch.run_id) == before
+    assert adapter.read_outbox_page(None, 100).events == events
+    assert adapter.get_run_dispatch(dispatch.tenant_id, dispatch.run_id) == finished
