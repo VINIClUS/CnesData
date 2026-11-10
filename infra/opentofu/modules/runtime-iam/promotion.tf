@@ -44,6 +44,11 @@ resource "aws_iam_role_policy" "promotion_fence_operator" {
           Null                        = { "dynamodb:LeadingKeys" = "false" }
         }
       },
+      {
+        Effect   = "Allow"
+        Action   = "states:DescribeExecution"
+        Resource = "${replace(var.state_machine_arn, ":stateMachine:", ":execution:")}:*"
+      },
     ]
   })
 }

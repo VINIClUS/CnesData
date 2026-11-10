@@ -9,6 +9,7 @@ import pytest
 
 from cnes_infra.control_plane.dynamodb_inventory import CONTROL_PLANE_INVENTORY
 from tests.production.infra._aws_mock_defaults import MOCK_AWS_PROVIDERS
+from tests.production.infra._canary_fence_execution_contracts import verificar_grants_operador
 from tests.production.infra._processing_native import _native_result
 from tests.production.infra._step_functions_iam_contracts import (
     Grants,
@@ -243,7 +244,9 @@ def _expected(release: str) -> dict[str, Grants]:
         | literal_grants(("dynamodb:UpdateItem",), (CP_TABLE,), _lk(("ENV#prod#FENCE",)))
         | literal_grants(
             ("dynamodb:ConditionCheckItem",), (CP_TABLE,), _lk(("ENV#prod#SEMAPHORE",))
-        ),
+        )
+        | _object_grants(("states:DescribeExecution",),
+                         (f"arn:aws:states:us-east-2:{ACCOUNT}:execution:{PREFIX}:*",)),
     }
 
 
@@ -289,18 +292,11 @@ def test_verifier_nega_outro_release_id(runtime_events: list[Node]) -> None:
     assert all(f"canary-{RELEASE}.json" not in resource for _, resource, _ in other)
 
 
-def test_operador_muta_so_o_fence(runtime_events: list[Node]) -> None:
-    observed = _observed(_plan(runtime_events, "ativo"), "promotion_fence_operator")
-    writes = {(r, c) for a, r, c in observed if a == "dynamodb:UpdateItem"}
-    assert writes == {(CP_TABLE, next(iter(
-        c for a, _, c in _expected(RELEASE)["promotion_fence_operator"]
-        if a == "dynamodb:UpdateItem")))}
-    assert all("SEMAPHORE" not in c for a, _, c in observed if a == "dynamodb:UpdateItem")
-    assert {a for a, _, _ in observed} == {
-        "dynamodb:GetItem",
-        "dynamodb:UpdateItem",
-        "dynamodb:ConditionCheckItem",
-    }
+@pytest.mark.parametrize("release", ["ativo", "ativo_b"])
+def test_operador_muta_so_o_fence(runtime_events: list[Node], release: str) -> None:
+    observed = _observed(_plan(runtime_events, release), "promotion_fence_operator")
+    assert observed == _expected(RELEASE)["promotion_fence_operator"]
+    verificar_grants_operador(observed, _expected(RELEASE)["promotion_fence_operator"], CP_TABLE)
 
 
 def test_dispatch_de_audit_so_leading_keys_de_outbox(runtime_events: list[Node]) -> None:

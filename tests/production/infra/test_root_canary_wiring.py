@@ -251,3 +251,77 @@ def _phase_b_context(plan, name, prod_root):
         "state_machine_arn": "arn:aws:states:us-east-2:123456789012:stateMachine:cnesdata-prod",
     }
     return active, context
+
+
+@pytest.mark.parametrize("pendente", [False, True])
+def test_replace_iam_converte_arn_proprio_ou_preserva_identidade_pendente(pendente):
+    from scripts.promotion._iam_expression import Budget, Evaluator, Pending, parse
+
+    origem = "arn:aws:states:us-east-2:123456789012:stateMachine:cnesdata-prod"
+    valor = Pending("machine.arn") if pendente else origem
+    budget = Budget()
+    expressao = '"${replace(var.state_machine_arn, ":stateMachine:", ":execution:")}:*"'
+    observado = Evaluator(lambda caminho, contexto: valor, budget).value(parse(expressao, budget))
+    if pendente:
+        assert isinstance(observado, Pending)
+    else:
+        assert observado == "arn:aws:states:us-east-2:123456789012:execution:cnesdata-prod:*"
+
+
+@pytest.mark.parametrize("argumentos", [
+    ["origem", ":stateMachine:"],
+    ["origem", ":stateMachine:", ":execution:", "extra"],
+    [7, ":stateMachine:", ":execution:"],
+    [None, ":stateMachine:", ":execution:"],
+    ["origem", 7, ":execution:"],
+    ["origem", ":stateMachine:", 7],
+    ["origem", "/:stateMachine:/", ":execution:"],
+    ["origem", ":stateMachine:", ":execution:*"],
+    ["a" * 4097, ":stateMachine:", ":execution:"],
+])
+def test_replace_iam_rejeita_argumentos_fora_da_conversao_fechada(argumentos):
+    from scripts.promotion._iam_expression import function
+
+    with pytest.raises(ValueError, match=r"iam=(arity|replace_)"):
+        function("replace", argumentos)
+
+
+def test_replace_iam_aceita_o_limite_de_tamanho_sem_ampliar_recursos():
+    from scripts.promotion._iam_expression import function
+
+    assert function("replace", ["a" * 4096, ":stateMachine:", ":execution:"]) == "a" * 4096
+
+
+FORMATO_MACHINE = "arn:aws:states:us-east-2:%s:stateMachine:%s"
+
+
+def test_format_iam_resolve_somente_arn_da_maquina_do_root_atual():
+    from scripts.promotion._iam_expression import Budget, Evaluator, parse
+
+    budget = Budget()
+    expressao = f'format("{FORMATO_MACHINE}", var.account_id, "cnesdata-prod")'
+    observado = Evaluator(lambda caminho, contexto: "123456789012", budget).value(
+        parse(expressao, budget)
+    )
+    assert observado == "arn:aws:states:us-east-2:123456789012:stateMachine:cnesdata-prod"
+
+
+@pytest.mark.parametrize("argumentos", [
+    [FORMATO_MACHINE, "123456789012"],
+    [FORMATO_MACHINE, "123456789012", "cnesdata-prod", "extra"],
+    [FORMATO_MACHINE.replace("us-east-2", "us-east-1"), "123456789012", "cnesdata-prod"],
+    [FORMATO_MACHINE.replace("stateMachine", "execution"), "123456789012", "cnesdata-prod"],
+    [FORMATO_MACHINE, "123456789012", "cnesdata-outra"],
+    [FORMATO_MACHINE, "123456789012", "cnesdata-prod*"],
+    [FORMATO_MACHINE, "12345678901", "cnesdata-prod"],
+    [FORMATO_MACHINE, "1234567890123", "cnesdata-prod"],
+    [FORMATO_MACHINE, "12345678901a", "cnesdata-prod"],
+    [FORMATO_MACHINE, 123456789012, "cnesdata-prod"],
+    [None, "123456789012", "cnesdata-prod"],
+    [FORMATO_MACHINE, "123456789012", "a" * 4097],
+])
+def test_format_iam_rejeita_template_prefixo_conta_ou_tipo_nao_governados(argumentos):
+    from scripts.promotion._iam_expression import function
+
+    with pytest.raises(ValueError, match=r"iam=(arity|format_)"):
+        function("format", argumentos)
