@@ -171,20 +171,13 @@ def _bind_dispatch(
 
 
 def _settle_foreign_bind(
-    control_plane: ControlPlanePort,
     executor: ProcessorExecutorPort,
-    execution: ExecutionPolicyConfig,
-    plan: RunPlan,
     dispatch: RunDispatch,
     bind_command: BindRunDispatch,
-    bound: RunDispatch | None,
-    holder: PermitHolder,
-    now: datetime,
+    bound_elsewhere: RunDispatch | None,
 ) -> bool:
-    bound_elsewhere = control_plane.get_run_dispatch(plan.run.tenant_id, plan.run.run_id)
     if (
-        bound
-        or bound_elsewhere is None
+        bound_elsewhere is None
         or bound_elsewhere.dispatch_id != bind_command.dispatch_id
         or bound_elsewhere.state is not DispatchState.STARTED
     ):
@@ -200,7 +193,6 @@ def _settle_foreign_bind(
             run_id=bind_command.run_id,
             execution_ref=bind_command.execution_ref,
         ))
-    execution.admission.settle(holder, now)
     return True
 
 
@@ -237,10 +229,9 @@ def _start_and_bind(
         if completed:
             execution.admission.settle(holder, now)
             raise
-        if _settle_foreign_bind(
-            control_plane, executor, execution, plan, dispatch,
-            bind_command, bound, holder, now,
-        ):
+        bound_elsewhere = control_plane.get_run_dispatch(plan.run.tenant_id, plan.run.run_id)
+        if not bound and _settle_foreign_bind(executor, dispatch, bind_command, bound_elsewhere):
+            execution.admission.settle(holder, now)
             raise
         _compensate_start(control_plane, executor, attempt.cancel(dispatch, claim), execution_ref)
         execution.admission.settle(holder, now)
