@@ -1,3 +1,9 @@
+output "static_promotion_iam_contract" {
+  description = "Private static IAM references and commitments, or null when disabled."
+  sensitive   = true
+  value       = module.runtime_iam.static_promotion_iam_contract
+}
+
 output "mode_canary_capabilities" {
   description = "Private commitments of the exact owner-bound mode capabilities, or null."
   sensitive   = true

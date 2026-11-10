@@ -19,6 +19,19 @@ PROCESSOR_MODES = ("unit", "recovery", "audit")
 ALIASES_MODO = ("mode_seed", "mode_dispatch", "mode_audit_launch", "mode_observe")
 
 
+def _entradas_estaticas(plano: Node) -> Inventory:
+    entrada = plano["variables"].get("static_promotion", {}).get("value")
+    if entrada is None:
+        return {}
+    aliases = ("observer", "normal", "recovery") if entrada["mode"] == "operational" else (
+        "observer",
+    )
+    return {
+        f"{RUNTIME_PREFIX}.static_{alias}[0]": (f"{nome}-runtime", nome)
+        for alias in aliases for nome in [f"{PRODUCT_NAMESPACE}-static-{alias}"]
+    }
+
+
 def _entradas_modo(plano: Node) -> Inventory:
     entrada = plano["variables"].get("mode_canary", {}).get("value")
     if entrada is None:
@@ -66,6 +79,7 @@ def runtime_iam_entries(plan: Node) -> Inventory:
         },
         **_entradas_canary(plan),
         **_entradas_modo(plan),
+        **_entradas_estaticas(plan),
     }
 
 

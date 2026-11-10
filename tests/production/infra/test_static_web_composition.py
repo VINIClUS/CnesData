@@ -378,7 +378,7 @@ def test_outputs_cloudfront_e_runtime_sao_utilizaveis(static_web_composition: Co
     outputs = composition.plan["planned_values"].get("outputs", {})
     declared = _configured(composition)["outputs"]
     expected = OUTPUTS | {"mode_canary_capabilities"}
-    assert len(expected) == 36
+    assert len(expected) == 37
     assert set(declared) == expected, f"root_output_inventory actual={set(declared)}"
     required_outputs = expected - {"api_loopback_contract"}
     assert required_outputs <= set(outputs), "evaluated_root_outputs_required"
@@ -390,6 +390,12 @@ def test_outputs_cloudfront_e_runtime_sao_utilizaveis(static_web_composition: Co
     assert declared["mode_canary_capabilities"]["sensitive"] is True
     assert set(declared["mode_canary_capabilities"]["expression"]["references"]) == {
         "module.runtime_iam.mode_canary_capabilities", "module.runtime_iam",
+    }
+    assert outputs["static_promotion_iam_contract"]["value"] is None
+    assert outputs["static_promotion_iam_contract"]["sensitive"] is True
+    assert declared["static_promotion_iam_contract"]["sensitive"] is True
+    assert set(declared["static_promotion_iam_contract"]["expression"]["references"]) == {
+        "module.runtime_iam.static_promotion_iam_contract", "module.runtime_iam",
     }
     if "api_loopback_contract" in outputs:
         assert "value" in outputs["api_loopback_contract"]

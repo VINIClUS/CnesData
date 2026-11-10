@@ -1,3 +1,15 @@
+variable "tags" {
+  description = "Ownership metadata for the dedicated static identities only."
+  type        = map(string)
+  default     = {}
+}
+
+variable "static_web" {
+  description = "Internal bucket/distribution references resolved by the product root."
+  type        = any
+  default     = null
+}
+
 variable "demo_seed" {
   description = "Exact demo tenant seed grant, or null to create no demo identity."
   type = object({
