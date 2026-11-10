@@ -168,6 +168,7 @@ def test_varredura_segue_imports_transitivos(tmp_path: Path, source: str, expect
         ("scripts/promotion/_iam_expression.py", True),
         ("scripts/promotion/_canonical.py", True),
         ("release/verify_candidate.py", True),
+        ("release/verify_activation.py", True),
         ("scripts/outro.py", False),
     ],
 )

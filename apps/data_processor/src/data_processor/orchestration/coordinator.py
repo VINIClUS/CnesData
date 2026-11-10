@@ -5,26 +5,20 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
-from cnes_domain.control_plane.commands import (
-    BindRunDispatch,
-    FinalizeRunCancellation,
-    FinishRunDispatch,
-    ReserveRunDispatch,
-    TransitionRun,
-)
+from cnes_domain.control_plane.commands import FinalizeRunCancellation, TransitionRun
 from cnes_domain.control_plane.entities import OutboxEvent
-from cnes_domain.control_plane.enums import DispatchOutcome, DispatchState, RunState, RunUnitState
-from cnes_domain.control_plane.errors import Conflict, ControlPlaneErrorCode
-from cnes_domain.orchestration.dispatch_admission import dispatch_holder, settle_run_dispatches
+from cnes_domain.control_plane.enums import RunState
+from cnes_domain.orchestration.dispatch_admission import settle_run_dispatches
 from cnes_domain.orchestration.fan_in import decide_fan_in
-from cnes_domain.orchestration.planner import (
-    RunPlan,
-    execution_request,
-    logical_wave_id,
-    ready_units,
+from cnes_domain.orchestration.planner import RunPlan
+from cnes_domain.ports.environment_gate import UNGATED_ADMISSION, DeferralReason, DispatchDeferred
+from cnes_domain.ports.processing import CancelRunExecution, ExecutionPermit
+from data_processor.orchestration.coordinator_dispatch_start import (
+    _dispatch_protocol,
 )
-from cnes_domain.ports.environment_gate import UNGATED_ADMISSION, DispatchDeferred
-from cnes_domain.ports.processing import CancelRunExecution, ExecutionPermit, ExecutionStatus
+from data_processor.orchestration.coordinator_dispatch_start import (
+    _start_and_bind as _start_and_bind_compat,
+)
 from data_processor.orchestration.publisher import PublishRequest
 
 if TYPE_CHECKING:
@@ -33,7 +27,6 @@ if TYPE_CHECKING:
 
     from cnes_domain.control_plane.entities import Run, RunDispatch, RunUnit
     from cnes_domain.ports.control_plane import ControlPlanePort
-    from cnes_domain.ports.environment_gate import DeferralReason
     from cnes_domain.ports.processing import (
         ExecutionPolicyConfig,
         ProcessorExecutorPort,
@@ -41,18 +34,23 @@ if TYPE_CHECKING:
     )
     from data_processor.orchestration.publisher import DatasetPublisher
 
-_TERMINAL_RUN_STATES = frozenset({
-    RunState.PUBLISHED, RunState.PUBLISHED_DEGRADED, RunState.FAILED, RunState.CANCELED,
-})
-_RECOVERABLE_RUN_STATES = frozenset({
-    RunState.PROCESSING, RunState.PUBLISHING, RunState.CANCEL_REQUESTED,
-})
-_STATUS_OUTCOME = {
-    ExecutionStatus.SUCCEEDED: DispatchOutcome.SUCCEEDED,
-    ExecutionStatus.FAILED: DispatchOutcome.FAILED,
-    ExecutionStatus.CANCELED: DispatchOutcome.CANCELED,
-}
+_TERMINAL_RUN_STATES = frozenset(
+    {
+        RunState.PUBLISHED,
+        RunState.PUBLISHED_DEGRADED,
+        RunState.FAILED,
+        RunState.CANCELED,
+    }
+)
+_RECOVERABLE_RUN_STATES = frozenset(
+    {
+        RunState.PROCESSING,
+        RunState.PUBLISHING,
+        RunState.CANCEL_REQUESTED,
+    }
+)
 logger = logging.getLogger(__name__)
+_start_and_bind = _start_and_bind_compat
 
 
 def _processor_recoverable_runs(
@@ -110,7 +108,10 @@ class RecoveryFailed(RuntimeError):
     """Passada de recovery que falhou em runs ou no reconcile (a causa); carrega os resultados."""
 
     def __init__(
-        self, results: tuple[CoordinatorResult, ...], failed: int, *,
+        self,
+        results: tuple[CoordinatorResult, ...],
+        failed: int,
+        *,
         reconcile_failed: bool = False,
     ) -> None:
         super().__init__(f"failed={failed} recovered={len(results)}")
@@ -125,151 +126,6 @@ def _build_event(run: Run, event_type: str, now: datetime) -> OutboxEvent:
         event_type=event_type, aggregate_id=run.run_id,
         payload={"dataset_name": run.dataset_name}, created_at=now, delivered_at=None,
     )
-
-
-def _reserve_next_wave(
-    control_plane: ControlPlanePort, plan: RunPlan, execution: ExecutionPolicyConfig, now: datetime
-) -> RunDispatch | None:
-    ready = ready_units(plan, now)
-    if not ready:
-        return None
-    wave_id = logical_wave_id(ready)
-    unit_ids = tuple(sorted(unit.unit_id for unit in ready))
-    return control_plane.reserve_run_dispatch(ReserveRunDispatch(
-        tenant_id=plan.run.tenant_id, run_id=plan.run.run_id, wave_id=wave_id,
-        unit_ids=unit_ids, now=now, lease_seconds=execution.dispatch_lease_seconds,
-    ))
-
-
-def _settle_started(
-    control_plane: ControlPlanePort, executor: ProcessorExecutorPort,
-    plan: RunPlan, dispatch: RunDispatch, now: datetime,
-) -> RunDispatch | None:
-    try:
-        status = executor.status(cast("str", dispatch.execution_ref))
-    except ValueError as error:
-        if "execution_ref=unknown" not in str(error):
-            raise
-        logger.warning(
-            "execution_lost tenant_id=%s run_id=%s execution_ref=%s",
-            plan.run.tenant_id,
-            plan.run.run_id,
-            dispatch.execution_ref,
-        )
-        status = ExecutionStatus.FAILED
-    if status is ExecutionStatus.RUNNING:
-        return dispatch
-    control_plane.finish_run_dispatch(FinishRunDispatch(
-        tenant_id=plan.run.tenant_id, run_id=plan.run.run_id, dispatch_id=dispatch.dispatch_id,
-        outcome=_STATUS_OUTCOME[status], finished_at=now,
-    ))
-    return None
-
-
-def _compensate_start(
-    control_plane: ControlPlanePort, executor: ProcessorExecutorPort,
-    finish: FinishRunDispatch, execution_ref: str,
-) -> None:
-    # An execution whose bind or started callback failed must not outlive its dispatch:
-    # finishing it CANCELED makes the next resume reserve generation+1 instead of a replay.
-    logger.warning(
-        "dispatch_start_compensated tenant_id=%s run_id=%s dispatch_id=%s",
-        finish.tenant_id, finish.run_id, finish.dispatch_id,
-    )
-    executor.cancel(CancelRunExecution(
-        tenant_id=finish.tenant_id, run_id=finish.run_id, execution_ref=execution_ref,
-    ))
-    control_plane.finish_run_dispatch(finish)
-
-
-def _completed_before_bind(
-    control_plane: ControlPlanePort, command: BindRunDispatch, unit_ids: tuple[str, ...],
-) -> bool:
-    run = control_plane.get_run(command.tenant_id, command.run_id)
-    if run is None or run.state not in _TERMINAL_RUN_STATES | {RunState.PUBLISHING}:
-        return False
-    units = control_plane.list_run_units(command.tenant_id, command.run_id)
-    completed = {
-        unit.unit_id for unit in units
-        if unit.dispatch_id == command.dispatch_id
-        and unit.state in {
-            RunUnitState.SUCCEEDED, RunUnitState.SUCCEEDED_DEGRADED, RunUnitState.FAILED_FINAL,
-        }
-    }
-    return bool(unit_ids) and set(unit_ids) <= completed
-
-
-def _bind_dispatch(
-    control_plane: ControlPlanePort, command: BindRunDispatch, unit_ids: tuple[str, ...],
-) -> RunDispatch | None:
-    try:
-        return control_plane.bind_run_dispatch(command)
-    except Conflict as error:
-        if error.code != ControlPlaneErrorCode.PARENT_NOT_PROCESSING:
-            raise
-        if not _completed_before_bind(control_plane, command, unit_ids):
-            raise
-    return None
-
-
-def _start_and_bind(
-    control_plane: ControlPlanePort, executor: ProcessorExecutorPort,
-    execution: ExecutionPolicyConfig, plan: RunPlan, dispatch: RunDispatch, now: datetime,
-) -> str | DispatchDeferred:
-    run = plan.run
-    requested_limit = min(len(dispatch.unit_ids), execution.deployment_limit)
-    permit = execution.callbacks.policy(run, dispatch, requested_limit)
-    if permit.tenant_id != run.tenant_id or permit.run_id != run.run_id:
-        raise ValueError("execution_permit_identity_mismatch")
-    request = execution_request(plan, dispatch, permit.max_concurrency)
-    holder = dispatch_holder(dispatch)
-    admission = execution.admission.admit(holder, now)
-    if isinstance(admission, DispatchDeferred):
-        return admission
-    try:
-        execution_ref = executor.start(request)
-    except Exception:
-        execution.admission.settle(holder, now)
-        raise
-    completed_before_binding = False
-    try:
-        bound = _bind_dispatch(control_plane, BindRunDispatch(
-            tenant_id=run.tenant_id, run_id=run.run_id, dispatch_id=dispatch.dispatch_id,
-            execution_ref=execution_ref, now=now, lease_seconds=execution.dispatch_lease_seconds,
-        ), dispatch.unit_ids)
-        completed_before_binding = bound is None
-        execution.admission.confirm(admission, execution_ref, now)
-        execution.callbacks.started(run, request, execution_ref, permit)
-    except Exception:
-        if completed_before_binding:
-            raise
-        _compensate_start(control_plane, executor, FinishRunDispatch(
-            tenant_id=run.tenant_id, run_id=run.run_id, dispatch_id=dispatch.dispatch_id,
-            outcome=DispatchOutcome.CANCELED, finished_at=now,
-        ), execution_ref)
-        execution.admission.settle(holder, now)
-        raise
-    if bound is None:
-        execution.admission.settle(holder, now)
-        return execution_ref
-    return cast("str", bound.execution_ref)
-
-
-def _dispatch_protocol(
-    control_plane: ControlPlanePort, executor: ProcessorExecutorPort,
-    execution: ExecutionPolicyConfig, plan: RunPlan, now: datetime,
-) -> str | DispatchDeferred | None:
-    active = control_plane.get_active_run_dispatch(plan.run.tenant_id, plan.run.run_id)
-    if active is not None and active.state is DispatchState.STARTED:
-        if _settle_started(control_plane, executor, plan, active, now) is not None:
-            return active.execution_ref
-        execution.admission.settle(dispatch_holder(active), now)
-        active = None
-    if active is None:
-        active = _reserve_next_wave(control_plane, plan, execution, now)
-        if active is None:
-            return None
-    return _start_and_bind(control_plane, executor, execution, plan, active, now)
 
 
 def _fail_run(
@@ -306,9 +162,6 @@ def _publish_now(
 
 
 def _cancel(dependencies: CoordinatorDependencies, run: Run, now: datetime) -> CoordinatorResult:
-    # get_active_run_dispatch and claim_run_unit are both scoped to PROCESSING runs;
-    # once CANCEL_REQUESTED, no dispatch is visible or claimable. Cancellation is
-    # therefore best-effort and has no execution_ref (RunUnitState.CANCELED covers the rest).
     dependencies.executor.cancel(CancelRunExecution(
         tenant_id=run.tenant_id, run_id=run.run_id, execution_ref=None,
     ))
@@ -335,7 +188,6 @@ class PipelineCoordinator:
     ) -> None:
         self._dependencies = dependencies
         self._execution = execution
-
     def resume(self, tenant_id: str, run_id: str, *, settle: bool = True) -> CoordinatorResult:
         """Args: settle: False no after_persist, que roda dentro da própria execução.
 
@@ -352,7 +204,6 @@ class PipelineCoordinator:
         if settle and result.state in _TERMINAL_RUN_STATES:
             self._settle_run(run, now)
         return result
-
     def _advance(self, run: Run, now: datetime) -> CoordinatorResult:
         if run.state is RunState.CANCEL_REQUESTED:
             return _cancel(self._dependencies, run, now)
@@ -362,16 +213,12 @@ class PipelineCoordinator:
         if run.state is RunState.PROCESSING:
             return self._resume_processing(run, now)
         raise ValueError(f"unsupported_run_state:{run.state}")
-
     def _settle_run(self, run: Run, now: datetime) -> None:
         admission = self._execution.admission
         if admission is UNGATED_ADMISSION:
             return
-        # The units name the dispatches that ran; settling them releases a finished execution's
-        # permit as the Run ends. Any other holder waits for the periodic reconcile.
         units = self._dependencies.control_plane.list_run_units(run.tenant_id, run.run_id)
         settle_run_dispatches(admission, units, now)
-
     def _resume_processing(self, run: Run, now: datetime) -> CoordinatorResult:
         control_plane = self._dependencies.control_plane
         units = control_plane.list_run_units(run.tenant_id, run.run_id)
@@ -398,7 +245,6 @@ class PipelineCoordinator:
         try:
             self._execution.admission.reconcile(now)
         except Exception as error:
-            # The pass still recovers the runs, then fails chained to this error with its summary.
             logger.exception("unit_permit_reconcile_failed")
             results, failed = self._recover_runs(now, limit)
             raise RecoveryFailed(results, failed, reconcile_failed=True) from error

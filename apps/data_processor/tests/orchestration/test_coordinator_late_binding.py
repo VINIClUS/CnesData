@@ -37,12 +37,13 @@ from cnes_domain.control_plane.commands import (
 )
 from cnes_domain.control_plane.enums import (
     DispatchOutcome,
+    DispatchState,
     RunState,
     RunUnitState,
 )
 from cnes_domain.control_plane.errors import Conflict, ControlPlaneErrorCode
 from cnes_domain.orchestration.dispatch_admission import EnvironmentAdmission
-from cnes_domain.ports.processing import ExecutionStatus
+from cnes_domain.ports.processing import CancelRunExecution, ExecutionPermit, ExecutionStatus
 from data_processor.orchestration.coordinator import PipelineCoordinator
 from data_processor.orchestration.unit_worker import (
     UnitWorker,
@@ -154,7 +155,10 @@ def test_publicacao_dentro_do_start_preserva_resultado_sem_compensar(
     units = race.adapter.list_run_units(_TENANT, _RUN_ID)
     assert all(unit.state is RunUnitState.SUCCEEDED for unit in units if unit.dispatch_id)
     assert race.executor.canceled == []
-    assert _stored_dispatch(race.adapter).terminal_outcome is not DispatchOutcome.CANCELED
+    dispatch = _stored_dispatch(race.adapter)
+    assert dispatch.state is DispatchState.STARTED
+    assert dispatch.execution_ref == result.execution_ref
+    assert dispatch.terminal_outcome is None
 
 
 def test_falha_final_dentro_do_start_preserva_run_falho_sem_compensar(race: _Race) -> None:
@@ -224,6 +228,9 @@ def test_bind_tardio_liquida_admissao_apos_executor_concluido(
 
     def complete(request: StartRunExecution) -> None:
         assert _permit(gate) is not None
+        dispatch = _stored_dispatch(race.adapter)
+        assert dispatch.state is DispatchState.STARTING
+        assert dispatch.start_claim is not None
         for unit_id in request.unit_ids:
             race.worker().execute(race.claim(request, unit_id))
         race.executor.set_status(f"exec-{request.dispatch_id}", ExecutionStatus.SUCCEEDED)
@@ -239,6 +246,44 @@ def test_bind_tardio_liquida_admissao_apos_executor_concluido(
 
     assert result.execution_ref is not None
     assert race.run().state is RunState.PUBLISHED
+    assert _permit(gate) is None
+    assert race.executor.canceled == []
+
+
+@pytest.mark.parametrize(
+    "complete_before_bind", [True, False],
+    ids=["conclusao-antes-do-bind", "conclusao-apos-o-bind"],
+)
+def test_callback_falho_apos_conclusao_liquida_a_mesma_admissao(
+    race: _Race, gate: DynamoDBControlPlane, complete_before_bind: bool,
+) -> None:
+    race.prepare_last_wave()
+
+    def started(
+        _run: Run, request: StartRunExecution, execution_ref: str, _permit: ExecutionPermit,
+    ) -> None:
+        if not complete_before_bind:
+            for unit_id in request.unit_ids:
+                race.worker().execute(race.claim(request, unit_id))
+        race.executor.set_status(execution_ref, ExecutionStatus.SUCCEEDED)
+        raise RuntimeError("callback=after-complete")
+
+    admission = EnvironmentAdmission(gate, race.executor, _ENVIRONMENT, _LEASE_SECONDS)
+    coordinator = PipelineCoordinator(
+        _dependencies(race.adapter, race.executor, race.store, race.clock),
+        replace(_execution(started=started), admission=admission),
+    )
+
+    if complete_before_bind:
+        def complete(request: StartRunExecution) -> None:
+            for unit_id in request.unit_ids:
+                race.worker().execute(race.claim(request, unit_id))
+
+        race.inside_start(complete)
+
+    with pytest.raises(RuntimeError, match="callback=after-complete"):
+        coordinator.resume(_TENANT, _RUN_ID)
+
     assert _permit(gate) is None
     assert race.executor.canceled == []
 
@@ -339,26 +384,43 @@ def test_conclusao_por_outro_dispatch_nao_e_atribuida_ao_start_antigo(race: _Rac
     assert race.run().state is RunState.PUBLISHED
 
 
-def test_outro_conflito_do_bind_nao_e_suprimido_apos_publicar(race: _Race) -> None:
+def test_ack_antigo_compensa_execucao_quando_nova_geracao_ja_iniciou(race: _Race) -> None:
     race.prepare_last_wave()
+    newer: list[str] = []
+    start_real = race.executor.start
 
-    def bound_elsewhere(request: StartRunExecution) -> None:
-        race.adapter.bind_run_dispatch(BindRunDispatch(
-            tenant_id=_TENANT, run_id=_RUN_ID, dispatch_id=request.dispatch_id,
-            execution_ref="exec-concorrente", now=race.clock.now(), lease_seconds=300,
+    def replaced_and_started(request: StartRunExecution) -> None:
+        stale = _stored_dispatch(race.adapter)
+        race.adapter.finish_run_dispatch(FinishRunDispatch(
+            tenant_id=_TENANT, run_id=_RUN_ID, dispatch_id=stale.dispatch_id,
+            outcome=DispatchOutcome.FAILED, finished_at=race.clock.now(),
         ))
-        for unit_id in request.unit_ids:
-            race.worker().execute(race.claim(request, unit_id))
-        assert race.run().state is RunState.PUBLISHED
+        replacement = race.adapter.reserve_run_dispatch(ReserveRunDispatch(
+            tenant_id=_TENANT, run_id=_RUN_ID, wave_id=request.wave_id,
+            unit_ids=request.unit_ids, now=race.clock.now(), lease_seconds=300,
+        ))
+        newer.append(replacement.dispatch_id)
+        replacement_request = request.model_copy(update={"dispatch_id": replacement.dispatch_id})
+        execution_ref = start_real(replacement_request)
+        race.adapter.bind_run_dispatch(BindRunDispatch(
+            tenant_id=_TENANT, run_id=_RUN_ID, dispatch_id=replacement.dispatch_id,
+            execution_ref=execution_ref, now=race.clock.now(), lease_seconds=300,
+        ))
 
-    race.inside_start(bound_elsewhere)
+    race.inside_start(replaced_and_started)
 
-    with pytest.raises(Conflict, match="dispatch_bind_conflict"):
+    with pytest.raises(Conflict):
         race.coordinator().resume(_TENANT, _RUN_ID)
 
-    assert race.run().state is RunState.PUBLISHED
-    assert _stored_dispatch(race.adapter).terminal_outcome is DispatchOutcome.CANCELED
-    assert len(race.executor.canceled) == 1
+    old = race.executor.started[-2]
+    assert newer != [old.dispatch_id]
+    assert race.executor.canceled == [
+        CancelRunExecution(
+            tenant_id=_TENANT, run_id=_RUN_ID, execution_ref=f"exec-{old.dispatch_id}",
+        ),
+    ]
+    assert _stored_dispatch(race.adapter).dispatch_id == newer[0]
+    assert _stored_dispatch(race.adapter).state is DispatchState.STARTED
 
 
 def test_parent_not_processing_do_callback_started_nao_e_suprimido(race: _Race) -> None:
@@ -382,5 +444,5 @@ def test_parent_not_processing_do_callback_started_nao_e_suprimido(race: _Race) 
         coordinator.resume(_TENANT, _RUN_ID)
 
     assert race.run().state is RunState.FAILED
-    assert _stored_dispatch(race.adapter).terminal_outcome is DispatchOutcome.CANCELED
-    assert len(race.executor.canceled) == 1
+    assert _stored_dispatch(race.adapter).terminal_outcome is None
+    assert race.executor.canceled == []

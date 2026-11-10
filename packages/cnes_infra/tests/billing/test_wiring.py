@@ -278,6 +278,9 @@ class FakeControlPlane:
     def get_active_run_dispatch(self, tenant_id, run_id):
         return None
 
+    def get_run_dispatch(self, tenant_id, run_id):
+        return None
+
     def get_run_billing_state(self, tenant_id, run_id):
         return None
 

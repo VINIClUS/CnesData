@@ -1,6 +1,8 @@
 """Plan nativo da raiz com revisões de scheduler, sobre a sessão do processing."""
 
+import hashlib
 import json
+import re
 import shutil
 from collections.abc import Iterator
 from pathlib import Path
@@ -247,3 +249,77 @@ def fixture_scheduled_plan(
 @pytest.fixture(name="all_root_plans", scope="module")
 def fixture_all_root_plans(processing_native: NativePlans, scheduled_plan: Node) -> dict[str, Node]:
     return {**processing_native.plans, SCHEDULED_RUN: scheduled_plan}
+
+
+def phase_b_root_plans(tofu: Tofu, prod_root: Path, artifacts: Node) -> dict[str, Node]:
+    from tests.production.infra._processing_native import _native_plan_events
+    evidence = Path(tofu[1]["TF_DATA_DIR"])
+    identities = json.loads((evidence / "processing-identity-overrides.json").read_text())
+    shared = json.loads((evidence / "processing-shared-input.json").read_text())
+    overrides = merge_identity_records(
+        identities, _canary_role_seeds(artifacts), _canary_overrides())
+    retained = [REVISION % ("unit", 7), REVISION % ("unit", 17)]
+    common = {
+        "image_digest": "sha256:" + "a" * 64,
+        "canary_release_id": CANARY_ID,
+        "canary_trusted_principal_arn": CANARY_PRINCIPAL,
+        "canary_storage_enabled": True,
+        "processor_retained_unit_task_definition_arns": retained,
+        **SCHEDULER_INPUTS,
+    }
+    runs = {
+        "seed_initial": common | {"processor_active_unit_task_definition_arn": None},
+        "phase_b_initial": common | {"processor_active_unit_task_definition_arn": retained[1]},
+        "seed_established": common | {"processor_active_unit_task_definition_arn": retained[0]},
+        "phase_b_established": common | {"processor_active_unit_task_definition_arn": retained[1]},
+    }
+    suite = _suite(shared, runs, overrides)
+    for name in ("seed_initial", "seed_established"):
+        suite = suite.replace(
+            f'run "{name}" {{\n  command = plan', f'run "{name}" {{\n  command = apply'
+        )
+    mock_root, source_hashes = _phase_b_mock_root(prod_root, evidence)
+    directory = mock_root / "env/prod/.terraform/processing-tests"
+    directory.mkdir(parents=True)
+    (directory / "processing.tftest.hcl").write_text(suite)
+    (evidence / "phase-b-root.tftest.hcl").write_text(suite)
+    mock_tofu = (tofu[0], tofu[1] | {"TF_DATA_DIR": str(evidence / "phase-b-mock-data")})
+    initialized = _native_result(
+        mock_tofu, mock_root / "env/prod",
+        ["init", "-backend=false", "-input=false", "-lockfile=readonly"],
+        "phase-b-mock-init",
+    )
+    assert initialized.returncode == 0, initialized.stdout + initialized.stderr
+    result = _native_result(mock_tofu, mock_root / "env/prod", PLAN_ARGUMENTS, "phase-b-root")
+    statuses, plans, diagnostics = _native_plan_events(result.stdout)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert statuses == dict.fromkeys(runs, "pass")
+    assert not diagnostics
+    for relative, binding in source_hashes.items():
+        assert (
+            hashlib.sha256((prod_root.parents[1] / relative).read_bytes()).hexdigest()
+            == binding["sha256"]
+        )
+    _save_plans(evidence, "phase-b-root", plans)
+    return {name: plans[name] for name in ("phase_b_initial", "phase_b_established")}
+
+
+def _phase_b_mock_root(prod_root: Path, evidence: Path) -> tuple[Path, Node]:
+    mock_root = evidence / "phase-b-mock-root"
+    shutil.copytree(prod_root.parents[1], mock_root, ignore=shutil.ignore_patterns(".terraform"))
+    source_hashes = {}
+    for source in (prod_root.parents[1] / "modules").rglob("*.tf"):
+        relative = source.relative_to(prod_root.parents[1])
+        original = source.read_bytes()
+        transformed, count = re.subn(
+            rb"prevent_destroy\s*=\s*true", b"prevent_destroy = false", original
+        )
+        if count:
+            (mock_root / relative).write_bytes(transformed)
+            source_hashes[str(relative)] = {
+                "sha256": hashlib.sha256(original).hexdigest(),
+                "mock_cleanup_overrides": count,
+            }
+    assert sum(item["mock_cleanup_overrides"] for item in source_hashes.values()) == 7
+    (evidence / "phase-b-mock-lifecycle.json").write_text(json.dumps(source_hashes, indent=2))
+    return mock_root, source_hashes

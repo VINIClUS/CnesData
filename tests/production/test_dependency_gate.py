@@ -168,7 +168,9 @@ def test_executor_expoe_apenas_transporte_publico_canonico() -> None:
         if not name.startswith("_")
     }
 
-    assert public_methods == {"start", "cancel", "status"}
+    assert public_methods == {"start", "start_with_claim", "cancel", "status"}
+    parameters = inspect.signature(StepFunctionsExecutor.start_with_claim).parameters
+    assert tuple(parameters) == ("self", "request", "claim")
 
 
 class _ObjectLockClient:

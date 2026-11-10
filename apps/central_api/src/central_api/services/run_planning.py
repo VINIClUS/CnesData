@@ -7,12 +7,16 @@ from typing import TYPE_CHECKING, Protocol, cast
 
 from cnes_contracts.manifests.raw import RawManifest
 from cnes_domain.control_plane.commands import (
-    BindRunDispatch,
     FinalizeRunCancellation,
     FinishRunDispatch,
     PutRunUnits,
     ReserveRunDispatch,
     TransitionRun,
+)
+from cnes_domain.control_plane.dispatch_start import (
+    StartAdmission,
+    claim_dispatch_start,
+    execute_dispatch_start,
 )
 from cnes_domain.control_plane.entities import OutboxEvent
 from cnes_domain.control_plane.enums import DispatchOutcome, DispatchState, RunState
@@ -31,7 +35,7 @@ from cnes_domain.orchestration.planner import (
     plan_run,
     ready_units,
 )
-from cnes_domain.ports.environment_gate import UNGATED_ADMISSION, DispatchDeferred
+from cnes_domain.ports.environment_gate import UNGATED_ADMISSION, DeferralReason, DispatchDeferred
 from cnes_domain.ports.processing import CancelRunExecution, ExecutionStatus
 
 if TYPE_CHECKING:
@@ -41,7 +45,6 @@ if TYPE_CHECKING:
     from cnes_domain.control_plane.entities import ManifestRef, RawManifestRecord, Run, RunDispatch
     from cnes_domain.orchestration.source_catalog import SourceCatalog
     from cnes_domain.ports.control_plane import ControlPlanePort, TypedRawQueryPort
-    from cnes_domain.ports.environment_gate import DeferralReason
     from cnes_domain.ports.object_store import ObjectStorePort
     from cnes_domain.ports.processing import (
         ExecutionPolicyConfig,
@@ -52,10 +55,16 @@ if TYPE_CHECKING:
     class _ControlPlane(ControlPlanePort, TypedRawQueryPort, Protocol):
         pass
 
-_READ_ONLY_STATES = frozenset({
-    RunState.PUBLISHING, RunState.PUBLISHED, RunState.PUBLISHED_DEGRADED,
-    RunState.FAILED, RunState.CANCELED,
-})
+
+_READ_ONLY_STATES = frozenset(
+    {
+        RunState.PUBLISHING,
+        RunState.PUBLISHED,
+        RunState.PUBLISHED_DEGRADED,
+        RunState.FAILED,
+        RunState.CANCELED,
+    }
+)
 _PLANNABLE_STATES = frozenset({RunState.PLANNED, RunState.WAITING_INPUTS})
 _STATUS_OUTCOME = {
     ExecutionStatus.SUCCEEDED: DispatchOutcome.SUCCEEDED,
@@ -140,16 +149,25 @@ def _reserve_next_wave(
 
 
 def _settle_started(
-    control_plane: _ControlPlane, executor: ProcessorExecutorPort,
-    plan: RunPlan, dispatch: RunDispatch, now: datetime,
+    control_plane: _ControlPlane,
+    executor: ProcessorExecutorPort,
+    plan: RunPlan,
+    dispatch: RunDispatch,
+    now: datetime,
 ) -> RunDispatch | None:
     status = executor.status(cast("str", dispatch.execution_ref))
     if status is ExecutionStatus.RUNNING:
         return dispatch
-    control_plane.finish_run_dispatch(FinishRunDispatch(
-        tenant_id=plan.run.tenant_id, run_id=plan.run.run_id, dispatch_id=dispatch.dispatch_id,
-        outcome=_STATUS_OUTCOME[status], finished_at=now,
-    ))
+    control_plane.finish_run_dispatch(
+        FinishRunDispatch(
+            tenant_id=plan.run.tenant_id,
+            run_id=plan.run.run_id,
+            dispatch_id=dispatch.dispatch_id,
+            outcome=_STATUS_OUTCOME[status],
+            finished_at=now,
+            claim=dispatch.start_claim,
+        )
+    )
     return None
 
 
@@ -170,8 +188,12 @@ def _compensate_start(
 
 
 def _start_and_bind(
-    control_plane: _ControlPlane, executor: ProcessorExecutorPort,
-    execution: ExecutionPolicyConfig, plan: RunPlan, dispatch: RunDispatch, now: datetime,
+    control_plane: _ControlPlane,
+    executor: ProcessorExecutorPort,
+    execution: ExecutionPolicyConfig,
+    plan: RunPlan,
+    dispatch: RunDispatch,
+    now: datetime,
 ) -> str | DispatchDeferred:
     run = plan.run
     requested_limit = min(len(dispatch.unit_ids), execution.deployment_limit)
@@ -179,37 +201,51 @@ def _start_and_bind(
     if permit.tenant_id != run.tenant_id or permit.run_id != run.run_id:
         raise ValueError("execution_permit_identity_mismatch")
     request: StartRunExecution = execution_request(plan, dispatch, permit.max_concurrency)
-    holder = dispatch_holder(dispatch)
+    holder = dispatch_holder(dispatch, request)
     admission = execution.admission.admit(holder, now)
     if isinstance(admission, DispatchDeferred):
         return admission
+    attempt = StartAdmission(admission, now, execution.dispatch_lease_seconds)
+    claim = claim_dispatch_start(
+        control_plane, dispatch, request,
+        attempt,
+    )
+    if isinstance(claim, DispatchDeferred):
+        execution.admission.settle(holder, now)
+        return claim
     try:
-        execution_ref = executor.start(request)
+        execution_ref = execute_dispatch_start(executor, request, claim)
     except Exception:
         execution.admission.settle(holder, now)
         raise
     try:
-        bound = control_plane.bind_run_dispatch(BindRunDispatch(
-            tenant_id=run.tenant_id, run_id=run.run_id, dispatch_id=dispatch.dispatch_id,
-            execution_ref=execution_ref, now=now, lease_seconds=execution.dispatch_lease_seconds,
-        ))
+        bound = control_plane.bind_run_dispatch(
+            attempt.bind(dispatch, execution_ref, claim)
+        )
         execution.admission.confirm(admission, execution_ref, now)
         execution.callbacks.started(run, request, execution_ref, permit)
     except Exception:
-        _compensate_start(control_plane, executor, FinishRunDispatch(
-            tenant_id=run.tenant_id, run_id=run.run_id, dispatch_id=dispatch.dispatch_id,
-            outcome=DispatchOutcome.CANCELED, finished_at=now,
-        ), execution_ref)
+        _compensate_start(
+            control_plane,
+            executor,
+            attempt.cancel(dispatch, claim),
+            execution_ref,
+        )
         execution.admission.settle(holder, now)
         raise
     return cast("str", bound.execution_ref)
 
 
 def _dispatch_protocol(
-    control_plane: _ControlPlane, executor: ProcessorExecutorPort,
-    execution: ExecutionPolicyConfig, plan: RunPlan, now: datetime,
+    control_plane: _ControlPlane,
+    executor: ProcessorExecutorPort,
+    execution: ExecutionPolicyConfig,
+    plan: RunPlan,
+    now: datetime,
 ) -> str | DispatchDeferred | None:
     active = control_plane.get_active_run_dispatch(plan.run.tenant_id, plan.run.run_id)
+    if active is not None and active.state is DispatchState.STARTING:
+        return DispatchDeferred(DeferralReason.PERMIT_HELD)
     if active is not None and active.state is DispatchState.STARTED:
         if _settle_started(control_plane, executor, plan, active, now) is not None:
             return active.execution_ref

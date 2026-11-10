@@ -49,19 +49,16 @@ INVALID_RELEASES = {
     "maiuscula": "R1", "hifen_inicial": "-r1", "hifen_final": "r1-", "vazio": "", "longo": "r" * 33,
 }
 
-
 def _release(release: str = RELEASE, **changes: str) -> Node:
     base = {"release_id": release, "trusted_principal_arn": PRINCIPAL, "table_arn": TABLE,
             "index_arn": INDEX, "bucket_arn": BUCKET}
     return base | changes
-
 
 def _grants_input() -> Node:
     indexes = {name: f"{CP_TABLE}/index/{name}" for name in ("gsi1", "gsi4", "gsi6")}
     return {"table_arn": CP_TABLE, "index_arns": indexes, "data_bucket_arn": DATA,
             "audit_bucket_arn": AUDIT,
             "api_role_arn": f"arn:aws:iam::{ACCOUNT}:role/{PREFIX}-api"}
-
 
 RUNTIME_BASE: Node = {
     "name_prefix": PREFIX, "account_id": ACCOUNT,
@@ -83,10 +80,8 @@ PROCESSING_BASE: Node = {
     "canary_storage_enabled": True, "canary_verifier_role_id": ROLE_NAMES["canary_verifier"],
 }
 
-
 def _override(target: str, values: Node) -> str:
     return f"override_resource {{\n  target = {target}\n  values = {json.dumps(values)}\n}}\n"
-
 
 def _role_overrides() -> str:
     roles = {f"{SUBJECT}.aws_iam_role.{role}[0]": ROLE_NAMES[role] for role in ROLES}
@@ -98,7 +93,6 @@ def _role_overrides() -> str:
                   | ({} if target == unknown_id else {"id": name}))
         for target, name in roles.items())
 
-
 def _processing_overrides() -> str:
     return (
         _override(f"{SUBJECT}.aws_dynamodb_table.canary[0]", {"arn": TABLE})
@@ -107,11 +101,9 @@ def _processing_overrides() -> str:
         + _override(f'{SUBJECT}.aws_ecs_task_definition.processor["audit"]', {"arn": AUDIT_TASK})
     )
 
-
 def _run_block(label: str, variables: Node) -> str:
     literals = "\n".join(f"    {name} = {json.dumps(value)}" for name, value in variables.items())
     return f'\nrun "{label}" {{\n  command = plan\n  variables {{\n{literals}\n  }}\n}}\n'
-
 
 def _execute(tofu_context: tuple[str, dict[str, str]],
              request: tuple[Path, Path, tuple[str, str], str],
@@ -142,7 +134,6 @@ def _execute(tofu_context: tuple[str, dict[str, str]],
     assert events, f"setup_error events_missing_{label}={result.stderr!r}"
     return events
 
-
 @pytest.fixture(scope="module")
 def runtime_events(tmp_path_factory: pytest.TempPathFactory, prod_root: Path,
                    tofu_context: tuple[str, dict[str, str]]) -> list[Node]:
@@ -164,7 +155,6 @@ def runtime_events(tmp_path_factory: pytest.TempPathFactory, prod_root: Path,
                ("../../modules/runtime-iam", "canary-runtime"), _role_overrides())
     return _execute(tofu_context, request, RUNTIME_BASE, runs)
 
-
 @pytest.fixture(scope="module")
 def processing_events(tmp_path_factory: pytest.TempPathFactory, prod_root: Path,
                       tofu_context: tuple[str, dict[str, str]]) -> list[Node]:
@@ -178,11 +168,9 @@ def processing_events(tmp_path_factory: pytest.TempPathFactory, prod_root: Path,
                ("../../modules/processing", "canary-processing"), _processing_overrides())
     return _execute(tofu_context, request, PROCESSING_BASE, runs)
 
-
 def _plan(events: list[Node], label: str) -> Node:
     assert event_for(events, "test_run", label)["test_run"]["status"] == "pass", f"run={label}"
     return event_for(events, "test_plan", label)["test_plan"]
-
 
 def _output(plan: Node, name: str) -> object:
     return plan["planned_values"].get("outputs", {}).get(name, {}).get("value")
@@ -232,22 +220,30 @@ def _expected(release: str) -> dict[str, Grants]:
     ecr = ("ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability")
     return {
         "canary_task": _audit_matrix(TABLE, INDEX, BUCKET),
-        "canary_execution": _object_grants(ecr, (f"arn:aws:ecr:us-east-2:{ACCOUNT}:repository/"
-                                                  f"{PREFIX}",))
+        "canary_execution": _object_grants(
+            ecr, (f"arn:aws:ecr:us-east-2:{ACCOUNT}:repository/{PREFIX}",)
+        )
         | _object_grants(("ecr:GetAuthorizationToken",), ("*",))
-        | _object_grants(("logs:CreateLogStream", "logs:PutLogEvents"),
-                         (f"arn:aws:logs:us-east-2:{ACCOUNT}:log-group:/ecs/{PREFIX}-processor"
-                          ":log-stream:*",)),
+        | _object_grants(
+            ("logs:CreateLogStream", "logs:PutLogEvents"),
+            (f"arn:aws:logs:us-east-2:{ACCOUNT}:log-group:/ecs/{PREFIX}-processor:log-stream:*",),
+        ),
         "canary_seeder": literal_grants(("dynamodb:PutItem",), (TABLE,), _lk(("TENANT#_GLOBAL",))),
         "canary_verifier": literal_grants(("dynamodb:Query",), (INDEX,), _lk(("OUTBOX#PENDING",)))
         | literal_grants(("dynamodb:GetItem",), (TABLE,), _lk(("TENANT#_GLOBAL",)))
         | _object_grants(("s3:GetObject", "s3:GetObjectRetention"), _objects(release))
-        | literal_grants(("iam:PassRole",), (task, execution),
-                         {"StringEquals": {"iam:PassedToService": "ecs-tasks.amazonaws.com"}}),
-        "promotion_fence_operator":
-            literal_grants(("dynamodb:GetItem",), (CP_TABLE,),
-                           _lk(("ENV#prod#FENCE", "ENV#prod#SEMAPHORE")))
-            | literal_grants(("dynamodb:UpdateItem",), (CP_TABLE,), _lk(("ENV#prod#FENCE",))),
+        | literal_grants(
+            ("iam:PassRole",),
+            (task, execution),
+            {"StringEquals": {"iam:PassedToService": "ecs-tasks.amazonaws.com"}},
+        ),
+        "promotion_fence_operator": literal_grants(
+            ("dynamodb:GetItem",), (CP_TABLE,), _lk(("ENV#prod#FENCE", "ENV#prod#SEMAPHORE"))
+        )
+        | literal_grants(("dynamodb:UpdateItem",), (CP_TABLE,), _lk(("ENV#prod#FENCE",)))
+        | literal_grants(
+            ("dynamodb:ConditionCheckItem",), (CP_TABLE,), _lk(("ENV#prod#SEMAPHORE",))
+        ),
     }
 
 
@@ -300,7 +296,11 @@ def test_operador_muta_so_o_fence(runtime_events: list[Node]) -> None:
         c for a, _, c in _expected(RELEASE)["promotion_fence_operator"]
         if a == "dynamodb:UpdateItem")))}
     assert all("SEMAPHORE" not in c for a, _, c in observed if a == "dynamodb:UpdateItem")
-    assert {a for a, _, _ in observed} == {"dynamodb:GetItem", "dynamodb:UpdateItem"}
+    assert {a for a, _, _ in observed} == {
+        "dynamodb:GetItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:ConditionCheckItem",
+    }
 
 
 def test_dispatch_de_audit_so_leading_keys_de_outbox(runtime_events: list[Node]) -> None:

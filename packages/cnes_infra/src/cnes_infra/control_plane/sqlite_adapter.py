@@ -1,4 +1,5 @@
 """SQLite control-plane adapter."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -22,6 +23,7 @@ from cnes_domain.control_plane.errors import Conflict
 from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
 from cnes_infra.control_plane import (
     sqlite_claims,
+    sqlite_dispatch_start,
     sqlite_idempotency,
     sqlite_job,
     sqlite_outbox,
@@ -48,7 +50,9 @@ if TYPE_CHECKING:
         BeginIdempotency,
         BindRunDispatch,
         CancelJob,
+        CancelReservedRunDispatch,
         ClaimJob,
+        ClaimRunDispatchStart,
         ClaimRunUnit,
         CommitRunUnit,
         CompleteJob,
@@ -79,6 +83,8 @@ if TYPE_CHECKING:
     )
 
 _BUSY_TIMEOUT_MS = 5000
+
+
 class _SQLiteBusyError(RuntimeError):
     pass
 
@@ -109,10 +115,16 @@ def _fetch_all[Model: BaseModel](
 
 _is_network_filesystem = is_network_filesystem
 
+
 class SQLiteControlPlane(
-    SQLiteBillingMixin, SQLiteBilledTenantMixin, SQLiteEdgeRegistrationMixin,
-    SQLiteRawRegistrationQueries, DeprecatedRawQueryMixin):
+    SQLiteBillingMixin,
+    SQLiteBilledTenantMixin,
+    SQLiteEdgeRegistrationMixin,
+    SQLiteRawRegistrationQueries,
+    DeprecatedRawQueryMixin,
+):
     """Persiste o plano de controle em um arquivo SQLite local."""
+
     def __init__(self, database_path: Path, clock: Callable[[], datetime]) -> None:
         self._database_path = Path(database_path)
         self._clock = clock
@@ -236,6 +248,7 @@ class SQLiteControlPlane(
     def get_job(self, tenant_id: str, job_id: str) -> Job | None:
         with self.read_connection() as connection:
             return self.get_job_record(connection, tenant_id, job_id)
+
     def put_job_record(self, connection: sqlite3.Connection, job: Job) -> None:
         connection.execute(
             "INSERT INTO jobs (tenant_id, job_id, agent_id, source_type, file_subtype, "
@@ -259,6 +272,7 @@ class SQLiteControlPlane(
                 serialize_model(job),
             ),
         )
+
     def put_outbox_event(
         self, connection: sqlite3.Connection, event: OutboxEvent, tenant_id: str,
     ) -> None:
@@ -283,8 +297,10 @@ class SQLiteControlPlane(
                 serialize_model(event),
             ),
         )
+
     def create_job(self, job: Job, event: OutboxEvent) -> Job:
         return sqlite_job.create_job(self, job, event)
+
     def list_claimable_jobs(
         self, tenant_id: str, agent_id: str, limit: int
     ) -> tuple[Job, ...]:
@@ -429,14 +445,26 @@ class SQLiteControlPlane(
     def reserve_run_dispatch(self, command: ReserveRunDispatch) -> RunDispatch:
         return sqlite_claims.reserve_run_dispatch(self, command)
 
+    def claim_run_dispatch_start(self, command: ClaimRunDispatchStart) -> RunDispatch | None:
+        return sqlite_dispatch_start.claim_start(self, command)
+
+    def cancel_reserved_run_dispatch(
+        self,
+        command: CancelReservedRunDispatch,
+    ) -> RunDispatch | None:
+        return sqlite_dispatch_start.cancel_reserved(self, command)
+
     def bind_run_dispatch(self, command: BindRunDispatch) -> RunDispatch:
-        return sqlite_claims.bind_run_dispatch(self, command)
+        return sqlite_dispatch_start.bind_run_dispatch(self, command)
 
     def finish_run_dispatch(self, command: FinishRunDispatch) -> RunDispatch:
-        return sqlite_claims.finish_run_dispatch(self, command)
+        return sqlite_dispatch_start.finish_run_dispatch(self, command)
+
+    def get_run_dispatch(self, tenant_id: str, run_id: str) -> RunDispatch | None:
+        return sqlite_dispatch_start.get_run_dispatch(self, tenant_id, run_id)
 
     def get_active_run_dispatch(self, tenant_id: str, run_id: str) -> RunDispatch | None:
-        return sqlite_claims.get_active_run_dispatch(self, tenant_id, run_id)
+        return sqlite_dispatch_start.get_active_run_dispatch(self, tenant_id, run_id)
 
     def begin_idempotency(self, command: BeginIdempotency) -> IdempotencyOutcome:
         return sqlite_idempotency.begin_idempotency(self, command)

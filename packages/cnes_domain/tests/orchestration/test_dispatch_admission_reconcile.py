@@ -265,7 +265,12 @@ def test_rival_nao_libera_o_permit_reancorado_durante_o_probe(gate: _MemoryGate)
     assert reentries == [UnitAdmission(ENV, 1)]
     assert (_current(gate).holder, _current(gate).acquired_at) == (HOLDER, LATE)
     assert gate.calls == [
-        "acquire", "acquire", "observe", "reanchor", "consume", "release", "acquire",
+        "acquire",
+        "acquire",
+        "observe",
+        "reanchor",
+        "consume",
+        "release",
     ]
 
 

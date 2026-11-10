@@ -50,7 +50,6 @@ from cnes_domain.ports.environment_gate import (
     DispatchDeferred,
     ExecutionObservation,
     ExecutionPresence,
-    UnitAdmission,
 )
 from cnes_domain.ports.processing import ExecutionCallbacks, ExecutionPolicyConfig, ExecutionStatus
 from cnes_domain.profiles import parse_profile
@@ -239,7 +238,7 @@ def test_fence_fechado_nao_chama_step_functions(
     assert _permit(gate) is None
 
 
-def test_erro_ambiguo_faz_probe_antes_de_liberar(
+def test_erro_ambiguo_mantem_permit_apos_grace_sem_prova_de_cancelamento(
     adapter: SQLiteControlPlane, store: _FakeObjectStore, executor: _StepFunctions,
     gate: DynamoDBControlPlane, service: RunPlanningService, clock: _MutableClock,
 ) -> None:
@@ -255,7 +254,7 @@ def test_erro_ambiguo_faz_probe_antes_de_liberar(
     clock.advance(_GRACE - timedelta(seconds=1))
     assert rival.admit(_NEXT, clock.now()) == DispatchDeferred(DeferralReason.PERMIT_HELD)
     clock.advance(timedelta(seconds=1))
-    assert rival.admit(_NEXT, clock.now()) == UnitAdmission(_ENVIRONMENT, 2)
+    assert rival.admit(_NEXT, clock.now()) == DispatchDeferred(DeferralReason.PERMIT_HELD)
 
 
 @pytest.mark.parametrize(

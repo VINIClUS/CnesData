@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import TypeGuard
@@ -87,6 +87,10 @@ class PromotionFence:
     promotion_id: str | None
     version: int
     changed_at: datetime | None
+    closed_membership: tuple[dict[str, object], ...] = ()
+    closed_membership_sha256: str | None = None
+    close_receipt: dict[str, object] | None = None
+    confirmed_at: datetime | None = None
 
     def __post_init__(self) -> None:
         require_environment(self.environment)
@@ -104,6 +108,8 @@ class PermitHolder:
     tenant_id: str
     run_id: str
     dispatch_id: str
+    generation: int | None = field(default=None, compare=False)
+    request_sha256: str | None = field(default=None, compare=False)
 
     def __post_init__(self) -> None:
         _require_text(self.tenant_id, "tenant_id")
@@ -123,6 +129,14 @@ class UnitPermit:
     acquired_at: datetime
     lease_until: datetime
     canary_promotion_id: str | None
+    generation: int | None = None
+    request_sha256: str | None = None
+    start_state: str | None = None
+    fence_version: int | None = None
+    observed_at: datetime | None = None
+    send_disabled_at: datetime | None = None
+    resolution: str | None = None
+    proof_sha256: str | None = None
 
     def __post_init__(self) -> None:
         require_environment(self.environment)
@@ -131,6 +145,15 @@ class UnitPermit:
         _require_utc(self.acquired_at, "acquired_at")
         _require_utc(self.lease_until, "lease_until")
         _optional_text(self.canary_promotion_id, "canary_promotion_id")
+        if self.generation is not None:
+            _require_at_least(self.generation, "generation", 1)
+        if self.fence_version is not None:
+            _require_at_least(self.fence_version, "fence_version", 0)
+        _optional_text(self.start_state, "start_state")
+        _optional_text(self.resolution, "resolution")
+        _optional_text(self.proof_sha256, "proof_sha256")
+        _optional_utc(self.observed_at, "observed_at")
+        _optional_utc(self.send_disabled_at, "send_disabled_at")
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,6 +163,9 @@ class EnvironmentGateState:
     environment: str
     fence: PromotionFence
     permit: UnitPermit | None
+    closed_membership: tuple[dict[str, object], ...] = ()
+    closed_membership_sha256: str | None = None
+    settlement: bytes | None = None
 
     def __post_init__(self) -> None:
         require_environment(self.environment)
@@ -227,6 +253,9 @@ class ReleaseUnitPermit:
     token: int
     now: datetime
     anchor: datetime | None = None
+    generation: int | None = None
+    resolution: str | None = None
+    proof: bytes | None = None
 
     def __post_init__(self) -> None:
         _require_token_command(self.environment, self.token, self.now)

@@ -9,6 +9,7 @@ from cnes_domain.control_plane.commands import IdempotencyOutcome
 from cnes_domain.control_plane.entities import DatasetPointer, IdempotencyRecord, RunDispatch
 from cnes_domain.control_plane.enums import (
     AgentState,
+    DispatchOutcome,
     DispatchState,
     JobState,
     RunState,
@@ -31,35 +32,25 @@ from packages.cnes_infra.tests.contracts.object_store_contract import (
 
 _NOW = datetime(2026, 7, 15, 12, tzinfo=UTC)
 
-
 class FakeControlPlane(HarnessRawQueries, _HarnessState):
     def reserve_and_create_run(self, command: Any) -> Any:
         raise NotImplementedError
-
     def create_unmetered_run(self, command: Any) -> Any:
         raise NotImplementedError
-
     def consume_reservation(self, command: Any) -> Any:
         raise NotImplementedError
-
     def release_reservation(self, command: Any) -> Any:
         raise NotImplementedError
-
     def get_run_billing_state(self, tenant_id: str, run_id: str) -> Any:
         raise NotImplementedError
-
     def bind_run_execution(self, command: Any) -> Any:
         raise NotImplementedError
-
     def list_revocable_runs(self, billing_account_id: str, limit: int, cursor: Any) -> Any:
         raise NotImplementedError
-
     def request_run_revocation(self, command: Any, event: Any) -> Any:
         raise NotImplementedError
-
     def create_billed_tenant(self, command: Any) -> Any:
         raise NotImplementedError
-
     def list_claimable_jobs(self, tenant_id: str, agent_id: str, limit: int) -> tuple[Any, ...]:
         agent = self.get_agent(tenant_id, agent_id)
         if agent is None or agent.state is AgentState.REVOKED:
@@ -76,7 +67,6 @@ class FakeControlPlane(HarnessRawQueries, _HarnessState):
         retryable = job.state in {JobState.PENDING, JobState.FAILED_RETRYABLE}
         expired = job.state is JobState.LEASED and job.lease_until <= self.clock.now()
         return retryable or expired
-
     def claim_job(self, command: Any) -> Any | None:
         job = self.get_job(command.tenant_id, command.job_id)
         agent = None if job is None else self.get_agent(command.tenant_id, job.agent_id)
@@ -95,7 +85,6 @@ class FakeControlPlane(HarnessRawQueries, _HarnessState):
         )
         self.jobs[(job.tenant_id, job.job_id)] = claimed
         return claimed
-
     def _validate_job_fence(self, command: Any) -> Any:
         job = self.get_job(command.tenant_id, command.job_id)
         agent = None if job is None else self.get_agent(command.tenant_id, job.agent_id)
@@ -110,7 +99,6 @@ class FakeControlPlane(HarnessRawQueries, _HarnessState):
         if job.lease_until <= self.clock.now():
             raise LeaseLost(ErrorCode.LEASE_EXPIRED)
         return job
-
     def renew_job_lease(self, command: Any) -> Any:
         job = self._validate_job_fence(command)
         renewed = job.model_copy(
@@ -118,7 +106,6 @@ class FakeControlPlane(HarnessRawQueries, _HarnessState):
         )
         self.jobs[(job.tenant_id, job.job_id)] = renewed
         return renewed
-
     def fail_job(self, command: Any, event: Any) -> Any:
         job = self._validate_job_fence(command)
         state = JobState.FAILED_RETRYABLE if command.retryable else JobState.FAILED_FINAL
@@ -133,7 +120,6 @@ class FakeControlPlane(HarnessRawQueries, _HarnessState):
         self.jobs[(job.tenant_id, job.job_id)] = failed
         self.outbox[event.event_id] = event
         return failed
-
     def complete_job(self, command: Any, event: Any) -> Any:
         current = cast("Any", self.get_job(command.tenant_id, command.job_id))
         if self.mutation == "authorization_jobs" and current.lease_until <= self.clock.now():
@@ -154,7 +140,6 @@ class FakeControlPlane(HarnessRawQueries, _HarnessState):
         self.raw_records.append(manifest)
         self.outbox[event.event_id] = event
         return completed
-
 
     def list_recoverable_runs(self, now: datetime, limit: int = 100) -> tuple[Any, ...]:
         states = {
@@ -236,7 +221,6 @@ class FakeControlPlane(HarnessRawQueries, _HarnessState):
         if unit is None:
             raise LeaseLost(ErrorCode.UNIT_MISSING)
         return unit, run
-
     def commit_run_unit(self, command: Any, event: Any) -> Any:
         unit, run = self._validate_unit_fence(command)
         completed = transition_run_unit(unit, RunUnitState.SUCCEEDED, run).model_copy(
@@ -336,18 +320,48 @@ class FakeControlPlane(HarnessRawQueries, _HarnessState):
             and unit.lease_until > now
             for unit in self.units.values()
         )
+    def get_run_dispatch(self, tenant_id: str, run_id: str) -> RunDispatch | None:
+        return self.dispatches.get((tenant_id, run_id))
+    def claim_run_dispatch_start(self, command: Any) -> RunDispatch | None:
+        key = (command.tenant_id, command.run_id)
+        dispatch = self.dispatches.get(key)
+        if (dispatch is None or dispatch.dispatch_id != command.dispatch_id
+            or dispatch.state is not DispatchState.RESERVED
+            or dispatch.generation != command.claim.generation
+            or dispatch.lease_until <= command.now):
+            return None
+        claimed = dispatch.model_copy(
+            update={"state": DispatchState.STARTING, "start_claim": command.claim}
+        )
+        self.dispatches[key] = claimed
+        return claimed
+    def cancel_reserved_run_dispatch(self, command: Any) -> RunDispatch | None:
+        key = (command.tenant_id, command.run_id)
+        dispatch = self.dispatches.get(key)
+        if (dispatch is None or dispatch.dispatch_id != command.dispatch_id
+            or dispatch.state is not DispatchState.RESERVED
+            or dispatch.generation != command.claim.generation):
+            return None
+        canceled = dispatch.model_copy(update={
+            "state": DispatchState.TERMINAL, "terminal_outcome": DispatchOutcome.CANCELED,
+            "canceled_before_send": True, "start_claim": command.claim,
+        })
+        self.dispatches[key] = canceled
+        return canceled
     def bind_run_dispatch(self, command: Any) -> Any:
         key = (command.tenant_id, command.run_id)
         dispatch = self.dispatches.get(key)
         if dispatch is None or dispatch.dispatch_id != command.dispatch_id:
             raise Conflict(ErrorCode.DISPATCH_STALE)
-        if dispatch.lease_until <= command.now:
+        if dispatch.lease_until <= command.now and dispatch.start_claim is None:
             raise Conflict(ErrorCode.DISPATCH_EXPIRED)
+        if command.claim != dispatch.start_claim:
+            raise Conflict(ErrorCode.DISPATCH_BINDING_CONFLICT)
         if dispatch.state is DispatchState.STARTED:
             if dispatch.execution_ref != command.execution_ref:
                 raise Conflict(ErrorCode.EXECUTION_CONFLICT)
             return dispatch
-        if dispatch.state is not DispatchState.RESERVED:
+        if dispatch.state not in {DispatchState.RESERVED, DispatchState.STARTING}:
             raise Conflict(ErrorCode.DISPATCH_TERMINAL)
         started = dispatch.model_copy(
             update={
@@ -363,8 +377,10 @@ class FakeControlPlane(HarnessRawQueries, _HarnessState):
         dispatch = self.dispatches.get(key)
         if dispatch is None or dispatch.dispatch_id != command.dispatch_id:
             raise Conflict(ErrorCode.DISPATCH_STALE)
-        if dispatch.lease_until <= command.finished_at:
+        if dispatch.lease_until <= command.finished_at and dispatch.start_claim is None:
             raise Conflict(ErrorCode.DISPATCH_EXPIRED)
+        if command.claim != dispatch.start_claim:
+            raise Conflict(ErrorCode.DISPATCH_BINDING_CONFLICT)
         if dispatch.state is DispatchState.TERMINAL:
             if dispatch.terminal_outcome != command.outcome:
                 if self.mutation == "dispatch":
@@ -377,7 +393,6 @@ class FakeControlPlane(HarnessRawQueries, _HarnessState):
         )
         self.dispatches[key] = finished
         return finished
-
     def begin_idempotency(self, command: Any) -> Any:
         key = (command.tenant_id, command.scope, command.key)
         current = self.idempotency.get(key)
@@ -399,7 +414,6 @@ class FakeControlPlane(HarnessRawQueries, _HarnessState):
         )
         self.idempotency[key] = record
         return IdempotencyOutcome(record=record, created=True)
-
     def publish_dataset(self, command: Any) -> Any:
         version_key = (command.version.tenant_id, command.version.dataset_name,
                        command.version.version_id)
@@ -439,7 +453,6 @@ class FakeControlPlane(HarnessRawQueries, _HarnessState):
 def clock() -> MutableClock:
     return MutableClock(_NOW)
 
-
 @pytest.fixture
 def fake_control_plane(clock: MutableClock) -> FakeControlPlane:
     return FakeControlPlane(clock)
@@ -460,12 +473,10 @@ def test_mutacao_do_control_plane_e_detectada(case: ControlPlaneCase, clock: Mut
     with pytest.raises(AssertionError, match=f"case={case.name}"):
         case.run(FakeControlPlane(clock, case.name), clock)
 
-
 @pytest.mark.parametrize("case", object_store_cases(), ids=lambda case: case.name)
 def test_mutacao_do_object_store_e_detectada(case: ObjectStoreCase, clock: MutableClock) -> None:
     with pytest.raises(AssertionError, match=f"case={case.name}"):
         case.run(_MemoryObjectStore(case.name), clock)
-
 
 @pytest.mark.parametrize(
     ("catalog", "case_type"),
@@ -477,7 +488,6 @@ def test_catalogo_e_estavel_e_congelado(catalog, case_type) -> None:
     assert all(isinstance(case, case_type) for case in catalog)
     with pytest.raises(FrozenInstanceError):
         catalog[0].name = "alterado"
-
 
 def test_rejeita_adapter_parcial(clock: MutableClock, fake_control_plane: FakeControlPlane) -> None:
     class Parcial:

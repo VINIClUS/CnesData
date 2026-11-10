@@ -8,6 +8,7 @@ from typing import Any, cast
 import pytest
 
 from tests.production.infra._aws_mock_defaults import MOCK_AWS_PROVIDERS
+from tests.production.infra._native_command_metadata import native_command_environment
 from tests.production.infra._processing_identities import (
     _configuration_address,
     _configuration_resources,
@@ -50,7 +51,12 @@ def _native_result(
     evidence = Path(tofu[1]["TF_DATA_DIR"])
     (evidence / "registry-native.stdout").write_text(result.stdout, encoding="utf-8")
     (evidence / "registry-native.stderr").write_text(result.stderr, encoding="utf-8")
-    command = {"argv": argv, "cwd": str(root), "environment": tofu[1], "rc": result.returncode}
+    command = {
+        "argv": argv,
+        "cwd": str(root),
+        "environment": native_command_environment(tofu[1]),
+        "rc": result.returncode,
+    }
     (evidence / "registry-native.command.json").write_text(
         json.dumps(command, indent=2) + "\n", encoding="utf-8"
     )

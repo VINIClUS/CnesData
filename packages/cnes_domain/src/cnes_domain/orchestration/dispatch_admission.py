@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import timedelta
 from typing import TYPE_CHECKING, Final, cast
 
+from cnes_domain.control_plane.commands import (
+    BindRunDispatch,
+    CancelReservedRunDispatch,
+    FinishRunDispatch,
+)
+from cnes_domain.control_plane.dispatch_start import DispatchStartClaim, request_sha256
+from cnes_domain.control_plane.enums import DispatchOutcome, DispatchState
 from cnes_domain.control_plane.environment_gate import (
     AcquireUnitPermit,
     AcquisitionStatus,
@@ -25,6 +33,7 @@ from cnes_domain.control_plane.execution_quota import (
 from cnes_domain.ports.environment_gate import (
     DeferralReason,
     DispatchDeferred,
+    ExecutionObservation,
     ExecutionPresence,
     UnitAdmission,
 )
@@ -35,10 +44,10 @@ if TYPE_CHECKING:
 
     from cnes_domain.control_plane.entities import RunDispatch, RunUnit
     from cnes_domain.control_plane.environment_gate import PermitAcquisition, UnitPermit
+    from cnes_domain.ports.control_plane import ControlPlanePort
     from cnes_domain.ports.environment_gate import (
         DispatchAdmissionPort,
         EnvironmentGatePort,
-        ExecutionObservation,
         ExecutionProbePort,
     )
 
@@ -56,9 +65,15 @@ class UnitPermitLost(RuntimeError):
     """O permit admitido mudou de dono ou de execução antes da confirmação do start."""
 
 
-def dispatch_holder(dispatch: RunDispatch) -> PermitHolder:
+def dispatch_holder(dispatch: RunDispatch, request: object | None = None) -> PermitHolder:
     """Returns: Holder do permit; o dispatch_id é o nome da execução do dispatch."""
-    return PermitHolder(dispatch.tenant_id, dispatch.run_id, dispatch.dispatch_id)
+    return PermitHolder(
+        dispatch.tenant_id,
+        dispatch.run_id,
+        dispatch.dispatch_id,
+        dispatch.generation,
+        request_sha256(request) if request is not None else None,
+    )
 
 
 def settle_run_dispatches(
@@ -99,14 +114,19 @@ class EnvironmentAdmission:
     """`DispatchAdmissionPort` sobre o gate do ambiente, sua quota mensal e o probe do executor."""
 
     def __init__(
-        self, gate: EnvironmentGatePort, probe: ExecutionProbePort, environment: str,
+        self,
+        gate: EnvironmentGatePort,
+        probe: ExecutionProbePort,
+        environment: str,
         lease_seconds: int,
+        control_plane: ControlPlanePort | None = None,
     ) -> None:
         """Raises: ValueError: Ambiente inválido ou lease menor que 1 segundo."""
         self._gate = gate
         self._probe = probe
         self._environment = require_environment(environment)
         self._lease_seconds = _require_lease(lease_seconds)
+        self._control_plane: ControlPlanePort | None = control_plane
 
     def admit(self, holder: PermitHolder, now: datetime) -> UnitAdmission | DispatchDeferred:
         """Adquire o permit e só então conta a tentativa do mês; outro holder cede pelo probe.
@@ -166,7 +186,12 @@ class EnvironmentAdmission:
         if reason is None:
             reason = self._attempt_deferral(acquisition.status, permit, now)
         if reason is None:
-            return UnitAdmission(self._environment, permit.token)
+            version = None
+            if self._control_plane is not None:
+                version = self._gate.observe_environment_gate(self._environment).fence.version
+            return UnitAdmission(
+                self._environment, permit.token, version, permit.canary_promotion_id
+            )
         logger.info(
             "dispatch_deferred environment=%s tenant_id=%s run_id=%s dispatch_id=%s reason=%s",
             self._environment, holder.tenant_id, holder.run_id, holder.dispatch_id, reason,
@@ -209,6 +234,15 @@ class EnvironmentAdmission:
         return DeferralReason.MONTHLY_ATTEMPTS_EXHAUSTED
 
     def _release_unstarted(self, permit: UnitPermit, now: datetime) -> None:
+        if self._control_plane is not None:
+            if self._cancel_reserved(permit, now):
+                self._release(
+                    permit,
+                    ExecutionObservation(ExecutionPresence.ABSENT, None),
+                    now,
+                    "CANCEL_BEFORE_SEND",
+                )
+            return
         # The claim of this call wrote `now` as the anchor, while the permit read afterwards may
         # already carry a rival re-entry's re-anchor: only the untouched claim is released.
         command = ReleaseUnitPermit(self._environment, permit.token, now, now)
@@ -229,32 +263,145 @@ class EnvironmentAdmission:
 
     def _reconcile(self, permit: UnitPermit, now: datetime) -> bool:
         observation = self._probe.probe(permit.holder.dispatch_id)
-        if _proves_end(observation, permit, now):
-            self._release(permit, observation.presence, now)
-            return True
+        if observation.presence is ExecutionPresence.TERMINAL:
+            return self._settle_terminal(permit, observation, now)
+        if observation.presence is ExecutionPresence.ABSENT:
+            if self._control_plane is not None:
+                if not self._cancel_reserved(permit, now):
+                    return False
+                return self._release(permit, observation, now, "CANCEL_BEFORE_SEND")
+            if permit.generation is None and _proves_end(observation, permit, now):
+                return self._release(permit, observation, now, "ABSENT_PROVEN")
         if observation.presence is ExecutionPresence.RUNNING:
             self._keep_alive(permit, observation, now)
         elif permit.execution_ref is not None:
-            # Lease and TTL are no authority: the bound permit stays until a terminal status.
             logger.warning(
                 "unit_permit_bound_absent environment=%s dispatch_id=%s token=%d",
-                self._environment, permit.holder.dispatch_id, permit.token,
+                self._environment,
+                permit.holder.dispatch_id,
+                permit.token,
             )
         return False
 
-    def _release(self, permit: UnitPermit, presence: ExecutionPresence, now: datetime) -> None:
-        # An absence proof holds only for the anchor and the unbound state it was measured on.
-        anchor = permit.acquired_at if presence is ExecutionPresence.ABSENT else None
-        command = ReleaseUnitPermit(self._environment, permit.token, now, anchor)
-        applied = self._gate.release_unit_permit(command)
-        logger.info(
-            "unit_permit_released environment=%s dispatch_id=%s token=%d presence=%s applied=%s",
-            self._environment, permit.holder.dispatch_id, permit.token, presence, applied,
+    def _settle_terminal(
+        self, permit: UnitPermit, observation: ExecutionObservation, now: datetime
+    ) -> bool:
+        if (
+            permit.execution_ref not in {None, observation.execution_ref}
+            or observation.request_sha256 not in {None, permit.request_sha256}
+            or not self._terminal_dispatch(permit, observation, now)
+        ):
+            return False
+        return self._release(permit, observation, now, "TERMINAL")
+
+    def _terminal_dispatch(
+        self, permit: UnitPermit, observation: ExecutionObservation, now: datetime
+    ) -> bool:
+        if self._control_plane is None:
+            return True
+        dispatch = self._control_plane.get_run_dispatch(
+            permit.holder.tenant_id, permit.holder.run_id
+        )
+        if dispatch is None or dispatch.dispatch_id != permit.holder.dispatch_id:
+            return False
+        claim = dispatch.start_claim
+        if (
+            claim is None
+            or claim.permit_token != permit.token
+            or claim.generation != permit.generation
+        ):
+            return False
+        if observation.evidence is None:
+            return True
+        outcomes = {
+            "SUCCEEDED": DispatchOutcome.SUCCEEDED,
+            "FAILED": DispatchOutcome.FAILED,
+            "TIMED_OUT": DispatchOutcome.FAILED,
+            "ABORTED": DispatchOutcome.CANCELED,
+        }
+        status = json.loads(observation.evidence or b"{}").get("status")
+        if status not in outcomes:
+            return False
+        if dispatch.state is not DispatchState.TERMINAL:
+            self._control_plane.finish_run_dispatch(
+                FinishRunDispatch(
+                    tenant_id=dispatch.tenant_id,
+                    run_id=dispatch.run_id,
+                    dispatch_id=dispatch.dispatch_id,
+                    outcome=outcomes[status],
+                    finished_at=now,
+                    claim=claim,
+                )
+            )
+        return True
+
+    def _release(
+        self,
+        permit: UnitPermit,
+        observation: ExecutionObservation,
+        now: datetime,
+        resolution: str,
+    ) -> bool:
+        evidence = {
+            "dispatch_id": permit.holder.dispatch_id,
+            "tenant_id": permit.holder.tenant_id,
+            "run_id": permit.holder.run_id,
+            "token": permit.token,
+            "generation": permit.generation,
+            "request_sha256": permit.request_sha256,
+            "execution_ref": observation.execution_ref,
+            "resolution": resolution,
+            "observed_at": now.isoformat().replace("+00:00", "Z"),
+            "send_disabled_at": now.isoformat().replace("+00:00", "Z"),
+            "observation": json.loads(observation.evidence) if observation.evidence else None,
+        }
+        if resolution == "CANCEL_BEFORE_SEND" and self._control_plane is not None:
+            canceled = self._control_plane.get_run_dispatch(
+                permit.holder.tenant_id, permit.holder.run_id
+            )
+            evidence["cancellation"] = canceled.model_dump(mode="json") if canceled else None
+        proof = (json.dumps(evidence, sort_keys=True, separators=(",", ":")) + "\n").encode()
+        anchor = permit.acquired_at if observation.presence is ExecutionPresence.ABSENT else None
+        return self._gate.release_unit_permit(
+            ReleaseUnitPermit(
+                self._environment,
+                permit.token,
+                now,
+                anchor,
+                permit.generation,
+                resolution,
+                proof,
+            )
         )
 
     def _keep_alive(
         self, permit: UnitPermit, observation: ExecutionObservation, now: datetime,
     ) -> None:
+        if observation.request_sha256 not in {None, permit.request_sha256}:
+            return
+        if self._control_plane is not None:
+            dispatch = self._control_plane.get_run_dispatch(
+                permit.holder.tenant_id, permit.holder.run_id
+            )
+            if dispatch is None or dispatch.dispatch_id != permit.holder.dispatch_id:
+                return
+            if dispatch.state is DispatchState.STARTING:
+                if (
+                    dispatch.start_claim is None
+                    or dispatch.start_claim.permit_token != permit.token
+                ):
+                    return
+                self._control_plane.bind_run_dispatch(
+                    BindRunDispatch(
+                        tenant_id=dispatch.tenant_id,
+                        run_id=dispatch.run_id,
+                        dispatch_id=dispatch.dispatch_id,
+                        execution_ref=cast("str", observation.execution_ref),
+                        now=now,
+                        lease_seconds=self._lease_seconds,
+                        claim=dispatch.start_claim,
+                    )
+                )
         if permit.execution_ref is None:
             execution_ref = cast("str", observation.execution_ref)
             bind = BindUnitPermit(self._environment, permit.token, execution_ref, now)
@@ -262,6 +409,44 @@ class EnvironmentAdmission:
             return
         renew = RenewUnitPermit(self._environment, permit.token, now, self._lease_seconds)
         self._gate.renew_unit_permit(renew)
+
+    def _cancel_reserved(self, permit: UnitPermit, now: datetime) -> bool:
+        if self._control_plane is None or permit.start_state != "RESERVED":
+            return False
+        dispatch = self._control_plane.get_run_dispatch(
+            permit.holder.tenant_id, permit.holder.run_id
+        )
+        if (
+            dispatch is None
+            or dispatch.dispatch_id != permit.holder.dispatch_id
+            or dispatch.generation != permit.generation
+            or permit.request_sha256 is None
+        ):
+            return False
+        claim = DispatchStartClaim(
+            dispatch_id=dispatch.dispatch_id,
+            generation=dispatch.generation,
+            permit_token=permit.token,
+            fence_version=permit.fence_version or 0,
+            request_sha256=permit.request_sha256,
+            promotion_id=permit.canary_promotion_id,
+        )
+        if dispatch.state is DispatchState.TERMINAL:
+            return (
+                dispatch.terminal_outcome is DispatchOutcome.CANCELED
+                and dispatch.start_claim == claim
+                and dispatch.canceled_before_send
+            )
+        canceled = self._control_plane.cancel_reserved_run_dispatch(
+            CancelReservedRunDispatch(
+                tenant_id=dispatch.tenant_id,
+                run_id=dispatch.run_id,
+                dispatch_id=dispatch.dispatch_id,
+                claim=claim,
+                canceled_at=now,
+            )
+        )
+        return canceled is not None
 
 
 __all__ = [

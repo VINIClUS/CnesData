@@ -188,3 +188,66 @@ def test_operacoes_de_colecao_preservam_os_limites_aprovados(expression, count, 
     evaluator = Evaluator(lambda path, scope: [str(index) for index in range(count)], budget)
     with pytest.raises(ValueError, match=error):
         evaluator.value(node)
+
+
+def test_phase_b_nativa_muda_somente_rota_e_grants_iniciais(
+    canary_plan, tofu_context, prod_root, tofu_artifacts
+):
+    from tests.production.infra._athena_root_plan import phase_b_root_plans
+
+    plans = phase_b_root_plans(tofu_context, prod_root, tofu_artifacts)
+    for name, plan in plans.items():
+        changed = {
+            item["address"]
+            for item in plan["resource_changes"]
+            if item["mode"] == "managed" and item["change"]["actions"] != ["no-op"]
+        }
+        expected = {"module.processing.aws_sfn_state_machine.processor[0]"}
+        if name == "phase_b_initial":
+            expected.add("module.runtime_iam.aws_iam_role_policy.api[0]")
+        assert changed == expected
+
+        from scripts.promotion.phase_b import review_phase_b_plan
+
+        active, context = _phase_b_context(plan, name, prod_root)
+        assert review_phase_b_plan(plan, active, context) == (
+            "initial" if active is None else "established"
+        )
+
+
+def _phase_b_context(plan, name, prod_root):
+    variables = plan["variables"]
+    unit = variables["processor_active_unit_task_definition_arn"]["value"]
+    subnet = next(
+        item["change"]["after"]["id"]
+        for item in plan["resource_changes"]
+        if item.get("type") == "aws_subnet"
+    )
+    security_group = next(
+        item["change"]["after"]["id"]
+        for item in plan["resource_changes"]
+        if item.get("type") == "aws_security_group"
+    )
+    template = (prod_root.parents[1] / "modules/processing/state_machine.asl.json").read_text()
+    values = {
+        "cluster_arn": CLUSTER_ARN,
+        "task_definition_arn": unit,
+        "public_subnet_ids": json.dumps([subnet]),
+        "security_group_id": security_group,
+    }
+    for key, value in values.items():
+        template = template.replace("${" + key + "}", value)
+    machine = {
+        "name": PREFIX,
+        "type": "STANDARD",
+        "definition": template,
+        "role_arn": "arn:aws:iam::123456789012:role/cnesdata-prod-step-functions",
+    }
+    active = None if name == "phase_b_initial" else REVISION % ("unit", 7)
+    context = {
+        "active_before": active,
+        "unit_revision": unit,
+        "machine_after": machine,
+        "state_machine_arn": "arn:aws:states:us-east-2:123456789012:stateMachine:cnesdata-prod",
+    }
+    return active, context

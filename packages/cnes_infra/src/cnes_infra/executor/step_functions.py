@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from botocore.exceptions import ClientError
 
+from cnes_domain.control_plane.dispatch_start import claim_matches, request_sha256
 from cnes_domain.control_plane.entities import require_dispatch_id
 from cnes_domain.ports.environment_gate import ExecutionObservation, ExecutionPresence
 from cnes_domain.ports.processing import ExecutionStatus, StartRunExecution
@@ -22,6 +23,7 @@ if TYPE_CHECKING:
         def start_execution(self, **kwargs: str) -> dict[str, Any]: ...
         def stop_execution(self, **kwargs: str) -> dict[str, Any]: ...
         def describe_execution(self, **kwargs: str) -> dict[str, Any]: ...
+
 
 _STATUS = {
     "RUNNING": ExecutionStatus.RUNNING,
@@ -328,6 +330,17 @@ class StepFunctionsExecutor:
             return self._confirm_existing(request.dispatch_id, payload)
         return response["executionArn"]
 
+    def start_with_claim(self, request: StartRunExecution, claim: Any) -> str:
+        """Start only with the authenticated claim won by the control plane."""
+        if not claim_matches(
+            claim,
+            dispatch_id=request.dispatch_id,
+            generation=claim.generation,
+            request=request,
+        ):
+            raise ProcessorExecutionUnavailable("dispatch_start_claim_mismatch")
+        return self.start(request)
+
     def cancel(self, request: CancelRunExecution) -> None:
         """Solicita a interrupção da execução; não acessa a AWS sem um ref."""
         if request.execution_ref is None:
@@ -378,13 +391,24 @@ class StepFunctionsExecutionProbe:
             ProcessorExecutionUnavailable: outra falha AWS ao descrever a execução.
         """
         execution_arn = _execution_arn(
-            self._state_machine_arn, require_dispatch_id(dispatch_id, "dispatch_id"),
+            self._state_machine_arn,
+            require_dispatch_id(dispatch_id, "dispatch_id"),
         )
         try:
             described = self._client.describe_execution(executionArn=execution_arn)
         except ClientError as error:
             if _error_code(error) != "ExecutionDoesNotExist":
                 raise ProcessorExecutionUnavailable(_error_code(error)) from error
-            return ExecutionObservation(ExecutionPresence.ABSENT, None)
+            evidence = json.dumps(
+                {"executionArn": execution_arn, "error": "ExecutionDoesNotExist"},
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+            return ExecutionObservation(ExecutionPresence.ABSENT, None, evidence=evidence)
         presence = _PRESENCE[_execution_status(described["status"])]
-        return ExecutionObservation(presence, execution_arn)
+        original = {
+            key: described[key] for key in ("executionArn", "status", "input") if key in described
+        }
+        evidence = json.dumps(original, sort_keys=True, separators=(",", ":")).encode()
+        digest = request_sha256(json.loads(described["input"])) if "input" in described else None
+        return ExecutionObservation(presence, execution_arn, digest, evidence)
