@@ -199,3 +199,17 @@ def _mutantes(entrada):
     }
     casos["invalido_bootstrap_mutante"] = _bootstrap(entrada) | {"candidate_keys": ["index.html"]}
     return casos
+
+
+def casos_sem_listas_opcionais(entrada):
+    """Args: Entrada operacional sintética válida.
+    Returns: Cenários sem multipart, baseline ou versões retiradas.
+    Raises: Nenhuma exceção própria.
+    """
+    return {
+        "sem_multipart": entrada | {"multipart_keys": []},
+        "sem_listas_opcionais": entrada | {
+            "multipart_keys": [], "rollback_versions": [], "retire_versions": [],
+        },
+        "sem_retiradas": entrada | {"retire_versions": []},
+    }

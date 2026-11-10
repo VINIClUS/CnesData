@@ -30,6 +30,7 @@ from tests.production.infra._static_promotion_iam_model import (
     _bootstrap,
     _mutantes,
     autoriza,
+    casos_sem_listas_opcionais,
     documentos_do_plano,
     suites_isoladas,
     verificar_cobertura_nativa,
@@ -75,6 +76,7 @@ def fixture_estatico(tmp_path_factory, prod_root, tofu_context):
     (raiz / ".terraform.lock.hcl").write_text(selecionado + "\n")
     casos = {"desligado": None, "bootstrap": _bootstrap(ENTRADA), "operacional": ENTRADA}
     casos |= {"sem_baseline": ENTRADA | {"rollback_versions": []}} | _mutantes(ENTRADA)
+    casos |= casos_sem_listas_opcionais(ENTRADA)
     historico = deepcopy(ENTRADA)
     historico["application_promotion"]["predecessor_reads"] = VETORES["predecessor_reads"]
     casos["historico"] = historico

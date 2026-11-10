@@ -248,28 +248,30 @@ variable "static_promotion" {
               "cloudfront:GetInvalidation"],
               Resource = var.static_web.distribution_arn, Condition = { DateLessThan = {
             "aws:CurrentTime" = var.static_promotion.enabled_until } } },
-            { Effect = "Allow", Action = ["s3:ListMultipartUploadParts", "s3:AbortMultipartUpload"],
-              Resource = try([for key in var.static_promotion.multipart_keys :
-                "${var.static_web.bucket_arn}/${key}"], []), Condition = { DateLessThan = {
-            "aws:CurrentTime" = var.static_promotion.enabled_until } } },
-            ], try(flatten([for ref in var.static_promotion.rollback_versions : [
-              { Effect   = "Allow", Action = "s3:GetObjectVersion"
-                Resource = "${var.static_web.bucket_arn}/${ref.key}"
-                Condition = merge({ DateLessThan = {
-                  "aws:CurrentTime" = var.static_promotion.enabled_until } }, { StringEquals = {
-              "s3:VersionId" = ref.version_id } }) },
-              { Effect   = "Allow", Action = "s3:PutObject"
-                Resource = "${var.static_web.bucket_arn}/${ref.key}"
-                Condition = merge({ DateLessThan = {
-                  "aws:CurrentTime" = var.static_promotion.enabled_until } }, {
-                  StringEquals = {
-                    "s3:x-amz-copy-source" = format("%s/%s?versionId=%s",
-                      trimprefix(var.static_web.bucket_arn, "arn:aws:s3:::"), ref.key,
-                    urlencode(ref.version_id))
-                  }
-                  Bool = { "s3:ObjectCreationOperation" = "true" }
-                })
-              },
+            ], try(length(var.static_promotion.multipart_keys) > 0 ? [
+              { Effect = "Allow", Action = ["s3:ListMultipartUploadParts",
+                "s3:AbortMultipartUpload"],
+                Resource = try([for key in var.static_promotion.multipart_keys :
+                  "${var.static_web.bucket_arn}/${key}"], []), Condition = { DateLessThan = {
+              "aws:CurrentTime" = var.static_promotion.enabled_until } } },
+              ] : [], []), try(flatten([for ref in var.static_promotion.rollback_versions : [
+                { Effect   = "Allow", Action = "s3:GetObjectVersion"
+                  Resource = "${var.static_web.bucket_arn}/${ref.key}"
+                  Condition = merge({ DateLessThan = {
+                    "aws:CurrentTime" = var.static_promotion.enabled_until } }, { StringEquals = {
+                "s3:VersionId" = ref.version_id } }) },
+                { Effect   = "Allow", Action = "s3:PutObject"
+                  Resource = "${var.static_web.bucket_arn}/${ref.key}"
+                  Condition = merge({ DateLessThan = {
+                    "aws:CurrentTime" = var.static_promotion.enabled_until } }, {
+                    StringEquals = {
+                      "s3:x-amz-copy-source" = format("%s/%s?versionId=%s",
+                        trimprefix(var.static_web.bucket_arn, "arn:aws:s3:::"), ref.key,
+                      urlencode(ref.version_id))
+                    }
+                    Bool = { "s3:ObjectCreationOperation" = "true" }
+                  })
+                },
           ]]), []))
         })
       })) : length(policy) <= 10240]),
@@ -378,9 +380,10 @@ locals {
         { Effect = "Allow", Action = ["cloudfront:CreateInvalidation",
           "cloudfront:GetInvalidation"],
         Resource = local.static_distribution, Condition = local.static_expiry },
+        ], length(local.static_uploads) > 0 ? [
         { Effect = "Allow", Action = ["s3:ListMultipartUploadParts", "s3:AbortMultipartUpload"],
         Resource = local.static_uploads, Condition = local.static_expiry },
-        ], try(flatten([for ref in var.static_promotion.rollback_versions : [
+        ] : [], try(flatten([for ref in var.static_promotion.rollback_versions : [
           { Effect   = "Allow", Action = "s3:GetObjectVersion"
             Resource = "${local.static_bucket}/${ref.key}"
             Condition = merge(local.static_expiry, { StringEquals = {
