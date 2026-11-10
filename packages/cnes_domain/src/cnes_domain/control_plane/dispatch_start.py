@@ -57,20 +57,12 @@ class StartAdmission:
 def _dispatch_id(value: str) -> str:
     if len(value) != 16 or any(char not in "0123456789abcdef" for char in value):
         raise ValueError("invalid_dispatch_id")
-    try:
-        int(value, 16)
-    except ValueError as error:
-        raise ValueError("invalid_dispatch_id") from error
     return value
 
 
 def _sha256(value: str) -> str:
     if len(value) != 64 or any(char not in "0123456789abcdef" for char in value):
         raise ValueError("invalid_sha256")
-    try:
-        int(value, 16)
-    except ValueError as error:
-        raise ValueError("invalid_sha256") from error
     return value
 
 
