@@ -493,4 +493,4 @@ def test_unit_sintetica_carrega_binding_do_dispatch_e_aplica_falha_de_leitura(
     assert isinstance(runtime.mode_canary, ModeCanaryContext)
     worker = runtime.unit_handler._worker
     assert isinstance(worker._dependencies.control_plane, CanaryControlPlane)
-    assert worker._dependencies.processor._source_store == "faulty"
+    assert cast("Any", worker._dependencies.processor)._source_store == "faulty"

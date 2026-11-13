@@ -245,7 +245,7 @@ class _Store:
 
 def test_falha_sintetica_de_leitura_so_atinge_a_fixture_raw(ledger: _Ledger) -> None:
     _hang_record(ledger, "synthetic_read_failure", "recovery_failure")
-    inner = _Store()
+    inner = cast("Any", _Store())
 
     store = cast("Any", fault_object_store(ledger.context(), inner))
 
