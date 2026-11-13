@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from boto3.session import Session
     from botocore.client import BaseClient
 
+    from cnes_domain.orchestration.mode_canary import ModeCanaryAdmissionProvider
     from cnes_domain.ports.audit import AuditSinkPort
     from cnes_domain.ports.control_plane import ControlPlanePort
     from cnes_domain.ports.environment_gate import DispatchAdmissionPort
@@ -125,13 +126,18 @@ def build_aws_runtime(
 def build_dispatch_admission(
     settings: AwsRuntimeSettings | AwsUnitSettings, clients: AwsClients,
     control_plane: ControlPlanePort,
+    mode_canary: ModeCanaryAdmissionProvider | None = None,
 ) -> DispatchAdmissionPort:
     """Args: settings: Configuração. clients: Clientes boto3. control_plane: Do runtime.
+        mode_canary: Provider do contexto sintético; exige a política de produção.
     Returns: Gate do ambiente com o probe do executor sob a política de produção; sem gate
         fora dela.
-    Raises: AwsRuntimeConfigurationError: Produção com control plane sem gate de ambiente.
+    Raises: AwsRuntimeConfigurationError: Produção com control plane sem gate de ambiente ou
+        contexto sintético fora da produção.
     """
     if not settings.production_policy:
+        if mode_canary is not None:
+            raise AwsRuntimeConfigurationError("mode_canary_requires_production")
         return UNGATED_ADMISSION
     if not isinstance(control_plane, EnvironmentGatePort):
         raise AwsRuntimeConfigurationError("environment_gate_unsupported")
@@ -142,6 +148,7 @@ def build_dispatch_admission(
         settings.environment,
         settings.processor_lease_seconds,
         control_plane,
+        mode_canary=mode_canary,
     )
 
 

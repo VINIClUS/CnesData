@@ -9,6 +9,7 @@ from botocore.config import Config
 
 from cnes_domain.ports.processing import ExecutionPolicyConfig
 from cnes_infra.audit.s3_object_lock_sink import S3ObjectLockAuditSink
+from cnes_infra.aws.mode_canary import ModeCanaryContext
 from cnes_infra.aws.runtime import (
     build_aws_processor_core,
     build_dispatch_admission,
@@ -41,6 +42,7 @@ if TYPE_CHECKING:
     from botocore.client import BaseClient
 
     from cnes_domain.billing.ports import ClockPort
+    from cnes_domain.orchestration.mode_canary import ModeCanaryBinding
     from cnes_domain.ports.audit import AuditSinkPort
     from cnes_domain.ports.control_plane import ControlPlanePort
     from cnes_domain.ports.object_store import ObjectStorePort
@@ -58,6 +60,7 @@ if TYPE_CHECKING:
 class AwsExecutionPolicy:
     billing: BillingSettings
     execution_started: ExecutionStarted
+    mode_canary: ModeCanaryBinding | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +90,14 @@ class _AwsAssembly:
     coordinator: PipelineCoordinator
 
 
+def _mode_canary_provider(
+    settings: AwsUnitSettings, clients: AwsClients, policy: AwsExecutionPolicy,
+) -> ModeCanaryContext | None:
+    if policy.mode_canary is None:
+        return None
+    return ModeCanaryContext(clients.dynamodb, settings.control_plane_table, policy.mode_canary)
+
+
 def _build_assembly(
     settings: AwsUnitSettings,
     clients: AwsClients,
@@ -114,14 +125,16 @@ def _build_assembly(
         control_plane=core.control_plane,
         publication_policy=publication,
     )
+    provider = _mode_canary_provider(settings, clients, policy)
     coordinator = PipelineCoordinator(
         CoordinatorDependencies(core.control_plane, executor, publisher, clock),
         ExecutionPolicyConfig(
             settings.processor_max_concurrency,
             settings.processor_lease_seconds,
             callbacks,
-            build_dispatch_admission(settings, clients, core.control_plane),
+            build_dispatch_admission(settings, clients, core.control_plane, provider),
         ),
+        policy.mode_canary,
     )
     return _AwsAssembly(core.control_plane, core.object_store, coordinator)
 
