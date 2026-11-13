@@ -29,6 +29,7 @@ from packages.cnes_domain.tests.orchestration.test_mode_canary_records import (
     _promotion,
 )
 from packages.cnes_infra.tests.aws.production_values import PRODUCTION_VALUES
+from packages.cnes_infra.tests.aws.test_mode_canary_ledger import _Dispatches
 from packages.cnes_infra.tests.aws.test_runtime import _LOCKED, _clients, _mock, _settings
 from packages.cnes_infra.tests.control_plane.test_dynamodb_adapter import (
     _TABLE_NAME,
@@ -71,7 +72,7 @@ class _Env:
             tenant_id=_TENANT, run_ids=(_RUN,), owner_sha256=_OWNER, record_sha256=digest,
             phase="unit", context_kind="promotion",
         )
-        return ModeCanaryContext(self.client, _TABLE_NAME, binding)
+        return ModeCanaryContext(self.client, _TABLE_NAME, binding, _Dispatches())
 
 
 @pytest.fixture
@@ -234,3 +235,50 @@ def test_admissao_sintetica_fora_da_politica_de_producao_falha_fechado() -> None
         )
 
     assert _mock(clients.step_functions).mock_calls == []
+
+
+_VECTOR_RECORD = {
+    "schema": "cnesdata.mode-canary/v2", "activation_sha256": "a" * 64,
+    "candidate_sha256": "b" * 64, "source_sha": "c" * 40, "release_id": "liberação-é",
+    "canary_id": "0123456789abcdef0123456789abcdef", "owner_sha256": "d" * 64,
+    "promotion_id": "promoção-1", "promotion_generation": 3, "phase_receipt_sha256": "e" * 64,
+    "machine_arn": "arn:aws:states:us-east-2:111122223333:stateMachine:m",
+    "revisions": {"unit": "1", "recovery": "2", "audit": "3"}, "run_ids": ["r1", "r2"],
+    "fixture_manifest_sha256": "1" * 64, "seed_manifest_sha256": "2" * 64,
+    "fixed_deadline": "2026-11-13T12:00:00+00:00", "stage_deadline": "2026-11-13T12:30:00+00:00",
+    "canary_deadline": "2026-11-13T11:45:00+00:00", "phase": "unit",
+    "freeze_policy_sha256": "3" * 64, "expires_at": "2026-11-13T13:00:00+00:00",
+    "context_kind": "promotion", "context_manifest_sha256": "4" * 64, "scenario": "unit_wave",
+    "fault": "none", "mode": "unit",
+}
+_VECTOR_PK = (
+    "TENANT#70726f642d63616e6172792d30313233343536373839616263646566"
+    "30313233343536373839616263646566"
+)
+
+
+def test_item_do_vetor_compartilhado_admite_com_control_correspondente(env: _Env) -> None:
+    text = canonical_text(_VECTOR_RECORD)
+    assert sha256(text.encode()).hexdigest() == (
+        "09ea5e922b648bfeedb1cbb5fd8ea724202707b888427e1bd9c30d032b5e7063"
+    )
+    assert tenant_partition(_TENANT) == _VECTOR_PK
+    owner = "d" * 64
+    for sort_key, payload in (
+        (f"PROD_CANARY#{owner}#unit", text),
+        (f"PROD_CANARY_CONTROL#{owner}", canonical_text(_mutated(
+            _control(), owner_sha256=owner, context_manifest_sha256="4" * 64,
+            admitted_at="2026-11-13T11:00:00Z", deadline="2026-11-13T12:00:00Z"))),
+    ):
+        env.client.put_item(TableName=_TABLE_NAME, Item={
+            "pk": {"S": _VECTOR_PK}, "sk": {"S": sort_key}, "entity": {"S": "MODECANARY"},
+            "payload": {"S": payload},
+        })
+    binding = ModeCanaryBinding(_TENANT, ("r1",), owner, sha256(text.encode()).hexdigest(),
+                                "unit", "promotion")
+    context = ModeCanaryContext(env.client, _TABLE_NAME, binding, _Dispatches())
+    now = datetime(2026, 11, 13, 11, 30, tzinfo=UTC)
+
+    assert context.binding_for(PermitHolder(_TENANT, "r1", "0123456789abcdef"), now) == (
+        ModeCanaryGrant("promoção-1")
+    )
