@@ -226,3 +226,36 @@ def test_admissao_de_producao_exige_control_plane_com_gate() -> None:
         build_dispatch_admission(settings, clients, cast("ControlPlanePort", object()))
 
     assert _mock(clients.step_functions).mock_calls == []
+
+
+class _Provider:
+    def binding_for(self, holder: object, now: datetime) -> object:
+        raise AssertionError((holder, now))
+
+
+def test_admissao_de_producao_repassa_o_provider_sintetico() -> None:
+    settings = AwsRuntimeSettings.from_mapping(PRODUCTION_VALUES)
+    clients = _clients(_LOCKED)
+    control_plane = DynamoDBControlPlane(
+        clients.dynamodb, settings.control_plane_table, lambda: _NOW,
+    )
+    provider = _Provider()
+
+    admission = build_dispatch_admission(settings, clients, control_plane, cast("Any", provider))
+
+    assert isinstance(admission, EnvironmentAdmission)
+    assert admission._mode_canary is provider
+    default = build_dispatch_admission(settings, clients, control_plane)
+    assert isinstance(default, EnvironmentAdmission)
+    assert default._mode_canary is None
+
+
+def test_admissao_sintetica_fora_da_politica_de_producao_falha_fechado() -> None:
+    clients = _clients(_LOCKED)
+
+    with pytest.raises(AwsRuntimeConfigurationError, match=r"^mode_canary_requires_production$"):
+        build_dispatch_admission(
+            _settings(), clients, cast("ControlPlanePort", object()), cast("Any", _Provider()),
+        )
+
+    assert _mock(clients.step_functions).mock_calls == []

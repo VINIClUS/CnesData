@@ -12,9 +12,11 @@ import pytest
 
 from cnes_domain.billing import BillingConcurrencyPolicy
 from cnes_domain.orchestration.dispatch_admission import EnvironmentAdmission
+from cnes_domain.orchestration.mode_canary import ModeCanaryBinding
 from cnes_domain.ports.environment_gate import UNGATED_ADMISSION
 from cnes_domain.profiles import parse_profile
 from cnes_infra.aws import AwsRuntimeConfigurationError
+from cnes_infra.aws.mode_canary import ModeCanaryContext
 from cnes_infra.aws.processor_settings import AwsRecoverySettings, AwsUnitSettings
 from cnes_infra.billing import BillingSettings
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
@@ -397,3 +399,44 @@ async def test_main_normaliza_perfil_aws_maiusculo_no_roteamento(
         assert await app.main() == 0
 
     run.assert_called_once_with()
+
+
+def _canary_binding() -> ModeCanaryBinding:
+    return ModeCanaryBinding(
+        tenant_id="prod-canary-0123456789abcdef0123456789abcdef",
+        run_ids=("unit-aaaaaaaaaaaaaaaa",), owner_sha256="a" * 64, record_sha256="b" * 64,
+        phase="recovery", context_kind="promotion",
+    )
+
+
+def test_processor_aws_producao_instala_binding_sintetico_no_coordinator_e_na_admissao() -> None:
+    binding = _canary_binding()
+
+    runtime = build_aws_recovery_runtime(
+        AwsRecoverySettings.from_mapping(PRODUCTION_VALUES),
+        _session(PRODUCTION_FIXTURE),
+        lambda: datetime(2026, 10, 12, tzinfo=UTC),
+        AwsExecutionPolicy(
+            BillingSettings.from_mapping(PRODUCTION_VALUES), noop_execution_started, binding,
+        ),
+    )
+
+    coordinator = runtime.recovery._coordinator
+    admission = coordinator._execution.admission
+    assert coordinator._mode_canary is binding
+    assert isinstance(admission, EnvironmentAdmission)
+    assert isinstance(admission._mode_canary, ModeCanaryContext)
+    assert admission._mode_canary._binding is binding
+
+
+def test_processor_aws_sem_binding_nao_instala_contexto_sintetico() -> None:
+    runtime = build_aws_recovery_runtime(
+        AwsRecoverySettings.from_mapping(PRODUCTION_VALUES),
+        _session(PRODUCTION_FIXTURE),
+        lambda: datetime(2026, 10, 12, tzinfo=UTC),
+        AwsExecutionPolicy(BillingSettings.from_mapping(PRODUCTION_VALUES), noop_execution_started),
+    )
+
+    coordinator = runtime.recovery._coordinator
+    assert coordinator._mode_canary is None
+    assert cast("EnvironmentAdmission", coordinator._execution.admission)._mode_canary is None
