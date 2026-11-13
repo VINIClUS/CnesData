@@ -360,3 +360,28 @@ def test_runtime_bounds_devolve_menor_prazo_e_fault_do_record_ativo(ledger: _Led
     context.seal(_NOW)
     with pytest.raises(SyntheticContextRequired, match="reason=control_sealed"):
         context.runtime_bounds()
+
+
+class _LosingSeal:
+    def __init__(self, client: Any, losses: int) -> None:
+        self._client = client
+        self.losses = losses
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._client, name)
+
+    def put_item(self, **kwargs: Any) -> Any:
+        if self.losses and "ConditionExpression" in kwargs:
+            self.losses -= 1
+            error = {"Error": {"Code": "ConditionalCheckFailedException", "Message": "x"}}
+            raise ClientError(cast("Any", error), "PutItem")
+        return self._client.put_item(**kwargs)
+
+
+def test_seal_insiste_enquanto_admissoes_concorrentes_mudam_o_control(ledger: _Ledger) -> None:
+    ledger.seed()
+    ledger.client = _LosingSeal(ledger.client, 12)
+
+    ledger.context().seal(_NOW)
+
+    assert ledger.control()["admission_state"] == "SEALED"
