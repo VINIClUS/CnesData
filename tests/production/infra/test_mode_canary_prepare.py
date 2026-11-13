@@ -6,8 +6,8 @@ from copy import deepcopy
 from fnmatch import fnmatchcase
 
 import pytest
-from scripts.promotion.prepare_mode_canary import validate_mode_canary_prepare
 
+from scripts.promotion.prepare_mode_canary import validate_mode_canary_prepare
 from tests.production.infra._athena_root_plan import after_of
 from tests.production.infra._mode_canary_native import (
     ALIASES,
@@ -495,5 +495,5 @@ def _pedidos_observacao(recursos):
 
 def test_oracle_de_prepare_aceita_planos_nativos_do_ciclo(ciclo_modo):
     planos, antigo, novo = ciclo_modo["plans"], ciclo_modo["input"], ciclo_modo["new_input"]
-    validate_mode_canary_prepare(planos["replay"], antigo, "established")
-    validate_mode_canary_prepare(planos["novo_owner"], novo, "established")
+    assert validate_mode_canary_prepare(planos["replay"], antigo, "established")["addresses"]
+    assert validate_mode_canary_prepare(planos["novo_owner"], novo, "established")["addresses"]
