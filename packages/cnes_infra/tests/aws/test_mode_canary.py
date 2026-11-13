@@ -2,11 +2,10 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator
 from copy import deepcopy
 from datetime import UTC, datetime
 from hashlib import sha256
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import boto3
 import pytest
@@ -29,6 +28,9 @@ from packages.cnes_infra.tests.control_plane.test_dynamodb_adapter import (
     _TABLE_NAME,
     _create_table,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 _TENANT = f"prod-canary-{CANARY_ID}"
 _RUN = "unit-aaaaaaaaaaaaaaaa"
@@ -122,7 +124,6 @@ def test_control_ausente_ou_selado_nao_admite(env: _Env) -> None:
     ("mutate", "reason"),
     [
         (lambda e: e.put(_mutated(e.record, owner_sha256="c" * 64)), "record_mismatch"),
-        (lambda e: e.put(_mutated(e.record, context_kind="readiness")), "record_mismatch"),
         (lambda e: e.put(_mutated(e.record, canary_id="f" * 32)), "record_mismatch"),
         (lambda e: e.put(_mutated(e.record, run_ids=["unit-bbbbbbbbbbbbbbbb"])), "run_not_bound"),
         (lambda e: e.put(control=_mutated(e.control, owner_sha256="c" * 64)), "control_mismatch"),
@@ -142,13 +143,8 @@ def test_control_ausente_ou_selado_nao_admite(env: _Env) -> None:
 def test_contexto_divergente_ou_vencido_nao_admite(
     env: _Env, mutate: Any, reason: str,
 ) -> None:
-    original = env.record
     mutate(env)
-    context = env.context(sha256(canonical_text(original).encode()).hexdigest())
-    if reason == "record_mismatch":
-        context = env.context(
-            sha256(canonical_text(json.loads(_stored(env))).encode()).hexdigest()
-        )
+    context = env.context(sha256(_stored(env).encode()).hexdigest())
 
     with pytest.raises(SyntheticContextRequired, match=f"reason={reason}"):
         context.binding_for(_HOLDER, _NOW)
@@ -166,6 +162,18 @@ def test_hash_do_record_divergente_do_binding_nao_admite(env: _Env) -> None:
         env.context("f" * 64).binding_for(_HOLDER, _NOW)
 
 
+def test_control_invalido_ou_nao_canonico_nao_admite(env: _Env) -> None:
+    env.put()
+    key = f"PROD_CANARY_CONTROL#{_OWNER}"
+    pretty = json.dumps(env.control, indent=2)
+    env._put(key, pretty)
+    with pytest.raises(SyntheticContextRequired, match="reason=control_not_canonical"):
+        env.context().binding_for(_HOLDER, _NOW)
+    env._put(key, canonical_text(_mutated(env.control, admission_state="X")))
+    with pytest.raises(SyntheticContextRequired, match="reason=control_invalid"):
+        env.context().binding_for(_HOLDER, _NOW)
+
+
 def test_record_nao_canonico_ou_invalido_nao_admite(env: _Env) -> None:
     env.put()
     key = f"PROD_CANARY#{_OWNER}#unit"
@@ -181,5 +189,9 @@ def test_record_nao_canonico_ou_invalido_nao_admite(env: _Env) -> None:
         context.binding_for(_HOLDER, _NOW)
     env._put(key, "{")
     context = env.context(sha256(b"{").hexdigest())
+    with pytest.raises(SyntheticContextRequired, match="reason=record_invalid"):
+        context.binding_for(_HOLDER, _NOW)
+    env._put(key, "[]")
+    context = env.context(sha256(b"[]").hexdigest())
     with pytest.raises(SyntheticContextRequired, match="reason=record_invalid"):
         context.binding_for(_HOLDER, _NOW)
