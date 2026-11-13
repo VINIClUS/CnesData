@@ -131,6 +131,26 @@ rollback retention ends. Then prune older non-rollback revisions.
 
 No production deployment occurs automatically after merge.
 
+### 2.5 Mode canaries (#499)
+
+Mode canaries prove unit, recovery and audit on the real production route with the reserved
+synthetic tenant `prod-canary-<canary_id>`; they never reuse the #471 pre-close canary roles or
+storage. After keeper acquisition and authenticated activation, and before F,
+`application-prepare` with `mode=mode-canary` materializes exactly the four nullable
+identities (`mode_seed`, `mode_dispatch`, `mode_audit_launch`, `mode_observe`): eight addresses,
+create/no-op initially and update/no-op afterwards, two concordant IAM readbacks at least
+10 seconds apart within the original preparation deadline. Phase A is unchanged.
+
+The control item is written ACTIVE before the seed; every synthetic effect admits a ledger
+ticket first. Unit runs after B through the production state machine; recovery and audit run
+after their C apply by `RunTask` of the exact Scheduler target revision, command and network,
+without role/command/resource overrides and with a deterministic client token. A lost
+response stays `unknown`. Seal precedes final quiescence. A promotion that proves these
+modes but lacks the 3600-second hang, the two-window alarm and periodic audit delivery ends
+`routes-open-operational-pending`, never `accepted-open`; those requirements belong to the
+manual `mode-readiness-drill` purpose. Simulated freeze denies seed/dispatch before effects
+and keeps audit/observe. Runbook: `docs/runbooks/mode-canary.md`.
+
 ## 3. Rollback
 
 - **API:** restore the previous Nginx upstream and already-pulled GHCR digest.
