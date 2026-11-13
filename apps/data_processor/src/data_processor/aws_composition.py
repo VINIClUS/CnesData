@@ -25,6 +25,12 @@ from cnes_infra.executor.step_functions import (
     validate_production_state_machine,
     validate_state_machine,
 )
+from data_processor.mode_canary import (
+    CanaryControlPlane,
+    ModeCanaryExecutor,
+    fault_object_store,
+    load_unit_binding,
+)
 from data_processor.orchestration.coordinator import CoordinatorDependencies, PipelineCoordinator
 from data_processor.orchestration.publisher import DatasetPublisher
 from data_processor.orchestration.unit_handler import RunUnitCommandHandler
@@ -42,11 +48,12 @@ if TYPE_CHECKING:
     from botocore.client import BaseClient
 
     from cnes_domain.billing.ports import ClockPort
+    from cnes_domain.control_plane.environment_gate import PermitHolder
     from cnes_domain.orchestration.mode_canary import ModeCanaryBinding
     from cnes_domain.ports.audit import AuditSinkPort
     from cnes_domain.ports.control_plane import ControlPlanePort
     from cnes_domain.ports.object_store import ObjectStorePort
-    from cnes_domain.ports.processing import ExecutionStarted
+    from cnes_domain.ports.processing import ExecutionStarted, ProcessorExecutorPort
     from cnes_infra.aws.processor_settings import (
         AwsAuditDispatchSettings,
         AwsRecoverySettings,
@@ -61,16 +68,19 @@ class AwsExecutionPolicy:
     billing: BillingSettings
     execution_started: ExecutionStarted
     mode_canary: ModeCanaryBinding | None = None
+    unit_dispatch: PermitHolder | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class AwsUnitRuntime:
     unit_handler: RunUnitCommandHandler
+    mode_canary: ModeCanaryContext | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class AwsRecoveryRuntime:
     recovery: ProcessorRecovery
+    mode_canary: ModeCanaryContext | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,17 +98,24 @@ class _AwsAssembly:
     control_plane: ControlPlanePort
     object_store: ObjectStorePort
     coordinator: PipelineCoordinator
+    mode_canary: ModeCanaryContext | None
 
 
-def _mode_canary_provider(
+def _mode_canary_parts(
     settings: AwsUnitSettings, clients: AwsClients, policy: AwsExecutionPolicy,
-    dispatches: ControlPlanePort,
-) -> ModeCanaryContext | None:
-    if policy.mode_canary is None:
-        return None
-    return ModeCanaryContext(
-        clients.dynamodb, settings.control_plane_table, policy.mode_canary, dispatches,
+    control_plane: ControlPlanePort,
+) -> tuple[ModeCanaryBinding | None, ModeCanaryContext | None]:
+    binding = policy.mode_canary
+    if binding is None and policy.unit_dispatch is not None:
+        binding = load_unit_binding(
+            clients.dynamodb, settings.control_plane_table, policy.unit_dispatch,
+        )
+    if binding is None:
+        return None, None
+    context = ModeCanaryContext(
+        clients.dynamodb, settings.control_plane_table, binding, control_plane,
     )
+    return binding, context
 
 
 def _build_assembly(
@@ -109,37 +126,35 @@ def _build_assembly(
 ) -> _AwsAssembly:
     core = build_aws_processor_core(settings, clients, clock, policy.billing)
     resources = BillingGateResources(
-        clock,
-        settings.processor_max_concurrency,
-        clients.dynamodb,
-        settings.control_plane_table,
+        clock, settings.processor_max_concurrency, clients.dynamodb, settings.control_plane_table,
     )
     callbacks = build_execution_callbacks(
-        policy.billing,
-        core.control_plane,
-        resources,
-        policy.execution_started,
+        policy.billing, core.control_plane, resources, policy.execution_started,
     )
     publication = build_publication_policy(policy.billing, core.control_plane, resources, clock)
     _validate_runtime(settings, clients)
-    executor = StepFunctionsExecutor(clients.step_functions, settings.state_machine_arn)
-    publisher = DatasetPublisher(
-        store=core.object_store,
-        control_plane=core.control_plane,
-        publication_policy=publication,
+    binding, context = _mode_canary_parts(settings, clients, policy, core.control_plane)
+    plane = core.control_plane
+    executor: ProcessorExecutorPort = StepFunctionsExecutor(
+        clients.step_functions, settings.state_machine_arn,
     )
-    provider = _mode_canary_provider(settings, clients, policy, core.control_plane)
+    if binding is not None and context is not None:
+        plane = cast("ControlPlanePort", CanaryControlPlane(core.control_plane, binding))
+        executor = cast("ProcessorExecutorPort", ModeCanaryExecutor(executor, context, clock))
+    publisher = DatasetPublisher(
+        store=core.object_store, control_plane=plane, publication_policy=publication,
+    )
     coordinator = PipelineCoordinator(
-        CoordinatorDependencies(core.control_plane, executor, publisher, clock),
+        CoordinatorDependencies(plane, executor, publisher, clock),
         ExecutionPolicyConfig(
             settings.processor_max_concurrency,
             settings.processor_lease_seconds,
             callbacks,
-            build_dispatch_admission(settings, clients, core.control_plane, provider),
+            build_dispatch_admission(settings, clients, core.control_plane, context),
         ),
-        policy.mode_canary,
+        binding,
     )
-    return _AwsAssembly(core.control_plane, core.object_store, coordinator)
+    return _AwsAssembly(plane, core.object_store, coordinator, context)
 
 
 def build_aws_unit_runtime(
@@ -154,7 +169,7 @@ def build_aws_unit_runtime(
     assembly = _build_assembly(settings, create_aws_clients(settings, session), clock, policy)
     processor = StageProcessor(
         assembly.control_plane,
-        assembly.object_store,
+        fault_object_store(assembly.mode_canary, assembly.object_store),
         build_source_registry(),
         clock,
     )
@@ -168,7 +183,7 @@ def build_aws_unit_runtime(
             )
         ),
     )
-    return AwsUnitRuntime(RunUnitCommandHandler(worker))
+    return AwsUnitRuntime(RunUnitCommandHandler(worker), assembly.mode_canary)
 
 
 def build_aws_recovery_runtime(
@@ -183,6 +198,7 @@ def build_aws_recovery_runtime(
     assembly = _build_assembly(settings, create_aws_clients(settings, session), clock, policy)
     return AwsRecoveryRuntime(
         ProcessorRecovery(assembly.control_plane, assembly.coordinator, clock),
+        assembly.mode_canary,
     )
 
 

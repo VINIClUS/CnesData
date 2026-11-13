@@ -85,6 +85,14 @@ class DispatchReader(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
+class RuntimeBounds:
+    """Teto absoluto e falha autenticados do contexto ativo."""
+
+    deadline: datetime
+    fault: str
+
+
+@dataclass(frozen=True, slots=True)
 class _Effect:
     kind: str
     request_sha256: str
@@ -231,6 +239,16 @@ class ModeCanaryContext:
         record = self._record()
         self._admit(record, _Effect(kind, request_sha256, target_sha256, 1, None), now)
         return _effect_id(self._binding.record_sha256, kind, request_sha256)
+
+    def runtime_bounds(self) -> RuntimeBounds:
+        """Returns: Menor prazo entre record e control e o fault do record.
+
+        Raises: SyntheticContextRequired: Record ou control ausente, divergente ou selado.
+        """
+        record = self._record()
+        _, control = self._control(record)
+        deadline = min(record.expires_at, record.canary_deadline, control.deadline)
+        return RuntimeBounds(deadline, record.fault)
 
     def require_live(self, effect_id: str, now: datetime) -> None:
         """Raises: SyntheticContextRequired: Control selado/vencido ou ticket não pendente."""
@@ -436,6 +454,7 @@ __all__ = [
     "GENESIS_LEDGER_SHA256",
     "DispatchReader",
     "ModeCanaryContext",
+    "RuntimeBounds",
     "canonical_text",
     "initialize_control",
     "start_effect_id",

@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
+from cnes_domain.orchestration.mode_canary import AuditObserveLocator, ModeCanaryBinding
 from cnes_domain.ports.processing import RunUnitMessage
 from data_processor.aws_composition import AwsAuditRuntime, AwsRecoveryRuntime, AwsUnitRuntime
 
@@ -29,6 +30,9 @@ _HEX_ID = re.compile(r"[0-9a-f]{16}")
 _EXECUTION_OWNER_PREFIX = "arn:aws:states:"
 _MIN_LEASE_SECONDS = 30
 _MAX_LEASE_SECONDS = 3600
+_BINDING_KEY = "PROD_CANARY_BINDING"
+_OBSERVE_KEY = "PROD_CANARY_AUDIT_OBSERVE"
+_RECOVERY_PHASES = frozenset({"recovery", "readiness"})
 _RECOVER_ONCE = ("recover-once",)
 _DISPATCH_OUTBOX_ONCE = ("dispatch-outbox-once",)
 
@@ -115,18 +119,49 @@ class AwsMode(StrEnum):
 class AwsInvocation:
     mode: AwsMode
     envelope: EcsUnitEnvelope | None
+    mode_canary: ModeCanaryBinding | None = None
+    audit_observe: AuditObserveLocator | None = None
+
+
+def _canary_locator(values: Mapping[str, str]) -> ModeCanaryBinding:
+    try:
+        binding = ModeCanaryBinding.from_locator(values[_BINDING_KEY])
+    except ValueError as error:
+        raise EntrypointConfigurationError(f"invalid={_BINDING_KEY}") from error
+    if binding.phase not in _RECOVERY_PHASES:
+        raise EntrypointConfigurationError(f"invalid={_BINDING_KEY}")
+    return binding
+
+
+def _audit_observe(values: Mapping[str, str]) -> AuditObserveLocator | None:
+    if _OBSERVE_KEY not in values:
+        return None
+    try:
+        return AuditObserveLocator.from_json(values[_OBSERVE_KEY])
+    except ValueError as error:
+        raise EntrypointConfigurationError(f"invalid={_OBSERVE_KEY}") from error
+
+
+def _dispatch_invocation(values: Mapping[str, str]) -> AwsInvocation:
+    if any(name in values for name in _ENVELOPE_NAMES):
+        raise EntrypointConfigurationError("unit_envelope=forbidden")
+    if _BINDING_KEY in values:
+        raise EntrypointConfigurationError("mode_canary=forbidden")
+    return AwsInvocation(AwsMode.DISPATCH_OUTBOX_ONCE, None, None, _audit_observe(values))
 
 
 def select_aws_invocation(values: Mapping[str, str], argv: Sequence[str]) -> AwsInvocation:
     """Args: values: ambiente; argv: argumentos do comando.
-    Returns: Invocação validada sem executar I/O.
-    Raises: EntrypointConfigurationError: envelope ou argumentos inválidos.
+    Returns: Invocação validada sem executar I/O; overrides canary só no modo próprio.
+    Raises: EntrypointConfigurationError: envelope, override ou argumentos inválidos.
     """
     if tuple(argv) == _DISPATCH_OUTBOX_ONCE:
-        if any(name in values for name in _ENVELOPE_NAMES):
-            raise EntrypointConfigurationError("unit_envelope=forbidden")
-        return AwsInvocation(AwsMode.DISPATCH_OUTBOX_ONCE, None)
+        return _dispatch_invocation(values)
+    if _OBSERVE_KEY in values:
+        raise EntrypointConfigurationError("audit_observe=forbidden")
     if "UNIT_ID" in values:
+        if _BINDING_KEY in values:
+            raise EntrypointConfigurationError("mode_canary=forbidden")
         if argv:
             raise EntrypointConfigurationError("unit_mode=argv_forbidden")
         return AwsInvocation(AwsMode.RUN_UNIT, EcsUnitEnvelope.from_mapping(values))
@@ -134,7 +169,8 @@ def select_aws_invocation(values: Mapping[str, str], argv: Sequence[str]) -> Aws
         raise EntrypointConfigurationError("unit_envelope=partial")
     if tuple(argv) != _RECOVER_ONCE:
         raise EntrypointConfigurationError("command=recover_once_required")
-    return AwsInvocation(AwsMode.RECOVER_ONCE, None)
+    binding = _canary_locator(values) if _BINDING_KEY in values else None
+    return AwsInvocation(AwsMode.RECOVER_ONCE, None, binding)
 
 
 def run_aws_entrypoint(invocation: AwsInvocation, runtime: AwsModeRuntime) -> int:

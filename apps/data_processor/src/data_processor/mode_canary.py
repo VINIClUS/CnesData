@@ -2,21 +2,44 @@
 
 from __future__ import annotations
 
+import json
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Final, cast
 
 from cnes_domain.orchestration.mode_canary import (
+    ModeCanaryBinding,
     SyntheticContextRequired,
     is_mode_canary_namespace,
 )
-from cnes_infra.aws.mode_canary import start_effect_id
+from cnes_infra.aws.mode_canary import canonical_text, start_effect_id
+from cnes_infra.control_plane.dynamodb_keys import run_partition
+from data_processor.deadline import shorten_active_deadline
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from datetime import datetime
 
-    from cnes_domain.orchestration.mode_canary import ModeCanaryBinding
+    from cnes_domain.control_plane.environment_gate import PermitHolder
+    from cnes_domain.ports.object_store import ObjectStorePort
     from cnes_domain.ports.processing import StartRunExecution
     from cnes_infra.aws.mode_canary import ModeCanaryContext
+
+_BINDING_FIELDS: Final = frozenset({
+    "schema", "tenant_id", "run_id", "dispatch_id", "owner_sha256", "record_sha256", "phase",
+    "context_kind",
+})
+_RAW_PREFIX: Final = "raw/"
+_RECOVER_ONCE: Final = "recover-once"
+
+
+class ModeCanaryFault(StrEnum):
+    NONE = "none"
+    SYNTHETIC_READ_FAILURE = "synthetic_read_failure"
+    HANG_NO_DISPATCH = "hang_no_dispatch"
+
+
+class SyntheticFixtureReadFailure(RuntimeError):
+    """Falha controlada da leitura da fixture raw sintética, só sob record autenticado."""
 
 
 def _refuse(reason: str) -> SyntheticContextRequired:
@@ -123,4 +146,87 @@ class ModeCanaryExecutor:
         self._inner.cancel(request)
 
 
-__all__ = ["CanaryControlPlane", "ModeCanaryExecutor"]
+def _binding_mapping(text: str) -> dict[str, Any]:
+    try:
+        mapping = json.loads(text)
+    except json.JSONDecodeError as error:
+        raise _refuse("binding_invalid") from error
+    if type(mapping) is not dict or canonical_text(cast("dict[str, Any]", mapping)) != text:
+        raise _refuse("binding_invalid")
+    return cast("dict[str, Any]", mapping)
+
+
+def load_unit_binding(client: Any, table_name: str, holder: PermitHolder) -> ModeCanaryBinding:
+    """Returns: Binding do contexto a partir do item insert-only do dispatch da unit.
+
+    Raises: SyntheticContextRequired: Item ausente, não canônico ou de outro dispatch.
+    """
+    key = {"pk": {"S": run_partition(holder.tenant_id, holder.run_id)},
+           "sk": {"S": f"PROD_CANARY#{holder.dispatch_id}"}}
+    item = client.get_item(TableName=table_name, Key=key, ConsistentRead=True).get("Item")
+    if item is None:
+        raise _refuse("binding_missing")
+    fields = _binding_mapping(cast("str", item["payload"]["S"]))
+    expected = {"schema": "cnesdata.mode-canary-binding/v1", "tenant_id": holder.tenant_id,
+                "run_id": holder.run_id, "dispatch_id": holder.dispatch_id}
+    if frozenset(fields) != _BINDING_FIELDS or any(fields[k] != v for k, v in expected.items()):
+        raise _refuse("binding_invalid")
+    try:
+        return ModeCanaryBinding(
+            holder.tenant_id, (holder.run_id,), fields["owner_sha256"], fields["record_sha256"],
+            fields["phase"], fields["context_kind"],
+        )
+    except (TypeError, ValueError) as error:
+        raise _refuse("binding_invalid") from error
+
+
+def enforce_mode_canary(
+    context: ModeCanaryContext | None, mode: str, clock: Callable[[], datetime],
+    wait: Callable[[], object],
+) -> None:
+    """Encurta o watchdog ao teto do contexto e aplica hang_no_dispatch antes do trabalho.
+
+    Raises: SyntheticContextRequired: Contexto selado, divergente ou vencido.
+    """
+    if context is None:
+        return
+    bounds = context.runtime_bounds()
+    remaining = (bounds.deadline - clock()).total_seconds()
+    if remaining <= 0:
+        raise _refuse("context_expired")
+    shorten_active_deadline(remaining)
+    if mode == _RECOVER_ONCE and bounds.fault == ModeCanaryFault.HANG_NO_DISPATCH:
+        wait()
+
+
+class _FailingRawStore:
+    def __init__(self, inner: ObjectStorePort) -> None:
+        self._inner = inner
+
+    def put(self, key: str, body: Any, expected_sha256: str) -> Any:
+        return self._inner.put(key, body, expected_sha256)
+
+    def open(self, key: str) -> Any:
+        if key.startswith(_RAW_PREFIX):
+            raise SyntheticFixtureReadFailure("reason=synthetic_read_failure")
+        return self._inner.open(key)
+
+
+def fault_object_store(context: ModeCanaryContext | None, store: ObjectStorePort) -> Any:
+    """Returns: Store que falha só na leitura raw quando o record pede synthetic_read_failure."""
+    if context is None:
+        return store
+    if context.runtime_bounds().fault != ModeCanaryFault.SYNTHETIC_READ_FAILURE:
+        return store
+    return _FailingRawStore(store)
+
+
+__all__ = [
+    "CanaryControlPlane",
+    "ModeCanaryExecutor",
+    "ModeCanaryFault",
+    "SyntheticFixtureReadFailure",
+    "enforce_mode_canary",
+    "fault_object_store",
+    "load_unit_binding",
+]
