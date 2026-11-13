@@ -140,6 +140,7 @@ def test_manifest_do_produto_ate_8_e_agregado_ate_15() -> None:
 
 
 def test_freeze_preserva_audit_e_backup(bootstrap_plan: Node, canary_plan: Node) -> None:
+    assert output_value(bootstrap_plan, "static_promotion_iam_contract") is None
     target = set(output_value(bootstrap_plan, "freeze_target_role_arns"))
     excluded = set(output_value(bootstrap_plan, "freeze_excluded_role_arns"))
     roles = {

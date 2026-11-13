@@ -65,6 +65,10 @@ def _assert_seed_scope(configuration: Node, fixture_contract: Node) -> None:
 
 
 def _seed_values(kind: str, name: str, contract: Node) -> dict[str, str]:
+    if kind == "aws_cloudfront_distribution":
+        identidade = contract["distribution_id"]
+        return {"arn": f"arn:aws:cloudfront::{contract['account_id']}:distribution/{identidade}",
+                "id": identidade}
     if kind == "aws_dynamodb_table":
         return {
             "arn": f"arn:aws:dynamodb:{contract['region']}:{contract['account_id']}:table/{name}"
@@ -117,6 +121,27 @@ def root_identity_seeds(configuration: Node, schema: Node, fixture_contract: Nod
         return [_seed_record(target, configuration, schema, fixture_contract) for target in TARGETS]
     except (KeyError, TypeError, AttributeError) as error:
         pytest.fail(f"setup_error root_seed_structure={error}")
+
+
+def identidades_estaticas(configuration: Node, schema: Node, contrato: Node) -> list[Node]:
+    """Args: Configuração/schema nativos e referências sintéticas explícitas.
+    Returns: Seeds limitados aos produtores estáticos declarados, com proveniência.
+    Raises: pytest.fail.Exception em produtor ou atributo incompatível.
+    """
+    _assert_seed_scope(configuration, contrato)
+    chamada = configuration["root_module"]["module_calls"]["static_web"]
+    assert chamada["source"] == "../../modules/static-web"
+    fontes = [PROD_SOURCE, "infra/opentofu/modules/runtime-iam/static-promotion.tf"]
+    alvos = [(f"module.runtime_iam.aws_iam_role.static_{alias}[0]", f"static-{alias}", fontes)
+             for alias in ("observer", "normal", "recovery")]
+    fontes_web = [PROD_SOURCE, "infra/opentofu/modules/static-web/main.tf"]
+    alvos += [(f"module.static_web.{tipo}.this", "static-web", fontes_web)
+              for tipo in ("aws_s3_bucket", "aws_cloudfront_distribution")]
+    registros = [_seed_record(alvo, configuration, schema, contrato) for alvo in alvos]
+    for registro in registros:
+        for campo in registro["fields"].values():
+            campo["source"]["fixture_source"] = "tests/fixtures/static-promotion-iam/requests.json"
+    return registros
 
 
 def _merge_field(current: Node, incoming: Node, address: str, name: str) -> None:

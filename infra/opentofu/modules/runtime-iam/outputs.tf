@@ -1,4 +1,47 @@
 locals {
+  static_roles = {
+    observer = one(aws_iam_role.static_observer[*])
+    normal   = one(aws_iam_role.static_normal[*])
+    recovery = one(aws_iam_role.static_recovery[*])
+  }
+  static_inline_policies = {
+    observer = one(aws_iam_role_policy.static_observer[*])
+    normal   = one(aws_iam_role_policy.static_normal[*])
+    recovery = one(aws_iam_role_policy.static_recovery[*])
+  }
+  static_aliases = local.static_enabled ? (
+    local.static_operational ? ["observer", "normal", "recovery"] : ["observer"]
+  ) : []
+}
+
+output "static_promotion_iam_contract" {
+  description = "Private static references and exact policy/trust commitments, without credentials."
+  sensitive   = true
+  value = !local.static_enabled ? null : {
+    mode                    = var.static_promotion.mode
+    binding_sha256          = sha256("${jsonencode(local.static_binding)}\n")
+    static_plan_sha256      = local.static_binding.static_plan_sha256
+    inventory_sha256        = var.static_promotion.inventory_sha256
+    bucket_arn              = local.static_bucket
+    distribution_arn        = local.static_distribution
+    freeze_target_role_arns = local.static_operational ? [local.static_roles.normal.arn] : []
+    freeze_excluded_role_arns = sort([
+      for alias in local.static_aliases : local.static_roles[alias].arn if alias != "normal"
+    ])
+    delegations = { for alias in local.static_aliases : alias => {
+      role_arn       = local.static_roles[alias].arn
+      role_name      = local.static_roles[alias].name
+      role_address   = "module.runtime_iam.aws_iam_role.static_${alias}[0]"
+      policy_address = "module.runtime_iam.aws_iam_role_policy.static_${alias}[0]"
+      policy_name    = local.static_inline_policies[alias].name
+      session_names  = local.static_sessions[alias]
+      trust_sha256   = sha256(local.static_roles[alias].assume_role_policy)
+      policy_sha256  = sha256(local.static_inline_policies[alias].policy)
+    } }
+  }
+}
+
+locals {
   mode_roles = {
     mode_seed = one([for role in aws_iam_role.mode_seed : {
       arn = role.arn, name = role.name, assume_role_policy = role.assume_role_policy

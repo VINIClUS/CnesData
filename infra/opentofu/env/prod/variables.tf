@@ -1,3 +1,10 @@
+variable "static_promotion" {
+  description = "Closed static preparation input, disabled by default."
+  type        = any
+  default     = null
+  nullable    = true
+}
+
 variable "mode_canary" {
   description = "Closed source-bound mode capability input, or null to disable it."
   type        = any

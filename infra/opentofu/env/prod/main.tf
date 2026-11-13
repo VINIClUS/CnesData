@@ -80,8 +80,14 @@ resource "aws_cloudwatch_log_group" "processor" {
 module "runtime_iam" {
   source = "../../modules/runtime-iam"
 
-  demo_seed      = var.demo_seed
-  mode_canary    = var.mode_canary
+  demo_seed        = var.demo_seed
+  mode_canary      = var.mode_canary
+  static_promotion = var.static_promotion
+  static_web = {
+    bucket_arn       = module.static_web.bucket_arn
+    distribution_arn = module.static_web.distribution_arn
+  }
+  tags           = local.common_tags
   name_prefix    = local.name_prefix
   account_id     = var.shared_outputs.account_id
   repository_arn = module.processor_registry.repository_arn
@@ -194,6 +200,8 @@ locals {
     [for name in concat(
       [module.runtime_iam.task_role_names["recovery"], module.runtime_iam.step_functions_role_id],
       module.schedulers.freeze_target_role_names,
+      try(var.static_promotion.mode == "operational", false) ?
+      ["${local.name_prefix}-static-normal"] : [],
       var.mode_canary == null ? [] : [
         "${local.name_prefix}-mode-seed", "${local.name_prefix}-mode-dispatch",
       ],
@@ -208,6 +216,11 @@ locals {
       module.athena.cutoff_role_name,
     ],
     module.schedulers.freeze_excluded_role_names,
+    var.static_promotion == null ? [] : concat(
+      ["${local.name_prefix}-static-observer"],
+      try(var.static_promotion.mode == "operational", false) ?
+      ["${local.name_prefix}-static-recovery"] : [],
+    ),
     var.mode_canary == null ? [] : [
       "${local.name_prefix}-mode-audit-launch", "${local.name_prefix}-mode-observe",
     ],
