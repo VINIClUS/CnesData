@@ -59,7 +59,7 @@ STATE_CONTENT = re.compile(r'"lineage"\s*:')
 PRIVATE_KEY = re.compile("-----BEGIN " + "[A-Z ]*PRIVATE KEY-----")
 ACCESS_KEY = re.compile(r"\b(?:AK" + "IA|AS" + r"IA)[0-9A-Z]{16}\b")
 ACCOUNT_ID = re.compile(r"arn:aws[a-z-]*:[a-z0-9-]+:[a-z0-9-]*:(\d{12}):|(\d{12})\.dkr\.ecr")
-EXAMPLE_ACCOUNTS = frozenset({"123456789012", "000000000000", "999999999999"})
+EXAMPLE_ACCOUNTS = frozenset({"123456789012", "111122223333", "000000000000", "999999999999"})
 SURFACE = ("infra", "policies", "schemas", "tests/fixtures/plans", "tests/production",
            "docs/runbooks", ".github/workflows")
 REQUIRED_RUNS = frozenset({
