@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import boto3
 import pytest
+from botocore.exceptions import ClientError
 from moto import mock_aws
 
 from cnes_domain.control_plane.environment_gate import PermitHolder
@@ -18,11 +19,16 @@ from cnes_domain.orchestration.mode_canary import (
     ModeCanaryGrant,
     SyntheticContextRequired,
 )
+from cnes_domain.ports.processing import StartRunExecution
 from cnes_infra.aws.mode_canary import ModeCanaryContext, canonical_text
 from cnes_infra.aws.runtime import build_dispatch_admission
 from cnes_infra.aws.settings import AwsRuntimeConfigurationError, AwsRuntimeSettings
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
 from cnes_infra.control_plane.dynamodb_keys import tenant_partition
+from cnes_infra.executor.step_functions import (
+    ProcessorExecutionUnavailable,
+    StepFunctionsExecutor,
+)
 from packages.cnes_domain.tests.orchestration.test_mode_canary_records import (
     CANARY_ID,
     _control,
@@ -282,3 +288,58 @@ def test_item_do_vetor_compartilhado_admite_com_control_correspondente(env: _Env
     assert context.binding_for(PermitHolder(_TENANT, "r1", "0123456789abcdef"), now) == (
         ModeCanaryGrant("promoção-1")
     )
+
+
+_MACHINE = "arn:aws:states:us-east-2:123456789012:stateMachine:cnesdata-prod"
+_START = StartRunExecution(
+    tenant_id=_TENANT, run_id=_RUN, wave_id="a" * 16, dispatch_id="0123456789abcdef",
+    unit_ids=("unit-1",), max_concurrency=1,
+)
+_ORIGINAL = json.dumps(
+    {"dispatch_id": "0123456789abcdef", "max_concurrency": 1, "run_id": _RUN,
+     "tenant_id": _TENANT, "unit_ids": ["unit-1"], "wave_id": "a" * 16},
+    separators=(",", ":"), sort_keys=True,
+)
+
+
+class _ExistingExecution:
+    def __init__(self, described: dict[str, Any]) -> None:
+        self.described = described
+        self.describes: list[dict[str, Any]] = []
+
+    def start_execution(self, **request: Any) -> dict[str, Any]:
+        raise ClientError({"Error": {"Code": "ExecutionAlreadyExists"}}, "StartExecution")
+
+    def describe_execution(self, **request: Any) -> dict[str, Any]:
+        self.describes.append(request)
+        return deepcopy(self.described)
+
+
+def test_execution_already_exists_exige_input_original_privado() -> None:
+    client = _ExistingExecution({"status": "RUNNING", "input": _ORIGINAL})
+
+    ref = StepFunctionsExecutor(cast("Any", client), _MACHINE).start(_START)
+
+    assert ref == _MACHINE.replace(":stateMachine:", ":execution:") + ":0123456789abcdef"
+    assert client.describes == [{"executionArn": ref}]
+
+
+@pytest.mark.parametrize("described", [
+    {"status": "RUNNING"},
+    {"status": "RUNNING", "input": None},
+    {"status": "RUNNING", "input": json.dumps(json.loads(_ORIGINAL))},
+    {"status": "RUNNING", "input": _ORIGINAL.replace('"unit-1"', '"unit-2"')},
+])
+def test_execution_already_exists_input_ausente_ou_alterado_rejeita(
+    described: dict[str, Any],
+) -> None:
+    with pytest.raises(ProcessorExecutionUnavailable, match="execution_name_conflict"):
+        StepFunctionsExecutor(cast("Any", _ExistingExecution(described)), _MACHINE).start(_START)
+
+
+def test_observer_meta_only_nao_e_reutilizado_no_replay() -> None:
+    client = _ExistingExecution({"status": "RUNNING", "input": _ORIGINAL})
+
+    StepFunctionsExecutor(cast("Any", client), _MACHINE).start(_START)
+
+    assert all("includedData" not in request for request in client.describes)
