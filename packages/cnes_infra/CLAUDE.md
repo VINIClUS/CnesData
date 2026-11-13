@@ -39,6 +39,7 @@ importam classes concretas diretamente (exceto factories no bootstrap).
 
 | Path | Responsabilidade |
 |---|---|
+| `aws/mode_canary.py` | `ModeCanaryContext`: provider de admissão sintética (record+control fortes, #499) |
 | `storage/schema_v2.py` | Tabelas Gold v2 (`dim_*`, `fato_*`, `extractions_table`) SQLAlchemy Core |
 | `storage/extractions_repo.py` | Claim/lease N-file manifest em `landing.extractions` |
 | `storage/dim_lookup.py` | `PostgresDimLookup` (surrogate key cache) + `upsert_dim_*` (merge `fontes`) |

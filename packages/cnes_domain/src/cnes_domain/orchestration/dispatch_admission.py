@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import replace
 from datetime import timedelta
 from typing import TYPE_CHECKING, Final, cast
 
@@ -144,9 +145,8 @@ class EnvironmentAdmission:
             mensal esgotada, que libera o permit adquirido nesta chamada.
         Raises: Erro do gate ou do probe, sem liberar nada.
         """
-        command = AcquireUnitPermit(
-            self._environment, holder, now, self._lease_seconds, self._promotion_id(holder, now),
-        )
+        command = AcquireUnitPermit(self._environment, holder, now, self._lease_seconds)
+        command = replace(command, canary_promotion_id=self._promotion_id(holder, now))
         acquisition = self._gate.acquire_unit_permit(command)
         held = acquisition.status is AcquisitionStatus.HELD
         if held and self._reconcile(cast("UnitPermit", acquisition.permit), now):
