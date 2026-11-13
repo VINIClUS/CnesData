@@ -27,6 +27,12 @@ def is_canonical_mode_canary_tenant(tenant_id: str) -> bool:
     return _CANONICAL_TENANT.fullmatch(tenant_id) is not None
 
 
+def require_normal_tenant(tenant_id: str) -> None:
+    """Raises: SyntheticContextRequired: Tenant do namespace reservado, `field=tenant_id`."""
+    if is_mode_canary_namespace(tenant_id):
+        raise SyntheticContextRequired("reason=synthetic_context_required field=tenant_id")
+
+
 def _reject(field: str) -> ValueError:
     return ValueError(f"reason=invalid field={field}")
 
@@ -79,4 +85,5 @@ __all__ = [
     "SyntheticContextRequired",
     "is_canonical_mode_canary_tenant",
     "is_mode_canary_namespace",
+    "require_normal_tenant",
 ]

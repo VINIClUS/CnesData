@@ -26,6 +26,7 @@ from cnes_domain.control_plane.queries import (
     WaitingRunsForDependencyQuery,
 )
 from cnes_domain.orchestration.dispatch_admission import dispatch_holder, settle_run_dispatches
+from cnes_domain.orchestration.mode_canary import require_normal_tenant
 from cnes_domain.orchestration.planner import (
     PlanRequest,
     RawManifestRef,
@@ -269,6 +270,7 @@ class RunPlanningService:
         self._dispatch_enabled = dispatch_enabled
 
     def launch(self, tenant_id: str, run_id: str) -> RunLaunchResult:
+        require_normal_tenant(tenant_id)
         control_plane = self._dependencies.control_plane
         run = control_plane.get_run(tenant_id, run_id)
         if run is None:

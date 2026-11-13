@@ -8,6 +8,7 @@ from cnes_domain.orchestration.mode_canary import (
     SyntheticContextRequired,
     is_canonical_mode_canary_tenant,
     is_mode_canary_namespace,
+    require_normal_tenant,
 )
 
 CANARY_ID = "0123456789abcdef0123456789abcdef"
@@ -88,3 +89,9 @@ def test_binding_aceita_fases_fechadas(phase: str) -> None:
 
 def test_binding_aceita_contexto_readiness() -> None:
     assert _binding(phase="readiness", context_kind="readiness").context_kind == "readiness"
+
+
+def test_require_normal_tenant_recusa_somente_o_namespace_reservado() -> None:
+    require_normal_tenant("354130")
+    with pytest.raises(SyntheticContextRequired, match="field=tenant_id"):
+        require_normal_tenant(TENANT.upper())
