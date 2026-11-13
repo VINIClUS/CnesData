@@ -131,8 +131,7 @@ class ModeCanaryExecutor:
         """Raises: SyntheticContextRequired: Ticket do dispatch ausente, não pendente ou selado."""
         if is_mode_canary_namespace(request.tenant_id):
             effect_id = start_effect_id(
-                self._context.binding.record_sha256, request.tenant_id, request.run_id,
-                request.dispatch_id, request.unit_ids,
+                self._context.binding.record_sha256, request, request.unit_ids,
             )
             self._context.require_live(effect_id, self._clock())
         return cast("str", self._inner.start_with_claim(request, claim))

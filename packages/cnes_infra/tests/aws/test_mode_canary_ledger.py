@@ -101,7 +101,7 @@ def ledger() -> Iterator[_Ledger]:
 
 
 def _effect(ledger: _Ledger) -> str:
-    return start_effect_id(ledger.record_sha, _TENANT, _RUN, _DISPATCH, _UNITS)
+    return start_effect_id(ledger.record_sha, _HOLDER, _UNITS)
 
 
 def test_admissao_grava_ticket_binding_e_contador_na_mesma_transacao(ledger: _Ledger) -> None:

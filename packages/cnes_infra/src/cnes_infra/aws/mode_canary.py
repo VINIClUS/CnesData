@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from cnes_domain.control_plane.environment_gate import PermitHolder
+    from cnes_domain.ports.processing import StartRunExecution
 
 _TENANT_PREFIX: Final = "prod-canary-"
 GENESIS_LEDGER_SHA256: Final = sha256(b"[]\n").hexdigest()
@@ -59,16 +60,17 @@ def _refuse(reason: str) -> SyntheticContextRequired:
 
 
 def start_effect_id(
-    record_sha256: str, tenant_id: str, run_id: str, dispatch_id: str, unit_ids: Sequence[str],
+    record_sha256: str, holder: PermitHolder | StartRunExecution, unit_ids: Sequence[str],
 ) -> str:
     """Returns: effect_id do start nativo ligado ao record e ao request do dispatch."""
-    request = _start_request(tenant_id, run_id, dispatch_id, unit_ids)
-    return _effect_id(record_sha256, "start-execution", request)
+    return _effect_id(record_sha256, "start-execution", _start_request(holder, unit_ids))
 
 
-def _start_request(tenant_id: str, run_id: str, dispatch_id: str, unit_ids: Sequence[str]) -> str:
-    return _digest(canonical_text({"dispatch_id": dispatch_id, "run_id": run_id,
-                                   "tenant_id": tenant_id, "unit_ids": list(unit_ids)}))
+def _start_request(holder: PermitHolder | StartRunExecution, unit_ids: Sequence[str]) -> str:
+    return _digest(canonical_text({
+        "dispatch_id": holder.dispatch_id, "run_id": holder.run_id,
+        "tenant_id": holder.tenant_id, "unit_ids": list(unit_ids),
+    }))
 
 
 def _effect_id(record_sha256: str, kind: str, request_sha256: str) -> str:
@@ -221,7 +223,7 @@ class ModeCanaryContext:
         units = tuple(cast("Sequence[str]", dispatch.unit_ids))
         effect = _Effect(
             "start-execution",
-            _start_request(holder.tenant_id, holder.run_id, holder.dispatch_id, units),
+            _start_request(holder, units),
             _digest(record.machine_arn), len(units), self._binding_item(holder),
         )
         self._admit(record, effect, now)
