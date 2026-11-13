@@ -11,6 +11,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 from cnes_domain.billing import BillingConcurrencyPolicy
+from cnes_domain.control_plane.environment_gate import PermitHolder
 from cnes_domain.orchestration.dispatch_admission import EnvironmentAdmission
 from cnes_domain.orchestration.mode_canary import ModeCanaryBinding
 from cnes_domain.ports.environment_gate import UNGATED_ADMISSION
@@ -33,6 +34,7 @@ from data_processor.aws_composition import (
     build_aws_unit_runtime,
 )
 from data_processor.composition import build_local_processor_runtime
+from data_processor.mode_canary import CanaryControlPlane, ModeCanaryExecutor
 from data_processor.orchestration.coordinator import (
     PipelineCoordinator,
     noop_execution_started,
@@ -440,3 +442,55 @@ def test_processor_aws_sem_binding_nao_instala_contexto_sintetico() -> None:
     coordinator = runtime.recovery._coordinator
     assert coordinator._mode_canary is None
     assert cast("EnvironmentAdmission", coordinator._execution.admission)._mode_canary is None
+
+
+def test_recovery_canary_compoe_facade_executor_e_contexto_no_mesmo_assembly() -> None:
+    binding = _canary_binding()
+
+    runtime = build_aws_recovery_runtime(
+        AwsRecoverySettings.from_mapping(PRODUCTION_VALUES),
+        _session(PRODUCTION_FIXTURE),
+        lambda: datetime(2026, 10, 12, tzinfo=UTC),
+        AwsExecutionPolicy(
+            BillingSettings.from_mapping(PRODUCTION_VALUES), noop_execution_started, binding,
+        ),
+    )
+
+    dependencies = runtime.recovery._coordinator._dependencies
+    assert isinstance(dependencies.control_plane, CanaryControlPlane)
+    assert isinstance(dependencies.executor, ModeCanaryExecutor)
+    assert runtime.recovery._control_plane is dependencies.control_plane
+    assert isinstance(runtime.mode_canary, ModeCanaryContext)
+    admission = cast("EnvironmentAdmission", runtime.recovery._coordinator._execution.admission)
+    assert isinstance(admission._gate, DynamoDBControlPlane)
+
+
+def test_unit_sintetica_carrega_binding_do_dispatch_e_aplica_falha_de_leitura(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    binding = _canary_binding()
+    loaded: list[Any] = []
+    monkeypatch.setattr(
+        "data_processor.aws_composition.load_unit_binding",
+        lambda client, table, holder: loaded.append((table, holder)) or binding,
+    )
+    monkeypatch.setattr(
+        "data_processor.aws_composition.fault_object_store", lambda context, store: "faulty",
+    )
+    holder = PermitHolder(binding.tenant_id, binding.run_ids[0], "0123456789abcdef")
+
+    runtime = build_aws_unit_runtime(
+        AwsUnitSettings.from_mapping(PRODUCTION_VALUES),
+        _session(PRODUCTION_FIXTURE),
+        lambda: datetime(2026, 10, 12, tzinfo=UTC),
+        AwsExecutionPolicy(
+            BillingSettings.from_mapping(PRODUCTION_VALUES), noop_execution_started,
+            unit_dispatch=holder,
+        ),
+    )
+
+    assert loaded == [(PRODUCTION_VALUES["AWS_CONTROL_PLANE_TABLE"], holder)]
+    assert isinstance(runtime.mode_canary, ModeCanaryContext)
+    worker = runtime.unit_handler._worker
+    assert isinstance(worker._dependencies.control_plane, CanaryControlPlane)
+    assert worker._dependencies.processor._source_store == "faulty"

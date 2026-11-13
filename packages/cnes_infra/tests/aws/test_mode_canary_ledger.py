@@ -346,3 +346,17 @@ def test_cas_perdido_desiste_e_erro_de_servico_propaga(ledger: _Ledger) -> None:
         ledger.context().seal(_NOW)
     with pytest.raises(ClientError):
         ledger.context().admit_effect("native-mutation", "e" * 64, "d" * 64, _NOW)
+
+
+def test_runtime_bounds_devolve_menor_prazo_e_fault_do_record_ativo(ledger: _Ledger) -> None:
+    ledger.record = ledger.record | {"fault": "hang_no_dispatch", "scenario": "recovery_deadline"}
+    ledger.seed()
+    context = ledger.context()
+
+    bounds = context.runtime_bounds()
+
+    assert bounds.deadline == datetime(2026, 11, 12, 12, 30, tzinfo=UTC)
+    assert bounds.fault == "hang_no_dispatch"
+    context.seal(_NOW)
+    with pytest.raises(SyntheticContextRequired, match="reason=control_sealed"):
+        context.runtime_bounds()

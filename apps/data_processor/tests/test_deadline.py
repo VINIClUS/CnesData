@@ -305,3 +305,71 @@ def test_entrypoint_desarma_deadline_apos_trabalho(
         ("disarm", DeadlinePolicy("run-unit", 300)),
     ]
     cast("Any", runtime.unit_handler).handle.assert_called_once_with(EXPECTED_MESSAGE)
+
+
+def _watchdog(seconds: float) -> tuple[Any, list[int]]:
+    from data_processor.deadline import DeadlineWatchdog
+
+    exits: list[int] = []
+    return DeadlineWatchdog(DeadlinePolicy("recover-once", seconds), exits.append), exits
+
+
+def test_hang_para_no_teto_absoluto_sem_redefinir_lease() -> None:
+    watchdog, exits = _watchdog(30)
+    watchdog.arm()
+
+    assert watchdog.shorten(0.3) is True
+    time.sleep(0.8)
+
+    assert exits[:1] == [3]
+    assert watchdog.policy == DeadlinePolicy("recover-once", 30)
+
+
+def test_teto_maior_que_o_lease_nao_estende_e_expirado_nao_revive() -> None:
+    watchdog, exits = _watchdog(0.5)
+    watchdog.arm()
+
+    assert watchdog.shorten(60) is False
+    time.sleep(0.8)
+    assert exits[:1] == [3]
+    count = len(exits)
+    assert watchdog.shorten(0.05) is False
+    time.sleep(0.3)
+    assert len(exits) == count
+    idle, _ = _watchdog(30)
+    assert idle.shorten(1) is False
+
+
+def test_shorten_ativo_so_vale_dentro_do_processor_deadline() -> None:
+    from data_processor.deadline import processor_deadline, shorten_active_deadline
+
+    assert shorten_active_deadline(1) is False
+    with processor_deadline(DeadlinePolicy("recover-once", 30)):
+        assert shorten_active_deadline(10) is True
+        assert shorten_active_deadline(20) is False
+    assert shorten_active_deadline(1) is False
+
+
+_SHORTEN_CHILD = textwrap.dedent(
+    """
+    import time
+    from data_processor.deadline import DeadlinePolicy, processor_deadline, shorten_active_deadline
+
+    with processor_deadline(DeadlinePolicy("recover-once", 30)):
+        shorten_active_deadline(0.5)
+        print("hang_started", flush=True)
+        time.sleep(30)
+    """
+)
+
+
+def test_teto_canary_encerra_o_pid_com_exit_3_antes_do_lease() -> None:
+    started = time.monotonic()
+    completed = subprocess.run(  # noqa: S603
+        [sys.executable, "-c", _SHORTEN_CHILD], env=_child_environment("shorten"),
+        capture_output=True, text=True, timeout=15, check=False,
+    )
+
+    assert completed.returncode == 3
+    assert "hang_started" in completed.stdout
+    assert time.monotonic() - started < 10
