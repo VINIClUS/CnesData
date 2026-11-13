@@ -88,6 +88,7 @@ class AwsAuditRuntime:
     control_plane: ControlPlanePort
     sink: AuditSinkPort
     clock: ClockPort
+    retention_days: int | None = None
 
 
 type AwsModeRuntime = AwsUnitRuntime | AwsRecoveryRuntime | AwsAuditRuntime
@@ -250,7 +251,7 @@ def build_aws_audit_runtime(
         if str(error) in {"bucket=invalid", "object_lock=disabled", "retention_days=invalid"}:
             raise AwsRuntimeConfigurationError(str(error)) from error
         raise
-    return AwsAuditRuntime(control_plane, sink, clock)
+    return AwsAuditRuntime(control_plane, sink, clock, settings.audit_retention_days)
 
 
 def _validate_runtime(settings: AwsUnitSettings, clients: AwsClients) -> None:

@@ -194,7 +194,7 @@ def run_aws_entrypoint(invocation: AwsInvocation, runtime: AwsModeRuntime) -> in
 
     if not isinstance(runtime, AwsAuditRuntime):
         raise EntrypointConfigurationError("audit_runtime=required")
-    return run_audit_dispatch_once(runtime)
+    return run_audit_dispatch_once(runtime, invocation.audit_observe)
 
 
 __all__ = [
