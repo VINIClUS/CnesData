@@ -5,25 +5,31 @@ import json
 from copy import deepcopy
 from datetime import UTC, datetime
 from hashlib import sha256
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import boto3
 import pytest
 from moto import mock_aws
 
 from cnes_domain.control_plane.environment_gate import PermitHolder
+from cnes_domain.orchestration.dispatch_admission import EnvironmentAdmission
 from cnes_domain.orchestration.mode_canary import (
     ModeCanaryBinding,
     ModeCanaryGrant,
     SyntheticContextRequired,
 )
 from cnes_infra.aws.mode_canary import ModeCanaryContext, canonical_text
+from cnes_infra.aws.runtime import build_dispatch_admission
+from cnes_infra.aws.settings import AwsRuntimeConfigurationError, AwsRuntimeSettings
+from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
 from cnes_infra.control_plane.dynamodb_keys import tenant_partition
 from packages.cnes_domain.tests.orchestration.test_mode_canary_records import (
     CANARY_ID,
     _control,
     _promotion,
 )
+from packages.cnes_infra.tests.aws.production_values import PRODUCTION_VALUES
+from packages.cnes_infra.tests.aws.test_runtime import _LOCKED, _clients, _mock, _settings
 from packages.cnes_infra.tests.control_plane.test_dynamodb_adapter import (
     _TABLE_NAME,
     _create_table,
@@ -195,3 +201,36 @@ def test_record_nao_canonico_ou_invalido_nao_admite(env: _Env) -> None:
     context = env.context(sha256(b"[]").hexdigest())
     with pytest.raises(SyntheticContextRequired, match="reason=record_invalid"):
         context.binding_for(_HOLDER, _NOW)
+
+
+class _Provider:
+    def binding_for(self, holder: object, now: datetime) -> object:
+        raise AssertionError((holder, now))
+
+
+def test_admissao_de_producao_repassa_o_provider_sintetico() -> None:
+    settings = AwsRuntimeSettings.from_mapping(PRODUCTION_VALUES)
+    clients = _clients(_LOCKED)
+    control_plane = DynamoDBControlPlane(
+        clients.dynamodb, settings.control_plane_table, lambda: _NOW,
+    )
+    provider = _Provider()
+
+    admission = build_dispatch_admission(settings, clients, control_plane, cast("Any", provider))
+
+    assert isinstance(admission, EnvironmentAdmission)
+    assert admission._mode_canary is provider
+    default = build_dispatch_admission(settings, clients, control_plane)
+    assert isinstance(default, EnvironmentAdmission)
+    assert default._mode_canary is None
+
+
+def test_admissao_sintetica_fora_da_politica_de_producao_falha_fechado() -> None:
+    clients = _clients(_LOCKED)
+
+    with pytest.raises(AwsRuntimeConfigurationError, match=r"^mode_canary_requires_production$"):
+        build_dispatch_admission(
+            _settings(), clients, cast("Any", object()), cast("Any", _Provider()),
+        )
+
+    assert _mock(clients.step_functions).mock_calls == []
