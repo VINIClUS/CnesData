@@ -38,6 +38,7 @@ _COUNTERS: Final = {
 }
 _KINDS: Final = frozenset({*_COUNTERS, "native-mutation", "settle-permit"})
 _ATTEMPTS: Final = 3
+_SEAL_ATTEMPTS: Final = 64
 
 
 def canonical_text(mapping: dict[str, Any]) -> str:
@@ -274,12 +275,12 @@ class ModeCanaryContext:
         self._transition(effect_id, "UNKNOWN", None)
 
     def seal(self, now: datetime) -> None:
-        """Sela a admissão ACTIVE→SEALED por CAS; replay de selado é no-op.
+        """Sela a admissão ACTIVE→SEALED por CAS, insistindo contra admissões concorrentes.
 
         Raises: SyntheticContextRequired: Control ausente, inválido ou de outro owner.
         """
         sort_key = f"PROD_CANARY_CONTROL#{self._binding.owner_sha256}"
-        for _ in range(_ATTEMPTS):
+        for _ in range(_SEAL_ATTEMPTS):
             text = self._store.payload(sort_key)
             if text is None:
                 raise _refuse("control_missing")
