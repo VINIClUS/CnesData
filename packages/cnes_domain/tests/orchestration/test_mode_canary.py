@@ -8,6 +8,7 @@ from cnes_domain.orchestration.mode_canary import (
     SyntheticContextRequired,
     is_canonical_mode_canary_tenant,
     is_mode_canary_namespace,
+    require_context,
     require_normal_tenant,
 )
 
@@ -95,3 +96,13 @@ def test_require_normal_tenant_recusa_somente_o_namespace_reservado() -> None:
     require_normal_tenant("354130")
     with pytest.raises(SyntheticContextRequired, match="field=tenant_id"):
         require_normal_tenant(TENANT.upper())
+
+
+def test_require_context_exige_binding_que_permita_o_run_sintetico() -> None:
+    binding = _binding()
+    require_context(None, "354130", "run-a")
+    require_context(binding, "354130", "run-a")
+    require_context(binding, TENANT, "unit-aaaaaaaaaaaaaaaa")
+    for installed, run_id in ((None, "unit-aaaaaaaaaaaaaaaa"), (binding, "unit-x")):
+        with pytest.raises(SyntheticContextRequired, match="field=tenant_id"):
+            require_context(installed, TENANT, run_id)

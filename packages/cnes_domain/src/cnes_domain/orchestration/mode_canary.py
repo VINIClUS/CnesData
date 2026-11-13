@@ -33,6 +33,14 @@ def require_normal_tenant(tenant_id: str) -> None:
         raise SyntheticContextRequired("reason=synthetic_context_required field=tenant_id")
 
 
+def require_context(binding: ModeCanaryBinding | None, tenant_id: str, run_id: str) -> None:
+    """Raises: SyntheticContextRequired: Namespace reservado fora do binding instalado."""
+    if not is_mode_canary_namespace(tenant_id):
+        return
+    if binding is None or not binding.permits(tenant_id, run_id):
+        raise SyntheticContextRequired("reason=synthetic_context_required field=tenant_id")
+
+
 def _reject(field: str) -> ValueError:
     return ValueError(f"reason=invalid field={field}")
 
@@ -85,5 +93,6 @@ __all__ = [
     "SyntheticContextRequired",
     "is_canonical_mode_canary_tenant",
     "is_mode_canary_namespace",
+    "require_context",
     "require_normal_tenant",
 ]

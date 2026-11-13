@@ -41,7 +41,11 @@ def test_coordinator_resume_direto_sem_contexto_nao_muta() -> None:
 
 @pytest.mark.parametrize(
     ("tenant", "run"),
-    [(_TENANT, "unit-cccccccccccccccc"), ("prod-canary-" + "f" * 32, _RUN), (_TENANT.upper(), _RUN)],
+    [
+        (_TENANT, "unit-cccccccccccccccc"),
+        ("prod-canary-" + "f" * 32, _RUN),
+        (_TENANT.upper(), _RUN),
+    ],
 )
 def test_resume_fora_do_binding_instalado_nao_muta(tenant: str, run: str) -> None:
     coordinator, control_plane, executor = _coordinator(_BINDING)
