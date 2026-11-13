@@ -385,3 +385,37 @@ def test_seal_insiste_enquanto_admissoes_concorrentes_mudam_o_control(ledger: _L
     ledger.context().seal(_NOW)
 
     assert ledger.control()["admission_state"] == "SEALED"
+
+
+class _ConcurrentWriter:
+    def __init__(self, ledger: _Ledger) -> None:
+        self._ledger = ledger
+        self._client = ledger.client
+        self.pending = True
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._client, name)
+
+    def transact_write_items(self, **kwargs: Any) -> Any:
+        if self.pending:
+            self.pending = False
+            control = self._ledger.control()
+            control["admitted_counts"]["recovery_resumes"] += 1
+            control["ledger_sha256"] = "c" * 64
+            self._ledger._put(f"PROD_CANARY_CONTROL#{_OWNER}", canonical_text(control))
+        return self._client.transact_write_items(**kwargs)
+
+
+def test_admissao_nao_sobrescreve_control_alterado_por_outra_task(ledger: _Ledger) -> None:
+    ledger.seed()
+    ledger.client = _ConcurrentWriter(ledger)
+
+    effect = ledger.context().admit_effect("run-recovery", "c" * 64, "d" * 64, _NOW)
+
+    control = ledger.control()
+    assert control["admitted_counts"]["recovery_resumes"] == 2
+    ticket = canonical_text(cast("dict[str, Any]", ledger.ticket(effect)))
+    assert control["ledger_sha256"] == sha256(canonical_text({
+        "previous_ledger_sha256": "c" * 64,
+        "ticket_sha256": sha256(ticket.encode()).hexdigest(),
+    }).encode()).hexdigest()
