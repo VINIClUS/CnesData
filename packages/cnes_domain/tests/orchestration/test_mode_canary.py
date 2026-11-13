@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import pytest
+
 from cnes_domain.orchestration.mode_canary import (
     ModeCanaryBinding,
     SyntheticContextRequired,
