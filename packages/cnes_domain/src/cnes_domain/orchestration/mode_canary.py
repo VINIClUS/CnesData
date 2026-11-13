@@ -3,7 +3,12 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Final
+from typing import TYPE_CHECKING, Final, Protocol
+
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from cnes_domain.control_plane.environment_gate import PermitHolder
 
 TENANT_PREFIX: Final = "prod-canary-"
 MAX_SELECTED_RUNS: Final = 2
@@ -15,6 +20,20 @@ _SHA256: Final = re.compile(r"[0-9a-f]{64}")
 
 class SyntheticContextRequired(ValueError):
     """Tenant do namespace sintético sem contexto autorizado instalado."""
+
+
+@dataclass(frozen=True, slots=True)
+class ModeCanaryGrant:
+    """Autorização de admissão de um holder sintético; promotion_id é None fora de promoção."""
+
+    promotion_id: str | None
+
+
+class ModeCanaryAdmissionProvider(Protocol):
+    """Provider fechado do contexto; recusa o holder fora dele com SyntheticContextRequired."""
+
+    def binding_for(self, holder: PermitHolder, now: datetime) -> ModeCanaryGrant:
+        raise NotImplementedError
 
 
 def is_mode_canary_namespace(tenant_id: str) -> bool:
@@ -89,7 +108,9 @@ __all__ = [
     "MAX_SELECTED_RUNS",
     "PHASES",
     "TENANT_PREFIX",
+    "ModeCanaryAdmissionProvider",
     "ModeCanaryBinding",
+    "ModeCanaryGrant",
     "SyntheticContextRequired",
     "is_canonical_mode_canary_tenant",
     "is_mode_canary_namespace",
