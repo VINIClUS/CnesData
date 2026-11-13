@@ -92,10 +92,13 @@ class _AwsAssembly:
 
 def _mode_canary_provider(
     settings: AwsUnitSettings, clients: AwsClients, policy: AwsExecutionPolicy,
+    dispatches: ControlPlanePort,
 ) -> ModeCanaryContext | None:
     if policy.mode_canary is None:
         return None
-    return ModeCanaryContext(clients.dynamodb, settings.control_plane_table, policy.mode_canary)
+    return ModeCanaryContext(
+        clients.dynamodb, settings.control_plane_table, policy.mode_canary, dispatches,
+    )
 
 
 def _build_assembly(
@@ -125,7 +128,7 @@ def _build_assembly(
         control_plane=core.control_plane,
         publication_policy=publication,
     )
-    provider = _mode_canary_provider(settings, clients, policy)
+    provider = _mode_canary_provider(settings, clients, policy, core.control_plane)
     coordinator = PipelineCoordinator(
         CoordinatorDependencies(core.control_plane, executor, publisher, clock),
         ExecutionPolicyConfig(
