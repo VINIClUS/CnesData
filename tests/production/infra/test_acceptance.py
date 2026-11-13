@@ -307,6 +307,21 @@ def test_ignore_changes_fora_da_allowlist_falha_e_os_tf_reais_passam(
     assert (code, [i for e in report for i in e.get("failures") or []]) == (0, [])
 
 
+def _real_account_ids(text: str) -> list[str]:
+    ids = [match[1] or match[2] for match in ACCOUNT_ID.finditer(text)]
+    return [account for account in ids if account not in EXAMPLE_ACCOUNTS]
+
+
+def test_gate_de_conta_aceita_placeholders_documentados_e_acusa_o_resto() -> None:
+    other = str(2 * 10**11 + 1)
+    arn = "arn:aws:states:us-east-2:{}:stateMachine:m"
+
+    assert _real_account_ids(arn.format("111122223333")) == []
+    assert _real_account_ids(arn.format("123456789012")) == []
+    assert _real_account_ids(arn.format(other)) == [other]
+    assert _real_account_ids(f"{other}.dkr.ecr.us-east-2.amazonaws.com") == [other]
+
+
 def test_nenhum_segredo_ou_state_versionado() -> None:
     tracked = _git_files()
     offenders = [name for name in tracked if STATE_PATH.search(name)]
@@ -316,10 +331,7 @@ def test_nenhum_segredo_ou_state_versionado() -> None:
         text = (REPO_ROOT / name).read_text(encoding="utf-8", errors="ignore")
         if PRIVATE_KEY.search(text) or ACCESS_KEY.search(text) or STATE_CONTENT.search(text):
             findings.append(f"secret_or_state_content path={name}")
-        findings += [
-            f"real_account_id path={name}" for match in ACCOUNT_ID.finditer(text)
-            if (match[1] or match[2]) not in EXAMPLE_ACCOUNTS
-        ]
+        findings += [f"real_account_id path={name}" for _ in _real_account_ids(text)]
     assert not findings, findings
     assert "infra/opentofu/env/prod/.terraform.lock.hcl" in tracked
 
