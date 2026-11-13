@@ -1,7 +1,10 @@
 """Facade do control plane e executor do canary de modo no runtime do processor."""
 from __future__ import annotations
 
+import hashlib
 import inspect
+import json
+import logging
 import os
 import sys
 from dataclasses import dataclass, field
@@ -15,10 +18,16 @@ import pytest
 from moto import mock_aws
 
 from cnes_domain.control_plane.environment_gate import PermitHolder
-from cnes_domain.orchestration.mode_canary import ModeCanaryBinding, SyntheticContextRequired
+from cnes_domain.orchestration.mode_canary import (
+    AuditObserveLocator,
+    ModeCanaryBinding,
+    SyntheticContextRequired,
+)
 from cnes_domain.ports.processing import StartRunExecution
 from cnes_infra.control_plane.dynamodb_keys import run_partition
-from data_processor.aws_entrypoint import AwsMode
+from data_processor.audit_dispatch import run_audit_dispatch_once
+from data_processor.aws_composition import AwsAuditRuntime
+from data_processor.aws_entrypoint import AwsMode, run_aws_entrypoint, select_aws_invocation
 from data_processor.mode_canary import (
     CanaryControlPlane,
     ModeCanaryExecutor,
@@ -38,8 +47,11 @@ from packages.cnes_infra.tests.aws.test_mode_canary_ledger import (
     _UNITS,
     _Ledger,
 )
+from packages.cnes_infra.tests.contracts.clock import _event
+from packages.cnes_infra.tests.control_plane.outbox_cursor_support import OutboxHarness
 from packages.cnes_infra.tests.control_plane.test_dynamodb_adapter import _TABLE_NAME, _create_table
 
+from .test_audit_dispatch_mode import _MINIMUM as _AUDIT_MINIMUM
 from .test_aws_entrypoint import ENVELOPE
 from .test_deadline import _child_environment
 
@@ -310,3 +322,125 @@ def test_main_unit_sintetica_localiza_o_dispatch_e_normal_nao() -> None:
     assert policy.unit_dispatch == PermitHolder(_TENANT, _RUN, ENVELOPE["DISPATCH_ID"])
     assert policy.mode_canary is None
     assert normal[0][1].unit_dispatch is None
+
+
+_SYNTHETIC_EVENT = "run.publishing." + _RUN
+_LOCATOR = AuditObserveLocator((_SYNTHETIC_EVENT, "run.published:ausente"), _OWNER, "b" * 64)
+
+
+def _audit_lines(caplog: pytest.LogCaptureFixture) -> list[str]:
+    return [r.getMessage() for r in caplog.records if r.getMessage().startswith("mode_canary_")]
+
+
+def _fields(line: str) -> dict[str, str]:
+    return dict(part.split("=", 1) for part in line.split()[1:])
+
+
+def _audit_runtime(harness: OutboxHarness) -> tuple[AwsAuditRuntime, Any]:
+    sink = harness.sink("s3")
+    return AwsAuditRuntime(harness.adapter, sink, lambda: _NOW, retention_days=3650), sink
+
+
+@pytest.fixture
+def outbox(tmp_path: Any) -> Iterator[OutboxHarness]:
+    with mock_aws():
+        yield OutboxHarness("dynamodb", tmp_path)
+
+
+def _cursor_digest(harness: OutboxHarness) -> str:
+    cursor = harness.adapter.read_outbox_page(None, 1).expected
+    body = json.dumps({"position": cursor.position, "version": cursor.version},
+                      sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(body.encode()).hexdigest()
+
+
+def test_audit_pendente_visivel_entrega_compliance_com_cursor(
+    outbox: OutboxHarness, caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO)
+    outbox.put(_event(_SYNTHETIC_EVENT, tenant_id=_TENANT))
+    outbox.put(_event("normal-event"))
+    runtime, _ = _audit_runtime(outbox)
+
+    assert run_audit_dispatch_once(runtime, _LOCATOR) == 0
+
+    lines = _audit_lines(caplog)
+    assert [line.split()[0] for line in lines] == ["mode_canary_audit_event",
+                                                    "mode_canary_audit_cursor"]
+    event, cursor = (_fields(line) for line in lines)
+    s3 = boto3.client("s3", region_name="us-east-1")
+    stored = s3.get_object(Bucket="cursor-audit", Key=event["identity_key"])["Body"].read()
+    head = s3.head_object(Bucket="cursor-audit", Key=event["object_key"])
+    assert event["event_sha256"] == hashlib.sha256(stored).hexdigest()
+    assert s3.get_object(Bucket="cursor-audit", Key=event["object_key"])["Body"].read() == stored
+    assert event["retention_mode"] == head["ObjectLockMode"] == "COMPLIANCE"
+    assert event["retain_until"] == head["ObjectLockRetainUntilDate"].isoformat()
+    assert (event["event_id"], event["appended"], event["delivered"]) == (
+        _SYNTHETIC_EVENT, "true", "true")
+    assert cursor["before"] == "none"
+    assert cursor["after"] == _cursor_digest(outbox)
+    assert (cursor["cas"], cursor["wrap"], cursor["bound"]) == ("applied", "true", "1")
+    assert (cursor["delivered"], cursor["failed"]) == ("2", "0")
+    assert (cursor["owner_sha256"], cursor["record_sha256"]) == (_OWNER, "b" * 64)
+    assert cursor["missing"] == "run.published:ausente"
+    assert not any("normal-event" in line or "354130" in line for line in lines)
+    assert outbox.stored("normal-event").delivered_at == _NOW
+
+
+def test_audit_periodico_entrega_evento_sintetico_apos_seal(
+    outbox: OutboxHarness, caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO)
+    outbox.put(_event(_SYNTHETIC_EVENT, tenant_id=_TENANT))
+    runtime, _ = _audit_runtime(outbox)
+
+    assert run_audit_dispatch_once(runtime) == 0
+
+    event, cursor = (_fields(line) for line in _audit_lines(caplog))
+    assert (event["event_id"], event["delivered"]) == (_SYNTHETIC_EVENT, "true")
+    assert (cursor["owner_sha256"], cursor["record_sha256"], cursor["missing"]) == (
+        "none", "none", "none")
+    assert outbox.stored(_SYNTHETIC_EVENT).delivered_at == _NOW
+
+
+def test_audit_sem_evento_sintetico_nao_observa_nem_loga_tenant_normal(
+    outbox: OutboxHarness, caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO)
+    outbox.put(_event("normal-event"))
+    runtime, sink = _audit_runtime(outbox)
+
+    assert run_audit_dispatch_once(runtime) == 0
+
+    assert _audit_lines(caplog) == []
+    assert [event.event_id for event in sink.attempts] == ["normal-event"]
+
+
+def test_audit_cas_perdido_fica_registrado_sem_mudar_resultado(
+    outbox: OutboxHarness, caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO)
+    outbox.put(_event(_SYNTHETIC_EVENT, tenant_id=_TENANT))
+    runtime, _ = _audit_runtime(outbox)
+    with patch.object(type(outbox.adapter), "advance_outbox_cursor", return_value=False):
+        assert run_audit_dispatch_once(runtime, _LOCATOR) == 0
+
+    cursor = _fields(_audit_lines(caplog)[-1])
+    assert (cursor["cas"], cursor["after"]) == ("conflict", "none")
+
+
+def test_entrypoint_entrega_locator_audit_a_observacao(
+    outbox: OutboxHarness, caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO)
+    outbox.put(_event(_SYNTHETIC_EVENT, tenant_id=_TENANT))
+    runtime, _ = _audit_runtime(outbox)
+    text = json.dumps({"event_ids": [_SYNTHETIC_EVENT], "owner_sha256": _OWNER,
+                       "record_sha256": "b" * 64})
+    invocation = select_aws_invocation(
+        _AUDIT_MINIMUM | {"PROD_CANARY_AUDIT_OBSERVE": text}, ["dispatch-outbox-once"],
+    )
+
+    assert run_aws_entrypoint(invocation, runtime) == 0
+
+    assert _fields(_audit_lines(caplog)[-1])["owner_sha256"] == _OWNER
