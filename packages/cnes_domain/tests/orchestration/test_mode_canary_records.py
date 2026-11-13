@@ -22,12 +22,33 @@ T0 = "2026-11-12T12:00:00Z"
 T1 = "2026-11-12T12:30:00Z"
 T2 = "2026-11-12T13:00:00Z"
 RECORD_FIELDS = (
-    "schema activation_sha256 candidate_sha256 source_sha release_id canary_id owner_sha256 "
-    "promotion_id promotion_generation phase_receipt_sha256 machine_arn revisions run_ids "
-    "fixture_manifest_sha256 seed_manifest_sha256 fixed_deadline stage_deadline canary_deadline "
-    "phase freeze_policy_sha256 expires_at context_kind context_manifest_sha256 scenario fault "
-    "mode"
-).split()
+    "schema",
+    "activation_sha256",
+    "candidate_sha256",
+    "source_sha",
+    "release_id",
+    "canary_id",
+    "owner_sha256",
+    "promotion_id",
+    "promotion_generation",
+    "phase_receipt_sha256",
+    "machine_arn",
+    "revisions",
+    "run_ids",
+    "fixture_manifest_sha256",
+    "seed_manifest_sha256",
+    "fixed_deadline",
+    "stage_deadline",
+    "canary_deadline",
+    "phase",
+    "freeze_policy_sha256",
+    "expires_at",
+    "context_kind",
+    "context_manifest_sha256",
+    "scenario",
+    "fault",
+    "mode",
+)
 
 
 def _promotion() -> dict[str, Any]:
@@ -94,9 +115,9 @@ def test_registro_de_readiness_valido_exige_prazo_unico() -> None:
     assert record.stage_deadline == record.canary_deadline
 
 
-def test_registro_tem_exatamente_os_vinte_e_sete_campos() -> None:
+def test_registro_tem_exatamente_os_vinte_e_seis_campos() -> None:
     assert sorted(_promotion()) == sorted(RECORD_FIELDS)
-    assert len(RECORD_FIELDS) == 27
+    assert len(RECORD_FIELDS) == 26
 
 
 @pytest.mark.parametrize("field", RECORD_FIELDS)
