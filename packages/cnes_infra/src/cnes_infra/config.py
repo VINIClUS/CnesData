@@ -1,9 +1,13 @@
-"""Configuração centralizada — lê .env e expõe atributos tipados."""
+"""Configuração centralizada — lê config.json do host, .env e expõe atributos tipados."""
 
+import json
 import os
-from collections.abc import Callable
+import re
+import stat
+from collections.abc import Callable, Mapping, MutableMapping
 from functools import lru_cache
 from pathlib import Path
+from typing import cast
 from urllib.parse import quote, urlparse, urlunparse
 
 from dotenv import load_dotenv
@@ -26,7 +30,97 @@ def _find_project_root() -> Path:
 
 
 RAIZ_PROJETO = _find_project_root()
+CONFIG_JSON = Path("/run/config/config.json")
+_CONFIG_JSON_LIMITE = 65536
+_CREDENCIAL = "AWS_SHARED_CREDENTIALS_FILE"
+_CHAVE_CONFIG = re.compile(r"[A-Z_][A-Z0-9_]*")
+# The host gate admits only AWS_SHARED_CREDENTIALS_FILE among these names in the compose env; the
+# owner-pinned file must not reopen credential, endpoint or loader authority through os.environ.
+_CHAVES_DE_AUTORIDADE = frozenset({
+    "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_SECURITY_TOKEN",
+    "AWS_PROFILE", "AWS_DEFAULT_PROFILE", "AWS_CONFIG_FILE", _CREDENCIAL, "AWS_ROLE_ARN",
+    "AWS_ROLE_SESSION_NAME", "AWS_WEB_IDENTITY_TOKEN_FILE", "AWS_CA_BUNDLE", "AWS_DATA_PATH",
+    "DYNAMODB_ENDPOINT_URL",
+})
+_PREFIXOS_DE_AUTORIDADE = (
+    "AWS_CONTAINER_", "AWS_EC2_METADATA_", "AWS_ENDPOINT_URL", "DOCKER_", "SSH_", "LD_", "PYTHON",
+)
 
+
+def carregar_config_json(caminho: Path, ambiente: MutableMapping[str, str]) -> None:
+    """Args: caminho: config.json montado pelo host gate; ambiente: os.environ ou cópia.
+    Raises: OSError: arquivo presente fora do contrato, valor divergente do ambiente ou
+    AWS_SHARED_CREDENTIALS_FILE sem arquivo regular legível; o ambiente fica intacto.
+    """
+    bruto = _ler_config(caminho)
+    if bruto is None:
+        return
+    valores = _valores_config(bruto)
+    for chave, valor in sorted(valores.items()):
+        if ambiente.get(chave, valor) != valor:
+            raise OSError(f"config_json=conflict key={chave}")
+    _exigir_arquivo_de_credencial(ambiente)
+    ambiente.update(valores)
+
+
+def _ler_config(caminho: Path) -> bytes | None:
+    try:
+        with caminho.open("rb") as arquivo:
+            bruto = arquivo.read(_CONFIG_JSON_LIMITE + 1)
+    except FileNotFoundError:
+        return None
+    except OSError as err:
+        raise OSError(f"config_json=unreadable path={caminho}") from err
+    if len(bruto) > _CONFIG_JSON_LIMITE:
+        raise OSError(f"config_json=too_large limit={_CONFIG_JSON_LIMITE}")
+    return bruto
+
+
+def _sem_duplicatas(pares: list[tuple[str, object]]) -> dict[str, object]:
+    valores: dict[str, object] = {}
+    for chave, valor in pares:
+        if chave in valores:
+            raise OSError(f"config_json=duplicate_key key={chave}")
+        valores[chave] = valor
+    return valores
+
+
+def _valores_config(bruto: bytes) -> dict[str, str]:
+    try:
+        documento: object = json.loads(bruto.decode("utf-8"), object_pairs_hook=_sem_duplicatas)
+    except (UnicodeDecodeError, json.JSONDecodeError) as err:
+        raise OSError("config_json=invalid_json") from err
+    if not isinstance(documento, dict):
+        raise OSError("config_json=not_object")
+    pares = cast("dict[str, object]", documento)
+    return {chave: _valor_config(chave, valor) for chave, valor in pares.items()}
+
+
+def _valor_config(chave: str, valor: object) -> str:
+    if _CHAVE_CONFIG.fullmatch(chave) is None:
+        raise OSError(f"config_json=invalid_key key={chave}")
+    if chave in _CHAVES_DE_AUTORIDADE or chave.startswith(_PREFIXOS_DE_AUTORIDADE):
+        raise OSError(f"config_json=credential_authority key={chave}")
+    if not isinstance(valor, str) or "\x00" in valor:
+        raise OSError(f"config_json=invalid_value key={chave}")
+    return valor
+
+
+def _exigir_arquivo_de_credencial(ambiente: Mapping[str, str]) -> None:
+    caminho = Path(ambiente.get(_CREDENCIAL, ""))
+    try:
+        regular = caminho.is_absolute() and stat.S_ISREG(caminho.stat().st_mode)
+        if regular:
+            caminho.open("rb").close()
+    except (FileNotFoundError, NotADirectoryError):
+        regular = False
+    except OSError as err:
+        raise OSError(f"credentials_file=unreadable key={_CREDENCIAL}") from err
+    if not regular:
+        raise OSError(f"credentials_file=missing key={_CREDENCIAL}")
+
+
+carregar_config_json(CONFIG_JSON, os.environ)
 load_dotenv(RAIZ_PROJETO / ".env", override=False, encoding="utf-8")
 
 
