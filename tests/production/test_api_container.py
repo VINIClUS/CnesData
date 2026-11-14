@@ -86,6 +86,7 @@ DIVERGENT_PROFILES = {
     "chave_de_longo_prazo": TEMPORARY_PROFILE.replace("=ASIA", "=AKIA"),
     "sem_session_token": TEMPORARY_PROFILE.rpartition("aws_session_token")[0],
     "session_token_vazio": TEMPORARY_PROFILE.replace("token=placeholder", "token="),
+    "secret_vazio": TEMPORARY_PROFILE.replace("key=placeholder", "key="),
     "outro_perfil": TEMPORARY_PROFILE.replace("[default]", "[cnesdata-production]"),
     "perfil_extra": TEMPORARY_PROFILE + "[cnesdata-production]\n",
     "vazio": "",
