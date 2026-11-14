@@ -282,8 +282,19 @@ def _documents(fields: Node) -> dict[str, tuple[Node, Node]]:
             for alias in ALIASES}
 
 
-def _listed(value: Any) -> list[Any]:
-    return cast("list[Any]", value) if type(value) is list else [value]
+def _parsed(text: Any) -> Any:
+    try:
+        return json.loads(cast("str", text))
+    except (TypeError, ValueError):
+        return None
+
+
+def _check_attachments(role: Node, name: str, policy: Node, alias: str) -> None:
+    inline = cast("list[Any]", role.get("inline_policy") or [])
+    _require(not role.get("managed_policy_arns") and not role.get("permissions_boundary")
+             and all(type(item) is dict and cast("Node", item).get("name") == name
+                     and _parsed(cast("Node", item).get("policy")) == policy for item in inline),
+             f"attachments.{alias}")
 
 
 def _grants_run_task(rule: Any) -> bool:
@@ -294,8 +305,9 @@ def _grants_run_task(rule: Any) -> bool:
         return False
     if "notaction" in fields:
         return True
-    return any(fnmatchcase("ecs:runtask", str(item).lower())
-               for item in _listed(fields.get("action")))
+    actions = fields.get("action")
+    listed = cast("list[Any]", actions) if type(actions) is list else [actions]
+    return any(fnmatchcase("ecs:runtask", str(item).lower()) for item in listed)
 
 
 def _check_run_task(text: Any, policy: Node, alias: str) -> None:
@@ -321,6 +333,7 @@ def _delegation(
     trust, text = (_jsonencode(document) for document in documents)
     _require(role["assume_role_policy"] == trust, f"trust.{alias}")
     _require(policy["policy"] == text, f"policy.{alias}")
+    _check_attachments(role, policy["name"], documents[1], alias)
     closed = _closed(fields["context_kind"], alias)
     return {
         "role_arn": role["arn"], "role_name": name, "role_address": role_address,
