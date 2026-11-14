@@ -106,6 +106,7 @@ lease (reaper removido em MIG-012).
 | Var | Obrigatória | Descrição |
 |---|---|---|
 | `DB_URL` | sim | Postgres URL (`postgresql+psycopg://...`) |
+| `/run/config/config.json` | não (host gate) | Objeto JSON de strings aplicado ao env antes do `.env` (`cnes_infra.config.carregar_config_json`); recusa conflito com o env e chaves de credencial/endpoint; exige `AWS_SHARED_CREDENTIALS_FILE` regular e legível |
 | `S3_*` (`S3_ENDPOINT_URL`, `S3_PUBLIC_ENDPOINT_URL`, `S3_REGION`, `S3_BUCKET`, `S3_ADDRESSING_STYLE`) | não | Sem leitor em `central_api` desde MIG-012 (presign legado removido); seguem definidas em `cnes_infra.config` |
 | `API_HOST` | opcional | Default `0.0.0.0` |
 | `API_PORT` | opcional | Default `8000` |
