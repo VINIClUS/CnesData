@@ -41,7 +41,7 @@ DENY = """{ Sid = "DenyInsecureTransport" Effect = "Deny" Principal = "*" Action
     Resource = [aws_s3_bucket.this.arn, "${aws_s3_bucket.this.arn}/*"]
     Condition = { Bool = { "aws:SecureTransport" = "false" } } }"""
 LIFECYCLE = """bucket = aws_s3_bucket.this.id depends_on = [aws_s3_bucket_versioning.this]
-  rule { id = "static-web-gc" status = "Disabled"
+  rule { id = "static-web-gc" status = "Enabled"
     filter { tag { key = "static-web-gc" value = "eligible" } }
     noncurrent_version_expiration {
       noncurrent_days = local.rollback_window_days newer_noncurrent_versions = 1
@@ -397,8 +397,8 @@ def _structural_mutation(body: str, old: str, new: str) -> str:
             body + "\n  rule {\n" + _waf_rule("AWSManagedRulesKnownBadInputsRuleSet", 2) + "\n  }\n"
         )
     if old == "expiration":
-        status = '    status = "Disabled"'
-        return _replace_once(body, status, "    expiration { days = 7 }\n" + status)
+        anchor = '    id     = "static-web-gc"'
+        return _replace_once(body, anchor, "    expiration { days = 7 }\n" + anchor)
     if old == "default":
         return body + '  default={issuer_url="",hosted_login_origin="",client_id="synthetic"}\n'
     if old == "validation":

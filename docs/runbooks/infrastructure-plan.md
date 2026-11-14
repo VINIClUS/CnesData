@@ -164,6 +164,32 @@ não concedem Ready/Produção. certificate_domain_validated segue false até a 
 ligá-lo depois aplica HSTS e pertence à #476. IAM demo #481 exige amendment próprio,
 sem ampliar canary_seeder ou os inventários fechados 0 ACM/9 bootstrap/7 Phase A.
 
+### Publicador estático (#473)
+
+O publicador é `scripts/promotion/publish_dashboard.py`, adapter S3 do contrato
+`static_release.py`. O rollback é `scripts/promotion/rollback_api_static.py`. Os dois rodam pelas
+roles `observer`, `normal` e `recovery` de `static-promotion.tf`; não há fallback de credencial.
+
+- `static-baseline` (`cnesdata.static-baseline/v1`): `current` e `prior` são `null` ou
+  `{release_id, objects[{key, version_id}]}`, com todos os objetos de cada release lidos do
+  manifest dela, nunca do `index.html`. `current` pode apontar para versão que não é a mais recente.
+- Ordem: assets com `IfNoneMatch: *` e readback, depois `theme-init.js` e `index.html`, depois
+  invalidação só de `/index.html` e `/theme-init.js`. Prazo vencido para antes da raiz; multipart
+  incompleto fica para a regra de abort de 1 dia.
+- Rollback: cópia por `x-amz-copy-source` das versões de `index.html` e `theme-init.js` do
+  `current`, dentro de min(D_rec, choice_at+300) da decisão original de recovery.
+- A regra `static-web-gc` está `Enabled`, filtrada pela tag `static-web-gc=eligible`. `retire` do
+  contrato não depende dela.
+- `retire` e `retire_latest` são reportados na inventory e não são executados pela promoção: o
+  plano estático leva `retire_versions` vazio até existir operação de retirada no lifecycle.
+
+Saída manual com bucket cheio e sem `current`: a recusa `REJECTED_CAPACITY` não devolve o que
+retirar, porque sem referência atual nada prova que um objeto saiu de uso. O dono revisa o
+inventário (`ListObjectVersions` e uploads multipart pela role `observer`), escolhe as versões a
+apagar e registra a escolha num PR de manutenção `static-maintenance` revisado. Esse PR fixa os
+pares `retire_versions` (chave e version_id) no IAM `normal` e executa só eles. Depois disso uma
+nova inventariação precisa voltar `PLANNED`. Não se apaga nada fora desse inventário revisado.
+
 ## Capability checks em AWS real
 
 Cada check exige aprovação explícita do dono, retenção mínima, evidência redigida e limpeza com

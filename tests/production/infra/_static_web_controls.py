@@ -14,6 +14,10 @@ ACM_SAMPLE = '"arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000
 ADD_RESOURCE = 'resource "aws_s3_bucket_acl" "extra" {\n}\n'
 CSP_REPORT = 'var.csp_mode == "report_only"'
 HSTS_GATE = "var.certificate_domain_validated ? [1] : []"
+GC_ENABLED = '"static-web-gc"\n    status = "Enabled"'
+GC_DISABLED = '"static-web-gc"\n    status = "Disabled"'
+ABORT_ENABLED = '"static-web-abort-multipart"\n    status = "Enabled"'
+ABORT_DISABLED = '"static-web-abort-multipart"\n    status = "Disabled"'
 ISSUER_CONNECT = "connect-src 'self' https://cognito-idp.us-east-2.amazonaws.com "
 CONTROLS = (
     ("C01_waf_no_provider_padrao", MAIN, "wafv2_web_acl", "provider", "aws", 0),
@@ -36,13 +40,13 @@ CONTROLS = (
     ("C18_hsts_incondicional", MAIN, HEADERS, HSTS_GATE, "[1]", 4),
     ("C19_ttl_minimo_positivo", MAIN, "cloudfront_cache_policy", "min_ttl", "1", 4),
     ("C20_erro_mascarado", MAIN, DIST, "error_code", "", 4),
-    ("C21_lifecycle_ativado", MAIN, GC, '"Disabled"', '"Enabled"', 4),
+    ("C21_lifecycle_desativado", MAIN, GC, GC_ENABLED, GC_DISABLED, 4),
     ("C22_expiracao_current", MAIN, GC, "expiration", "", 4),
     ("C23_api_output_alterado", "outputs.tf", "api_base_url", "/api/v1", "/api/v2", 5),
     ("C24_cognito_com_default", "variables.tf", "cognito", "default", "", 5),
     ("C25_serving_sem_validation", "variables.tf", "serving_origin", "validation", "", 5),
     ("C26_arquivo_da_funcao_errado", MAIN, "cloudfront_function", "/function.js", "/missing.js", 2),
-    ("C27_multipart_desligado", MAIN, GC, '"Enabled"', '"Disabled"', 4),
+    ("C27_multipart_desligado", MAIN, GC, ABORT_ENABLED, ABORT_DISABLED, 4),
     ("C28_multipart_longo", MAIN, GC, "days_after_initiation = 1", "days_after_initiation = 30", 4),
     ("C29_csp_sem_object_src", MAIN, "locals", "object-src 'none'; ", "", 4),
     ("C30_csp_sem_base_uri", MAIN, "locals", "base-uri 'self'; ", "", 4),
