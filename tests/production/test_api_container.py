@@ -1,4 +1,4 @@
-"""Contrato estático da imagem de produção do API: estágios, helper pinado e entrypoint."""
+"""Contrato estático da imagem de produção do API: estágios, credencial do host e entrypoint."""
 
 from __future__ import annotations
 
@@ -16,15 +16,14 @@ from urllib.parse import urlsplit
 
 import pytest
 import yaml
-from botocore.compat import compat_shell_split
-from botocore.configloader import load_config
+
+from scripts.promotion.build_host_archive import CREDENTIALS, render_compose
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DOCKERFILE = REPO_ROOT / "apps" / "central_api" / "Dockerfile"
 ENTRYPOINT_PATH = "apps/central_api/docker/production-entrypoint.sh"
 ENTRYPOINT_SOURCE = REPO_ROOT / ENTRYPOINT_PATH
 COMPOSE_PATH = REPO_ROOT / "deploy" / "compose.production.yaml"
-AWS_CONFIG_SOURCE = REPO_ROOT / "deploy" / "aws" / "config"
 GITATTRIBUTES = REPO_ROOT / ".gitattributes"
 ENTRYPOINT_ATTRIBUTES = "apps/central_api/docker/*.sh text eol=lf"
 DEVELOP_DOCKERFILE_SHA256 = "2d537a3fd87370d320f2db14d23cb41afdc3358223d8a6098ddde6406491d08a"
@@ -49,12 +48,12 @@ HELPER_INSTALL = [
     ),
     "chmod 0555 /opt/aws/aws_signing_helper",
 ]
-HELPER_TIMEOUT = ["/usr/bin/timeout", "60"]
 ENTRYPOINT_TARGET = "/usr/local/bin/production-entrypoint"
-CONFIG_PATH = "/etc/cnesdata/aws/config"
-CREDENTIAL_DIRECTORY = "/etc/cnesdata/aws/"
-LEAF_CERTIFICATE = "/etc/cnesdata/aws/leaf-certificate.pem"
-LEAF_PRIVATE_KEY = "/etc/cnesdata/aws/leaf-private-key.pem"
+CREDENTIAL_DIRECTORY = "/run/credentials/"
+CREDENTIAL_FILE = "/run/credentials/credentials"
+CREDENTIAL_NAME = "aws_credentials"
+ROLES_ANYWHERE_DIRECTORY = "/etc/cnesdata/aws/"
+HOST_IMAGE = "ghcr.io/viniclus/cnesdata/central_api@sha256:" + "0" * 64
 UVICORN_BINARY = "/usr/local/bin/uvicorn"
 UVICORN_EXEC = (
     "exec /usr/local/bin/uvicorn central_api.app:create_app --factory --host 0.0.0.0 --port 8000"
@@ -66,14 +65,30 @@ STATIC_CREDENTIAL_NAMES = (
     "AWS_SESSION_TOKEN",
     "AWS_SECURITY_TOKEN",
 )
-CREDENTIAL_SOURCE_NAMES = ("AWS_WEB_IDENTITY_TOKEN_FILE", "AWS_ROLE_ARN", "AWS_DEFAULT_PROFILE")
+CREDENTIAL_SOURCE_NAMES = (
+    "AWS_WEB_IDENTITY_TOKEN_FILE",
+    "AWS_ROLE_ARN",
+    "AWS_DEFAULT_PROFILE",
+    "AWS_PROFILE",
+    "AWS_CONFIG_FILE",
+)
 SOURCE_AND_SETTING_DRIFT = {"AWS_DEFAULT_PROFILE": "placeholder", "PROFILE": "legacy"}
 FIXED_SETTINGS = {
     "PROFILE": "aws",
     "AWS_PRODUCTION_POLICY": "true",
-    "AWS_PROFILE": "cnesdata-production",
-    "AWS_CONFIG_FILE": CONFIG_PATH,
-    "AWS_SHARED_CREDENTIALS_FILE": "/dev/null",
+    "AWS_SHARED_CREDENTIALS_FILE": CREDENTIAL_FILE,
+}
+TEMPORARY_PROFILE = (
+    "[default]\naws_access_key_id=ASIAPLACEHOLDER\naws_secret_access_key=placeholder\n"
+    "aws_session_token=placeholder\n"
+)
+DIVERGENT_PROFILES = {
+    "chave_de_longo_prazo": TEMPORARY_PROFILE.replace("=ASIA", "=AKIA"),
+    "sem_session_token": TEMPORARY_PROFILE.rpartition("aws_session_token")[0],
+    "session_token_vazio": TEMPORARY_PROFILE.replace("token=placeholder", "token="),
+    "outro_perfil": TEMPORARY_PROFILE.replace("[default]", "[cnesdata-production]"),
+    "perfil_extra": TEMPORARY_PROFILE + "[cnesdata-production]\n",
+    "vazio": "",
 }
 HEALTHCHECK = (
     "--interval=15s --timeout=15s --retries=3 --start-period=60s CMD python -c "
@@ -81,19 +96,12 @@ HEALTHCHECK = (
     "http://localhost:8000/api/v1/system/health"
 )
 COMPOSE_HEALTH_URL = re.compile(r"http://[^']+")
-CREDENTIAL_FILES = {
-    "aws_config": "config",
-    "leaf_certificate": "leaf-certificate.pem",
-    "leaf_private_key": "leaf-private-key.pem",
-}
-PROVISIONED_MODES = {"aws_config": 0o644, "leaf_certificate": 0o644, "leaf_private_key": 0o640}
 FAKE_UVICORN = """\
 #!/bin/sh
 printf '%s\\n' "$PPID" "$@"
 """
 FROM_LINE = re.compile(r"^FROM\s", re.IGNORECASE)
 STAGE_ALIAS = re.compile(r"^(?P<base>\S+)(?:\s+AS\s+(?P<name>\S+))?$", re.IGNORECASE)
-LEAF_ASSIGNMENT = re.compile(r"^(LEAF_[A-Z_]+)=(\S+)$", re.MULTILINE)
 BASHISMS = re.compile(r"\[\[|\bfunction\b|\bsource\b|\$'|<<<|\beval\b|`")
 
 
@@ -195,21 +203,17 @@ class _Entrypoint:
     script: Path
     credentials: Path
 
-    def path(self, name: str) -> Path:
-        return self.credentials / CREDENTIAL_FILES[name]
+    def refusal(self, code: str) -> str:
+        return f"{code} name={CREDENTIAL_NAME} path={self.credentials}\n"
 
-    def refusal(self, code: str, name: str) -> str:
-        return f"{code} name={name} path={self.path(name)}\n"
-
-    def provision(self, *names: str) -> None:
-        for name in names:
-            self.path(name).write_text("placeholder\n", encoding="utf-8")
-            self.path(name).chmod(PROVISIONED_MODES[name])
+    def provision(self, body: str = TEMPORARY_PROFILE, mode: int = 0o400) -> None:
+        self.credentials.write_text(body, encoding="utf-8")
+        self.credentials.chmod(mode)
 
     def environment(self) -> dict[str, str]:
         return FIXED_SETTINGS | {
             "PATH": os.environ.get("PATH", ""),
-            "AWS_CONFIG_FILE": str(self.path("aws_config")),
+            "AWS_SHARED_CREDENTIALS_FILE": str(self.credentials),
         }
 
     def run(self, environment: dict[str, str]) -> subprocess.CompletedProcess[str]:
@@ -234,9 +238,9 @@ def entrypoint(tmp_path: Path) -> _Entrypoint:
     script = tmp_path / "production-entrypoint"
     rewritten = source.replace(CREDENTIAL_DIRECTORY, f"{credentials}/")
     script.write_text(rewritten.replace(UVICORN_BINARY, str(uvicorn)), encoding="utf-8")
-    assert CREDENTIAL_DIRECTORY in source
+    assert CREDENTIAL_FILE in source
     assert UVICORN_BINARY in source
-    return _Entrypoint(script, credentials)
+    return _Entrypoint(script, credentials / PurePosixPath(CREDENTIAL_FILE).name)
 
 
 def test_dockerfile_insere_production_antes_do_estagio_final(stages: list[Stage]) -> None:
@@ -260,7 +264,7 @@ def test_estagio_de_producao_roda_sem_root_e_read_only(production: Stage) -> Non
     assert compose_api["read_only"] is True
 
 
-def test_estagio_de_producao_usa_perfil_roles_anywhere(production: Stage) -> None:
+def test_estagio_de_producao_usa_credencial_escrita_pelo_host(production: Stage) -> None:
     entrypoints = [json.loads(argument) for argument in production.arguments("ENTRYPOINT")]
 
     assert _key_values(production.arguments("ENV")) == FIXED_SETTINGS
@@ -329,21 +333,18 @@ def test_healthcheck_de_producao_usa_porta_rota_e_tempos_do_compose(production: 
     assert timings - {f"--test={compose['test']}"} <= set(healthcheck.split())
 
 
-def test_config_mounts_entrypoint_e_env_apontam_os_mesmos_paths(production: Stage) -> None:
-    profile = load_config(str(AWS_CONFIG_SOURCE))["profiles"]["cnesdata-production"]
-    argv = compat_shell_split(profile["credential_process"])
-    leaf = {flag: argv[argv.index(flag) + 1] for flag in ("--certificate", "--private-key")}
-    installed = _commands(production, HELPER_PATH)[-1].removeprefix("chmod 0555 ")
-    mounts = {volume["target"] for volume in _compose_api()["volumes"]}
-    assigned = dict(LEAF_ASSIGNMENT.findall(ENTRYPOINT_SOURCE.read_text(encoding="utf-8")))
-    config_file = _key_values(production.arguments("ENV"))["AWS_CONFIG_FILE"]
+def test_imagem_e_compose_do_host_gate_apontam_o_mesmo_arquivo_de_credencial(
+    production: Stage,
+) -> None:
+    host = json.loads(render_compose(HOST_IMAGE, 18080))["services"]["api"]
+    mounts = {volume["target"]: volume["source"] for volume in host["volumes"]}
+    image = _key_values(production.arguments("ENV"))["AWS_SHARED_CREDENTIALS_FILE"]
 
-    assert argv[: len(HELPER_TIMEOUT) + 1] == [*HELPER_TIMEOUT, installed]
-    assert mounts == {config_file, *leaf.values()}
-    assert assigned == {
-        "LEAF_CERTIFICATE": leaf["--certificate"],
-        "LEAF_PRIVATE_KEY": leaf["--private-key"],
-    }
+    assert host["environment"] == {"AWS_SHARED_CREDENTIALS_FILE": image}
+    assert image == CREDENTIAL_FILE
+    assert f"{CREDENTIALS[1]}/" == CREDENTIAL_DIRECTORY
+    assert mounts[CREDENTIALS[1]] == CREDENTIALS[0]
+    assert host["user"] == production.arguments("USER")[0]
 
 
 def test_entrypoint_de_producao_e_posix_e_termina_com_exec_do_uvicorn(
@@ -358,9 +359,8 @@ def test_entrypoint_de_producao_e_posix_e_termina_com_exec_do_uvicorn(
     assert "set -eu" in lines
     assert lines[-1] == UVICORN_EXEC
     assert [Path(exec_argv[0]).name, *exec_argv[1:]] == default_entrypoint
-    assert LEAF_CERTIFICATE in source
-    assert LEAF_PRIVATE_KEY in source
-    assert '"${AWS_CONFIG_FILE:-}"' in source
+    assert ROLES_ANYWHERE_DIRECTORY not in source
+    assert '"${AWS_SHARED_CREDENTIALS_FILE:-}"' in source
     assert not BASHISMS.search(source)
 
 
@@ -427,25 +427,21 @@ def test_entrypoint_exige_settings_fixos_de_producao_antes_de_checar_arquivos(
     )
 
 
-@pytest.mark.parametrize("missing", list(CREDENTIAL_FILES))
-def test_entrypoint_recusa_cada_arquivo_ausente(entrypoint: _Entrypoint, missing: str) -> None:
-    entrypoint.provision(*(name for name in CREDENTIAL_FILES if name != missing))
-
+def test_entrypoint_recusa_arquivo_de_credencial_ausente(entrypoint: _Entrypoint) -> None:
     result = entrypoint.run(entrypoint.environment())
 
     assert (result.returncode, result.stdout, result.stderr) == (
-        CONFIGURATION_EXIT, "", entrypoint.refusal("credential_file_missing", missing),
+        CONFIGURATION_EXIT, "", entrypoint.refusal("credential_file_missing"),
     )
 
 
-def test_entrypoint_recusa_aws_config_file_que_e_diretorio(entrypoint: _Entrypoint) -> None:
-    entrypoint.provision("leaf_certificate", "leaf_private_key")
-    entrypoint.path("aws_config").mkdir()
+def test_entrypoint_recusa_arquivo_de_credencial_que_e_diretorio(entrypoint: _Entrypoint) -> None:
+    entrypoint.credentials.mkdir()
 
     result = entrypoint.run(entrypoint.environment())
 
     assert (result.returncode, result.stdout, result.stderr) == (
-        CONFIGURATION_EXIT, "", entrypoint.refusal("credential_file_missing", "aws_config"),
+        CONFIGURATION_EXIT, "", entrypoint.refusal("credential_file_missing"),
     )
 
 
@@ -453,29 +449,39 @@ def test_entrypoint_recusa_aws_config_file_que_e_diretorio(entrypoint: _Entrypoi
     not hasattr(os, "geteuid") or os.geteuid() == 0,
     reason="unreadable_requires_non_root covered_by=prod_012_docker_smoke",
 )
-@pytest.mark.parametrize("name", list(CREDENTIAL_FILES))
-def test_entrypoint_recusa_arquivo_ilegivel(entrypoint: _Entrypoint, name: str) -> None:
-    entrypoint.provision(*CREDENTIAL_FILES)
-    entrypoint.path(name).chmod(0)
+def test_entrypoint_recusa_arquivo_de_credencial_ilegivel(entrypoint: _Entrypoint) -> None:
+    entrypoint.provision(mode=0)
 
     result = entrypoint.run(entrypoint.environment())
 
     assert (result.returncode, result.stdout, result.stderr) == (
-        CONFIGURATION_EXIT, "", entrypoint.refusal("credential_file_unreadable", name),
+        CONFIGURATION_EXIT, "", entrypoint.refusal("credential_file_unreadable"),
     )
 
 
-@pytest.mark.parametrize("mode", [0o644, 0o604], ids=["0644", "0604"])
-def test_entrypoint_recusa_chave_privada_legivel_por_todos(
+@pytest.mark.parametrize("mode", [0o444, 0o404], ids=["0444", "0404"])
+def test_entrypoint_recusa_credencial_legivel_por_todos(
     entrypoint: _Entrypoint, mode: int,
 ) -> None:
-    entrypoint.provision(*CREDENTIAL_FILES)
-    entrypoint.path("leaf_private_key").chmod(mode)
+    entrypoint.provision(mode=mode)
 
     result = entrypoint.run(entrypoint.environment())
 
     assert (result.returncode, result.stdout, result.stderr) == (
-        CONFIGURATION_EXIT, "", entrypoint.refusal("credential_file_insecure", "leaf_private_key"),
+        CONFIGURATION_EXIT, "", entrypoint.refusal("credential_file_insecure"),
+    )
+
+
+@pytest.mark.parametrize("body", list(DIVERGENT_PROFILES.values()), ids=list(DIVERGENT_PROFILES))
+def test_entrypoint_recusa_perfil_que_nao_e_o_temporario_do_host(
+    entrypoint: _Entrypoint, body: str,
+) -> None:
+    entrypoint.provision(body)
+
+    result = entrypoint.run(entrypoint.environment())
+
+    assert (result.returncode, result.stdout, result.stderr) == (
+        CONFIGURATION_EXIT, "", entrypoint.refusal("credential_file_mismatch"),
     )
 
 
@@ -483,7 +489,7 @@ def test_entrypoint_executa_uvicorn_com_exec_e_argv_do_target_default(
     entrypoint: _Entrypoint, stages: list[Stage],
 ) -> None:
     default_entrypoint = json.loads(stages[-1].arguments("ENTRYPOINT")[0])
-    entrypoint.provision(*CREDENTIAL_FILES)
+    entrypoint.provision()
 
     result = entrypoint.run(entrypoint.environment())
 
