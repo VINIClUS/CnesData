@@ -87,11 +87,10 @@ class Registry:
 
 def _refs(current=4, prior=3, in_flight=(), retained=None, drained=True):
     units = retained if retained is not None else (prior, current)
-    return prune.PruneReferences(
-        current=frozenset(_arn(m, current) for m in MODES),
-        prior=frozenset(_arn(m, prior) for m in MODES),
-        in_flight=frozenset(in_flight), retained=frozenset(_arn("unit", n) for n in units),
-        drained=drained)
+    target = replace(TARGET, current=frozenset(_arn(m, current) for m in MODES),
+                     retained=frozenset(_arn("unit", n) for n in units))
+    result = drain.DrainResult(drained, frozenset(in_flight), (), (), 2, target)
+    return prune.PruneReferences.from_drain(result, {_arn(m, prior) for m in MODES})
 
 
 def _prune(registry, refs=None):
@@ -226,12 +225,30 @@ def test_incerteza_no_readback_mantem_recursos(case_name):
 
 def test_sem_drain_mantem_revisoes_digests_e_grants():
     registry = Registry()
-    refs = replace(_refs(retained=(1, 2, 3, 4)), drained=False)
+    refs = _refs(retained=(1, 2, 3, 4), drained=False)
     evidence = _prune(registry, refs)
     assert evidence["outcome"] == "NOT_DRAINED"
     assert registry.calls == []
     assert registry.reads == 0
     assert evidence["retained_after"] == sorted(refs.retained)
+
+
+PRIORS = {
+    "revisao_atual": {_arn(m, 4) for m in MODES},
+    "familia_faltando": {_arn(m, 3) for m in MODES[:2]},
+    "duas_por_familia": {_arn(m, 3) for m in MODES} | {_arn("audit", 2)},
+    "unit_nao_retida": {_arn(m, 2) for m in MODES},
+    "vazia_com_retida_antiga": set(),
+}
+
+
+@pytest.mark.parametrize("case_name", sorted(PRIORS))
+def test_poda_so_aceita_anterior_coerente_com_o_drain(case_name):
+    result = drain.DrainResult(True, frozenset(), (), (), 2, TARGET)
+    with pytest.raises(ValueError, match="prune=prior"):
+        prune.PruneReferences.from_drain(result, PRIORS[case_name])
+    first = replace(result, target=replace(TARGET, retained=frozenset({_arn("unit", 4)})))
+    assert prune.PruneReferences.from_drain(first, set()).prior == frozenset()
 
 
 MACHINE = f"arn:aws:states:us-east-2:{ACCOUNT}:stateMachine:cnesdata-prod-processor"
@@ -319,7 +336,8 @@ def test_drain_vencido_mantem_revisoes_e_grants_antigos():
     assert result.drained is False
     assert result.in_flight == {_arn("recovery", 3)}
     registry = Registry()
-    refs = _refs(in_flight=result.in_flight, retained=(1, 2, 3, 4), drained=result.drained)
+    refs = prune.PruneReferences.from_drain(result, {_arn(m, 3) for m in MODES})
+    assert (refs.drained, refs.in_flight, refs.current) == (False, result.in_flight, TARGET.current)
     evidence = _prune(registry, refs)
     assert (evidence["outcome"], registry.calls) == ("NOT_DRAINED", [])
     assert evidence["retained_after"] == sorted(refs.retained)
