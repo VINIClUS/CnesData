@@ -357,7 +357,8 @@
       "source": {"url": "https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/flat-rate-pricing-plan.html", "term": "Free plan"},
       "precondition": "cloudfront_free_plan_active",
       "blocking": "activation",
-      "evidence": "pending"
+      "evidence": "verified",
+      "evidence_url": "https://github.com/VINIClUS/CnesData/issues/476#issuecomment-6882664275"
     },
     {
       "id": "waf_dedicated",
@@ -374,7 +375,8 @@
       "precondition": "cloudfront_free_plan_active",
       "exposure_usd": 7,
       "blocking": "activation",
-      "evidence": "pending"
+      "evidence": "verified",
+      "evidence_url": "https://github.com/VINIClUS/CnesData/issues/476#issuecomment-6882664275"
     },
     {
       "id": "data_transfer_out",

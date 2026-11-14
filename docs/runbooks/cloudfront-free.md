@@ -1,6 +1,9 @@
 # Capability check: CloudFront Free ACTIVE
 
-Status: documentado, nenhum executado. O plano Free do CloudFront não tem recurso no provider
+Status: executado em 2026-11-14. FREE `ACTIVE`, replay `pass` e plan sem diff estão na #476:
+<https://github.com/VINIClUS/CnesData/issues/476#issuecomment-6882664275>.
+A remoção do bloqueio segue a emenda de 2026-11-14 da spec de custo. O plano Free do
+CloudFront não tem recurso no provider
 AWS: a assinatura fica fora do state do OpenTofu (`docs/superpowers/specs/
 2026-08-29-cnesdata-production-deployment-design.md`, seção 6.1). O gate só vê os sinais de
 plano pago no plan (certificado `vip`, Origin Shield, monitoring subscription e real-time
