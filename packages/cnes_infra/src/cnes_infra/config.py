@@ -1,9 +1,13 @@
-"""Configuração centralizada — lê .env e expõe atributos tipados."""
+"""Configuração centralizada — lê config.json do host, .env e expõe atributos tipados."""
 
+import json
 import os
-from collections.abc import Callable
+import re
+import stat
+from collections.abc import Callable, Mapping, MutableMapping
 from functools import lru_cache
 from pathlib import Path
+from typing import cast
 from urllib.parse import quote, urlparse, urlunparse
 
 from dotenv import load_dotenv
@@ -26,7 +30,117 @@ def _find_project_root() -> Path:
 
 
 RAIZ_PROJETO = _find_project_root()
+CONFIG_JSON = Path("/run/config/config.json")
+_CONFIG_JSON_LIMITE = 65536
+_CREDENCIAL = "AWS_SHARED_CREDENTIALS_FILE"
+_CHAVE_CONFIG = re.compile(r"[A-Z_][A-Z0-9_]*")
+# The host gate closes the AWS_ namespace (botocore credential, endpoint and config authority) in
+# the compose env, so the owner-pinned file may reopen only the product keys of cnes_infra.aws;
+# a new AWS_ setting must be added here. Outside it, transport, TLS trust and loader authority
+# stay closed too.
+_CHAVES_AWS_DO_PRODUTO = frozenset({
+    "AWS_REGION", "AWS_CONTROL_PLANE_TABLE", "AWS_DATA_BUCKET", "AWS_AUDIT_BUCKET",
+    "AWS_STATE_MACHINE_ARN", "AWS_PROCESSOR_CONTAINER_NAME", "AWS_SERVING_URL_TTL_SECONDS",
+    "AWS_AUDIT_RETENTION_DAYS", "AWS_PROCESSOR_MAX_CONCURRENCY", "AWS_PROCESSOR_LEASE_SECONDS",
+    "AWS_PROCESSOR_RECOVERY_BATCH_SIZE", "AWS_PUBLIC_SUBNET_IDS", "AWS_SECURITY_GROUP_ID",
+    "AWS_PRODUCTION_POLICY", "AWS_ENVIRONMENT",
+})
+_CHAVES_DE_AUTORIDADE = frozenset({
+    "HOME", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "REQUESTS_CA_BUNDLE",
+    "CURL_CA_BUNDLE", "SSLKEYLOGFILE", "BOTO_CONFIG", "S3_ENDPOINT_URL", "S3_PUBLIC_ENDPOINT_URL",
+    "DYNAMODB_ENDPOINT_URL",
+})
+_PREFIXOS_DE_AUTORIDADE = ("DOCKER_", "SSH_", "LD_", "PYTHON", "SSL_", "OPENSSL_")
 
+
+def carregar_config_json(caminho: Path, ambiente: MutableMapping[str, str]) -> None:
+    """Args: caminho: config.json montado pelo host gate; ambiente: os.environ ou cópia.
+    Raises: OSError: arquivo presente fora do contrato, valor divergente do ambiente ou
+    AWS_SHARED_CREDENTIALS_FILE sem arquivo regular legível; o ambiente fica intacto.
+    """
+    bruto = _ler_config(caminho)
+    if bruto is None:
+        return
+    valores = _valores_config(bruto)
+    for chave, valor in sorted(valores.items()):
+        if ambiente.get(chave, valor) != valor:
+            raise OSError(f"config_json=conflict key={chave}")
+    _exigir_arquivo_de_credencial(ambiente)
+    ambiente.update(valores)
+
+
+def _ler_config(caminho: Path) -> bytes | None:
+    try:
+        with caminho.open("rb") as arquivo:
+            bruto = arquivo.read(_CONFIG_JSON_LIMITE + 1)
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+    except OSError as err:
+        raise OSError(f"config_json=unreadable path={caminho}") from err
+    if len(bruto) > _CONFIG_JSON_LIMITE:
+        raise OSError(f"config_json=too_large limit={_CONFIG_JSON_LIMITE}")
+    return bruto
+
+
+def _sem_duplicatas(pares: list[tuple[str, object]]) -> dict[str, object]:
+    valores: dict[str, object] = {}
+    for chave, valor in pares:
+        if chave in valores:
+            raise OSError(f"config_json=duplicate_key key={chave}")
+        valores[chave] = valor
+    return valores
+
+
+def _valores_config(bruto: bytes) -> dict[str, str]:
+    try:
+        documento: object = json.loads(bruto.decode("utf-8"), object_pairs_hook=_sem_duplicatas)
+    except (UnicodeDecodeError, json.JSONDecodeError) as err:
+        raise OSError("config_json=invalid_json") from err
+    if not isinstance(documento, dict):
+        raise OSError("config_json=not_object")
+    pares = cast("dict[str, object]", documento)
+    return {chave: _valor_config(chave, valor) for chave, valor in pares.items()}
+
+
+def _valor_config(chave: str, valor: object) -> str:
+    if _CHAVE_CONFIG.fullmatch(chave) is None:
+        raise OSError(f"config_json=invalid_key key={chave}")
+    if _autoridade(chave):
+        raise OSError(f"config_json=credential_authority key={chave}")
+    if not isinstance(valor, str) or "\x00" in valor or not _codificavel(valor):
+        raise OSError(f"config_json=invalid_value key={chave}")
+    return valor
+
+
+def _autoridade(chave: str) -> bool:
+    if chave.startswith("AWS_"):
+        return chave not in _CHAVES_AWS_DO_PRODUTO
+    return chave in _CHAVES_DE_AUTORIDADE or chave.startswith(_PREFIXOS_DE_AUTORIDADE)
+
+
+def _codificavel(valor: str) -> bool:
+    try:
+        valor.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
+def _exigir_arquivo_de_credencial(ambiente: Mapping[str, str]) -> None:
+    caminho = Path(ambiente.get(_CREDENCIAL, ""))
+    try:
+        regular = caminho.is_absolute() and stat.S_ISREG(caminho.stat().st_mode)
+        if regular:
+            caminho.open("rb").close()
+    except (FileNotFoundError, NotADirectoryError):
+        regular = False
+    except OSError as err:
+        raise OSError(f"credentials_file=unreadable key={_CREDENCIAL}") from err
+    if not regular:
+        raise OSError(f"credentials_file=missing key={_CREDENCIAL}")
+
+
+carregar_config_json(CONFIG_JSON, os.environ)
 load_dotenv(RAIZ_PROJETO / ".env", override=False, encoding="utf-8")
 
 
