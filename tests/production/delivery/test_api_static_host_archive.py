@@ -114,8 +114,9 @@ def test_compose_renderizado_segue_contrato_do_host() -> None:
                                  "protocol": "tcp"}]
     assert (service["read_only"], service["cap_drop"]) == (True, ["ALL"])
     assert service["environment"] == {"AWS_SHARED_CREDENTIALS_FILE": "/run/credentials/credentials"}
-    targets = {m["target"] for m in service["volumes"]}
-    assert targets == {"/run/credentials", "/run/config/config.json"}
+    mounts = {m["target"]: m["source"] for m in service["volumes"]}
+    assert mounts == {"/run/credentials": "/run/personal-platform/credentials/cnesdata/current",
+                      "/run/config/config.json": "./config.json"}
     assert all(m["read_only"] is True for m in service["volumes"])
     with pytest.raises(ArchiveError, match="image"):
         render_compose("cnesdata-api:production", 18081)
