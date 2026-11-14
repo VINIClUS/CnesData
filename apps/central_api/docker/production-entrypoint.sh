@@ -1,15 +1,12 @@
 #!/bin/sh
 set -eu
 
-LEAF_CERTIFICATE=/etc/cnesdata/aws/leaf-certificate.pem
-LEAF_PRIVATE_KEY=/etc/cnesdata/aws/leaf-private-key.pem
-
 refuse() {
     printf '%s name=%s path=%s\n' "$1" "$2" "$3" >&2
     exit 2
 }
 
-# Any of these in the environment makes botocore pick method=env and never run the helper.
+# Any of these in the environment makes botocore pick method=env before the shared file.
 forbid_static_credential() {
     if [ -n "$2" ]; then
         printf 'static_credential_forbidden name=%s\n' "$1" >&2
@@ -17,7 +14,7 @@ forbid_static_credential() {
     fi
 }
 
-# Each of these makes botocore resolve credentials before, or instead of, the helper.
+# Each of these selects a profile, config or provider other than the host-written [default].
 forbid_credential_source() {
     if [ -n "$2" ]; then
         printf 'credential_source_forbidden name=%s\n' "$1" >&2
@@ -48,6 +45,22 @@ forbid_world_readable() {
     fi
 }
 
+# The host gate writes exactly [default] with a temporary (ASIA) key and its session token.
+require_temporary_profile() {
+    count=0
+    while IFS= read -r line; do
+        count=$((count + 1))
+        case "$count:$line" in
+            "1:[default]" | 2:aws_access_key_id=ASIA?* | 3:aws_secret_access_key=?*) ;;
+            4:aws_session_token=?*) ;;
+            *) refuse credential_file_mismatch "$1" "$2" ;;
+        esac
+    done < "$2"
+    if [ "$count" -ne 4 ]; then
+        refuse credential_file_mismatch "$1" "$2"
+    fi
+}
+
 forbid_static_credential AWS_ACCESS_KEY_ID "${AWS_ACCESS_KEY_ID+set}"
 forbid_static_credential AWS_SECRET_ACCESS_KEY "${AWS_SECRET_ACCESS_KEY+set}"
 forbid_static_credential AWS_SESSION_TOKEN "${AWS_SESSION_TOKEN+set}"
@@ -55,15 +68,15 @@ forbid_static_credential AWS_SECURITY_TOKEN "${AWS_SECURITY_TOKEN+set}"
 forbid_credential_source AWS_WEB_IDENTITY_TOKEN_FILE "${AWS_WEB_IDENTITY_TOKEN_FILE+set}"
 forbid_credential_source AWS_ROLE_ARN "${AWS_ROLE_ARN+set}"
 forbid_credential_source AWS_DEFAULT_PROFILE "${AWS_DEFAULT_PROFILE+set}"
+forbid_credential_source AWS_PROFILE "${AWS_PROFILE+set}"
+forbid_credential_source AWS_CONFIG_FILE "${AWS_CONFIG_FILE+set}"
 require_setting PROFILE "${PROFILE:-}" aws
 require_setting AWS_PRODUCTION_POLICY "${AWS_PRODUCTION_POLICY:-}" true
-require_setting AWS_PROFILE "${AWS_PROFILE:-}" cnesdata-production
-require_setting AWS_CONFIG_FILE "${AWS_CONFIG_FILE:-}" /etc/cnesdata/aws/config
-require_setting AWS_SHARED_CREDENTIALS_FILE "${AWS_SHARED_CREDENTIALS_FILE:-}" /dev/null
+require_setting AWS_SHARED_CREDENTIALS_FILE "${AWS_SHARED_CREDENTIALS_FILE:-}" \
+    /run/credentials/credentials
 
-require_file aws_config "${AWS_CONFIG_FILE:-}"
-require_file leaf_certificate "$LEAF_CERTIFICATE"
-require_file leaf_private_key "$LEAF_PRIVATE_KEY"
-forbid_world_readable leaf_private_key "$LEAF_PRIVATE_KEY"
+require_file aws_credentials "${AWS_SHARED_CREDENTIALS_FILE:-}"
+forbid_world_readable aws_credentials "${AWS_SHARED_CREDENTIALS_FILE:-}"
+require_temporary_profile aws_credentials "${AWS_SHARED_CREDENTIALS_FILE:-}"
 
 exec /usr/local/bin/uvicorn central_api.app:create_app --factory --host 0.0.0.0 --port 8000

@@ -43,9 +43,7 @@ RUN echo "os-patch-level=${OS_PATCH_LEVEL}" && \
     rm -rf /var/lib/apt/lists/*
 ENV PROFILE=aws \
     AWS_PRODUCTION_POLICY=true \
-    AWS_PROFILE=cnesdata-production \
-    AWS_CONFIG_FILE=/etc/cnesdata/aws/config \
-    AWS_SHARED_CREDENTIALS_FILE=/dev/null
+    AWS_SHARED_CREDENTIALS_FILE=/run/credentials/credentials
 USER 10001:10001
 EXPOSE 8000
 HEALTHCHECK --interval=15s --timeout=15s --retries=3 --start-period=60s \
