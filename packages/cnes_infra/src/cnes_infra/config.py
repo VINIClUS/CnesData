@@ -3,8 +3,7 @@
 import json
 import os
 import re
-import stat
-from collections.abc import Callable, Mapping, MutableMapping
+from collections.abc import Callable, MutableMapping
 from functools import lru_cache
 from pathlib import Path
 from typing import cast
@@ -32,7 +31,6 @@ def _find_project_root() -> Path:
 RAIZ_PROJETO = _find_project_root()
 CONFIG_JSON = Path("/run/config/config.json")
 _CONFIG_JSON_LIMITE = 65536
-_CREDENCIAL = "AWS_SHARED_CREDENTIALS_FILE"
 _CHAVE_CONFIG = re.compile(r"[A-Z_][A-Z0-9_]*")
 # The host gate closes the AWS_ namespace (botocore credential, endpoint and config authority) in
 # the compose env, so the owner-pinned file may reopen only the product keys of cnes_infra.aws;
@@ -55,8 +53,8 @@ _PREFIXOS_DE_AUTORIDADE = ("DOCKER_", "SSH_", "LD_", "PYTHON", "SSL_", "OPENSSL_
 
 def carregar_config_json(caminho: Path, ambiente: MutableMapping[str, str]) -> None:
     """Args: caminho: config.json montado pelo host gate; ambiente: os.environ ou cópia.
-    Raises: OSError: arquivo presente fora do contrato, valor divergente do ambiente ou
-    AWS_SHARED_CREDENTIALS_FILE sem arquivo regular legível; o ambiente fica intacto.
+    Raises: OSError: arquivo presente fora do contrato ou valor divergente do ambiente; o
+    ambiente fica intacto.
     """
     bruto = _ler_config(caminho)
     if bruto is None:
@@ -65,7 +63,6 @@ def carregar_config_json(caminho: Path, ambiente: MutableMapping[str, str]) -> N
     for chave, valor in sorted(valores.items()):
         if ambiente.get(chave, valor) != valor:
             raise OSError(f"config_json=conflict key={chave}")
-    _exigir_arquivo_de_credencial(ambiente)
     ambiente.update(valores)
 
 
@@ -124,20 +121,6 @@ def _codificavel(valor: str) -> bool:
     except UnicodeEncodeError:
         return False
     return True
-
-
-def _exigir_arquivo_de_credencial(ambiente: Mapping[str, str]) -> None:
-    caminho = Path(ambiente.get(_CREDENCIAL, ""))
-    try:
-        regular = caminho.is_absolute() and stat.S_ISREG(caminho.stat().st_mode)
-        if regular:
-            caminho.open("rb").close()
-    except (FileNotFoundError, NotADirectoryError):
-        regular = False
-    except OSError as err:
-        raise OSError(f"credentials_file=unreadable key={_CREDENCIAL}") from err
-    if not regular:
-        raise OSError(f"credentials_file=missing key={_CREDENCIAL}")
 
 
 carregar_config_json(CONFIG_JSON, os.environ)
