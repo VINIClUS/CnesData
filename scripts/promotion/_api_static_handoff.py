@@ -2,16 +2,25 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import io
 import json
+import logging
 import stat
+import sys
 import zipfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from scripts.promotion.rollback_api_static import HostOutcome, host_outcome
+from scripts.promotion.rollback_api_static import (
+    HostOutcome,
+    HostStep,
+    after_host,
+    host_outcome,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -25,6 +34,7 @@ MEMBER = "host-handoff.json"
 MEMBER_LIMIT = 32768
 ZIP_LIMIT = 65536
 _UNKNOWN = HostOutcome("unknown", None)
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -53,6 +63,33 @@ def authenticated_outcome(
     if outcome.status == "unknown" or not _outputs_agree(evidence.outputs, value, job):
         return _UNKNOWN
     return outcome
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Returns:
+    0 só com host accepted (próximo passo publish-static); 1 para qualquer outro desfecho.
+    """
+    parser = argparse.ArgumentParser(description="Consumidor do handoff público do host gate.")
+    for name in ("jobs", "artifacts", "outputs", "caller", "archive"):
+        parser.add_argument(f"--{name}", type=Path, required=True)
+    parser.add_argument("--closed-ready-sha256", required=True)
+    arguments = parser.parse_args(argv)
+    try:
+        documents = [json.loads(getattr(arguments, name).read_text(encoding="utf-8"))
+                     for name in ("jobs", "artifacts", "outputs", "caller")]
+        archive = arguments.archive.read_bytes()
+    except (OSError, ValueError):
+        documents, archive = None, b""
+    outcome = _UNKNOWN
+    if documents is not None:
+        jobs, artifacts, outputs, caller = documents
+        evidence = HandoffEvidence(jobs, artifacts, archive, outputs)
+        outcome = authenticated_outcome(evidence, caller=caller,
+                                        closed_ready_sha256=arguments.closed_ready_sha256)
+    plan = after_host(outcome)
+    logger.info("host_outcome=%s next=%s host_action=%s fence=%s", outcome.status,
+                plan.step.value, plan.host_action or "none", plan.fence)
+    return 0 if plan.step is HostStep.PUBLISH_STATIC else 1
 
 
 def _host_job(jobs: Mapping[str, Any], caller: Mapping[str, Any]) -> dict[str, Any]:
@@ -149,3 +186,8 @@ def _outputs_agree(outputs: Mapping[str, str], value: Mapping[str, Any], job: Ma
 
 def _instant(value: str) -> datetime:
     return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    sys.exit(main())
