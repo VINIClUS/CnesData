@@ -61,6 +61,9 @@ dono, com as rotas anteriores lidas forte e o state limpo.
 ## 4. Poda
 
 - Só depois do drain. Sem drain, `execute_prune` não lê nem apaga nada.
+- As referências vêm de `PruneReferences.from_drain(result, prior)`: atual, retidas, em voo e
+  drenado saem do `DrainResult` e do alvo dele. A anterior tem uma revisão por família, fora da
+  atual, com a unit no conjunto retido; vazia só quando o conjunto retido é só a unit atual.
 - O inventário lê o ECR e as três famílias de task definition até o fim da paginação. Página sem
   fim, revisão fora do contrato ou referência sem digest tagueado tornam o inventário
   incompleto, e nada é podado.

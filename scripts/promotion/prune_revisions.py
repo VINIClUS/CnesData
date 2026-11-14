@@ -20,6 +20,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping
     from datetime import datetime
 
+    from scripts.promotion.drain import DrainResult
+
 Node = dict[str, Any]
 REPOSITORY = "cnesdata-prod-processor"
 FAMILIES = tuple(f"{REPOSITORY}-{mode}" for mode in ("unit", "recovery", "audit"))
@@ -40,13 +42,41 @@ def _require(condition: bool, reason: str) -> None:
 
 @dataclass(frozen=True)
 class PruneReferences:
-    """Revisões protegidas por ARN e o drain que libera a poda."""
+    """Revisões protegidas por ARN, derivadas do drain que libera a poda."""
 
-    current: frozenset[str]
     prior: frozenset[str]
-    in_flight: frozenset[str]
-    retained: frozenset[str]
-    drained: bool
+    drain: DrainResult
+
+    def __post_init__(self) -> None:
+        target = self.drain.target
+        if not self.prior:
+            _require(target.retained <= target.current, "prune=prior")
+            return
+        units = {arn for arn in self.prior if revision_family(arn) == FAMILIES[0]}
+        _require(sorted(str(revision_family(arn)) for arn in self.prior) == sorted(FAMILIES)
+                 and not self.prior & target.current and units <= target.retained,
+                 "prune=prior")
+
+    @classmethod
+    def from_drain(cls, result: DrainResult, prior: Iterable[str]) -> PruneReferences:
+        """Returns: Referências presas ao alvo e ao desfecho do drain. Raises: ValueError."""
+        return cls(frozenset(prior), result)
+
+    @property
+    def current(self) -> frozenset[str]:
+        return self.drain.target.current
+
+    @property
+    def retained(self) -> frozenset[str]:
+        return self.drain.target.retained
+
+    @property
+    def in_flight(self) -> frozenset[str]:
+        return self.drain.in_flight
+
+    @property
+    def drained(self) -> bool:
+        return self.drain.drained
 
     @property
     def protected(self) -> frozenset[str]:
