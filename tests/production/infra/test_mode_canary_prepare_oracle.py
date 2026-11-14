@@ -469,3 +469,28 @@ def test_resources_fora_do_shape_fechado_sao_recusados(chave, mudanca):
     entrada = _entrada(recursos)
     with pytest.raises(ContractError, match=rf"field=resources(\.{chave})?$"):
         validate_mode_canary_prepare(_plano(entrada), entrada, "initial")
+
+
+@pytest.mark.parametrize(("campo", "valor"), [
+    ("managed_policy_arns", ["arn:aws:iam::aws:policy/AdministratorAccess"]),
+    ("permissions_boundary", f"arn:aws:iam::{CONTA}:policy/aberta"),
+    ("inline_policy", [{"name": "cnesdata-prod-mode-observe-runtime", "policy": "{}"}]),
+    ("inline_policy", [{"name": "extra", "policy": _documento([])}]),
+])
+def test_role_com_anexo_alem_da_policy_derivada_e_recusada(campo, valor):
+    entrada = _entrada(_RECURSOS)
+    plano = _plano(entrada)
+    _endereco(plano, "mode_observe", "aws_iam_role")["change"]["after"][campo] = valor
+    with pytest.raises(ContractError, match=r"field=attachments\.mode_observe$"):
+        validate_mode_canary_prepare(plano, entrada, "initial")
+
+
+def test_role_aceita_readback_da_policy_inline_derivada_e_anexos_vazios():
+    entrada = _entrada(_RECURSOS)
+    plano = _plano(entrada)
+    politica = _endereco(plano, "mode_observe")["change"]["after"]
+    lida = json.dumps(json.loads(politica["policy"]), indent=2)
+    _endereco(plano, "mode_observe", "aws_iam_role")["change"]["after"].update(
+        managed_policy_arns=[], permissions_boundary=None,
+        inline_policy=[{"name": politica["name"], "policy": lida}])
+    assert validate_mode_canary_prepare(plano, entrada, "initial")
