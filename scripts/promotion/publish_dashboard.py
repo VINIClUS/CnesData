@@ -164,20 +164,21 @@ def read_candidate(dist_tar: bytes) -> Candidate:
 
 
 def take_inventory(
-    channel: StaticChannel, baseline: bytes, candidate: Candidate, now: datetime
+    channel: StaticChannel, baseline: bytes, candidate: Candidate, window: UploadWindow
 ) -> Inventory:
     """Returns:
     Snapshot completo do bucket, decisão do contrato e alvos de rollback/abort.
+    Raises:
+    UploadDeadlineError: leitura sem prazo ou vencida dentro da janela do estágio.
     """
-    port, target = channel.port, channel.target
     current, prior = baseline_references(baseline)
-    pages = _version_pages(port, target)
+    pages = _version_pages(channel, window)
     checksums = {
-        (item["Key"], item["VersionId"]): _head_checksum(port, target, item)
+        (item["Key"], item["VersionId"]): _head_checksum(channel, item, window)
         for page in pages
         for item in page.get("Versions", [])
     }
-    uploads = _incomplete_uploads(port, target)
+    uploads = _incomplete_uploads(channel, window)
     snapshot = StaticBucketSnapshot(
         versions=stored_versions(pages, checksums),
         incomplete_upload_bytes=sum(size for _, size in uploads),
@@ -185,7 +186,7 @@ def take_inventory(
         prior=prior,
         complete=True,
     )
-    decision = plan_static_release(snapshot, candidate.objects, now)
+    decision = plan_static_release(snapshot, candidate.objects, window.clock())
     rollback = tuple(
         ref for key in ("index.html", "theme-init.js") for ref in current if ref.key == key
     )
@@ -323,12 +324,12 @@ def _reject_relative_references(index: bytes) -> None:
                 raise CandidateError("relative_reference")
 
 
-def _version_pages(port: StaticPort, target: StaticTarget) -> list[Mapping[str, Any]]:
+def _version_pages(channel: StaticChannel, window: UploadWindow) -> list[Mapping[str, Any]]:
     pages: list[Mapping[str, Any]] = []
     marker: dict[str, Any] = {}
+    request = ("observer", "s3", "ListObjectVersions")
     for _ in range(_MAX_PAGES):
-        port.guard()
-        page = port.call("observer", "s3", "ListObjectVersions", {"Bucket": target.bucket} | marker)
+        page = call_within(channel.port, window, request, {"Bucket": channel.target.bucket} | marker)
         pages.append(page)
         if page.get("IsTruncated") is False:
             return pages
@@ -336,26 +337,26 @@ def _version_pages(port: StaticPort, target: StaticTarget) -> list[Mapping[str, 
     raise PublicationError("listing=pages")
 
 
-def _head_checksum(port: StaticPort, target: StaticTarget, item: Mapping[str, Any]) -> str | None:
-    port.guard()
-    parameters = {"Bucket": target.bucket, "Key": item["Key"], "VersionId": item["VersionId"],
-                  "ChecksumMode": "ENABLED"}
-    result = port.call("observer", "s3", "HeadObject", parameters)
+def _head_checksum(
+    channel: StaticChannel, item: Mapping[str, Any], window: UploadWindow
+) -> str | None:
+    parameters = {"Bucket": channel.target.bucket, "Key": item["Key"],
+                  "VersionId": item["VersionId"], "ChecksumMode": "ENABLED"}
+    result = call_within(channel.port, window, ("observer", "s3", "HeadObject"), parameters)
     if result.get("VersionId") != item["VersionId"]:
         raise PublicationError(f"head=version key={item['Key']}")
     return result.get("ChecksumSHA256")
 
 
-def _incomplete_uploads(port: StaticPort, target: StaticTarget) -> list[tuple[str, int]]:
-    port.guard()
-    listing = port.call("observer", "s3", "ListMultipartUploads", {"Bucket": target.bucket})
+def _incomplete_uploads(channel: StaticChannel, window: UploadWindow) -> list[tuple[str, int]]:
+    bucket = {"Bucket": channel.target.bucket}
+    listing = call_within(channel.port, window, ("observer", "s3", "ListMultipartUploads"), bucket)
     if listing.get("IsTruncated") is not False:
         raise PublicationError("multipart=truncated")
     result = []
     for upload in listing.get("Uploads", []):
-        port.guard()
-        parameters = {"Bucket": target.bucket, "Key": upload["Key"], "UploadId": upload["UploadId"]}
-        parts = port.call("observer", "s3", "ListParts", parameters)
+        parameters = bucket | {"Key": upload["Key"], "UploadId": upload["UploadId"]}
+        parts = call_within(channel.port, window, ("observer", "s3", "ListParts"), parameters)
         if parts.get("IsTruncated") is not False:
             raise PublicationError(f"parts=truncated key={upload['Key']}")
         result.append((str(upload["Key"]), sum(int(p["Size"]) for p in parts.get("Parts", []))))
