@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from datetime import timedelta
 
@@ -47,8 +46,14 @@ CALLER = {
     "run_attempt": 1,
 }
 READY = "c" * 64
-STEPS = ("pull", "start", "readiness", "auth", "aws", "local-smoke", "dispatcher-validate",
-         "dispatcher-switch", "tunnel-smoke")
+# EXT-3 host gate: known terminal failure before the Nginx switch restores the exact prior
+# checkpoint (ROLLED_BACK); an uncertain switch/reload/tunnel effect is RECOVERY_REQUIRED.
+STEPS = (
+    ("pull", "rolled_back"), ("start", "rolled_back"), ("readiness", "rolled_back"),
+    ("auth", "rolled_back"), ("aws", "rolled_back"), ("local-smoke", "rolled_back"),
+    ("dispatcher-validate", "rolled_back"), ("dispatcher-switch", "recovery_required"),
+    ("tunnel-smoke", "recovery_required"),
+)
 
 
 def _utc(seconds: int) -> str:
@@ -165,26 +170,25 @@ def test_prazo_vem_da_decisao_original_de_recovery() -> None:
     assert port.calls[before:] == []
 
 
-@pytest.mark.parametrize("step", STEPS)
-@pytest.mark.parametrize("status", ["rolled_back", "recovery_required"])
+@pytest.mark.parametrize(("step", "status"), STEPS)
 def test_falha_do_candidato_restaura_api_e_libera_lease(step: str, status: str) -> None:
     original = decision() if status == "recovery_required" else None
-    outcome = host_outcome(handoff(status, original, response_sha256=hashlib.sha256(
-        step.encode()).hexdigest()), caller=CALLER, closed_ready_sha256=READY)
+    outcome = host_outcome(handoff(status, original), caller=CALLER, closed_ready_sha256=READY)
     plan = after_host(outcome)
-    assert plan.step is not HostStep.PUBLISH_STATIC
+    assert plan.step is not HostStep.PUBLISH_STATIC, step
     assert plan.fence == "CLOSED"
     if status == "recovery_required":
-        assert plan.step is HostStep.RECOVERY
+        assert (plan.step, plan.host_action) == (HostStep.RECOVERY, "rollback-previous")
         assert plan.decision == original
     else:
-        assert plan.step is HostStep.FENCED_FAILURE
-        assert plan.decision is None
+        assert (plan.step, plan.host_action, plan.decision) == (
+            HostStep.FENCED_FAILURE, None, None)
 
 
 def test_handoff_aceito_libera_so_a_publicacao_estatica() -> None:
     plan = after_host(host_outcome(handoff("accepted"), caller=CALLER, closed_ready_sha256=READY))
     assert (plan.step, plan.fence, plan.decision) == (HostStep.PUBLISH_STATIC, "CLOSED", None)
+    assert plan.host_action is None
 
 
 @pytest.mark.parametrize(
