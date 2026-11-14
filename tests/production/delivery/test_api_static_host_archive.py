@@ -14,6 +14,7 @@ import pytest
 from scripts.promotion.build_host_archive import (
     ArchiveError,
     HostRelease,
+    archive_manifest,
     build_archive,
     build_envelope,
     host_manifest,
@@ -139,3 +140,23 @@ def test_archive_tem_tres_membros_regulares_sem_extensao_e_com_padding_zerado() 
     other = host_manifest(release(), render_compose(IMAGE, 18082), CONFIG, NOW)
     with pytest.raises(ArchiveError, match="manifest"):
         verify_archive(archive, other)
+
+
+def _repacked(manifest_raw: bytes, compose: bytes) -> bytes:
+    raw = io.BytesIO()
+    with tarfile.open(fileobj=raw, mode="w", format=tarfile.USTAR_FORMAT) as tar:
+        for name, body in (("release-manifest.json", manifest_raw), ("compose.yml", compose),
+                           ("config.json", CONFIG)):
+            info = tarfile.TarInfo(name)
+            info.size, info.mode, info.mtime = len(body), 0o644, 0
+            tar.addfile(info, io.BytesIO(body))
+    return gzip.compress(raw.getvalue(), mtime=0)
+
+
+def test_manifest_embutido_so_e_lido_de_archive_verificado() -> None:
+    manifest, compose, archive = _parts()
+    assert archive_manifest(archive) == manifest
+    spaced = json.dumps(manifest, sort_keys=True).encode() + b"\n"
+    for raw in (_repacked(spaced, compose), _repacked(b"[]\n", compose), b"not-gzip"):
+        with pytest.raises(ArchiveError):
+            archive_manifest(raw)
