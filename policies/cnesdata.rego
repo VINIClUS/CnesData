@@ -185,7 +185,18 @@ waf_gated(line) if {
 	line.precondition == "cloudfront_free_plan_active"
 	line.exposure_usd > 0
 	line.blocking == "activation"
-	line.evidence == "pending"
+	line.evidence in {"pending", "verified"}
+}
+
+deny contains msg if {
+	some line in input.lines
+	line.evidence == "verified"
+	not evidence_linked(line)
+	msg := sprintf("evidence_without_link line=%s", [line.id])
+}
+
+evidence_linked(line) if {
+	regex.match(`^https://github\.com/VINIClUS/CnesData/issues/[0-9]+#issuecomment-[0-9]+$`, line.evidence_url)
 }
 
 protected_types := {

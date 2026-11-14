@@ -32,7 +32,11 @@ WINDOW_SECONDS = 86_400
 MONTH_LIMIT_BYTES = 100_000_000_000
 WINDOWS_PER_MONTH = 31
 DETECTION_LATENCY_SECONDS = 300
-BLOCKING_PRECONDITIONS = ["cloudfront_free_plan_active"]
+BLOCKING_PRECONDITIONS = sorted({
+    line["precondition"]
+    for line in json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))["lines"]
+    if line.get("blocking") == "activation" and line.get("evidence") == "pending"
+})
 OVERSHOOT_QUERIES = 4
 CROSSING_QUERIES = 1
 BILLED_QUERIES_PER_MONTH = 1000

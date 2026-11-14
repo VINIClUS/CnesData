@@ -60,7 +60,11 @@
         "precondition": {"type": "string", "minLength": 1},
         "blocking": {"enum": ["activation", "advisory"]},
         "exposure_usd": {"type": "number", "minimum": 0},
-        "evidence": {"enum": ["pending"]},
+        "evidence": {"enum": ["pending", "verified"]},
+        "evidence_url": {
+          "type": "string",
+          "pattern": "^https://github\\.com/VINIClUS/CnesData/issues/[0-9]+#issuecomment-[0-9]+$"
+        },
         "source": {
           "type": "object",
           "additionalProperties": false,

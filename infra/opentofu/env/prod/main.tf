@@ -193,7 +193,7 @@ locals {
 
   role_arn_prefix = "arn:aws:iam::${var.shared_outputs.account_id}:role/"
 
-  activation_blocking_preconditions = ["cloudfront_free_plan_active"]
+  activation_blocking_preconditions = []
 
   freeze_target_role_arns = sort(concat(
     [var.shared_outputs.roles_anywhere.api_role_arn],

@@ -88,6 +88,10 @@ REJECTIONS["exposicao_sem_bloqueio_de_ativacao.json"] = [
 REJECTIONS["manifesto_sem_waf.json"] = ["waf_line_missing line=waf_dedicated"]
 REJECTIONS["waf_sem_evidencia_pendente.json"] = [WAF_UNGATED]
 REJECTIONS["waf_com_bloqueio_consultivo.json"] = [WAF_UNGATED]
+REJECTIONS["waf_verificada_sem_link.json"] = ["evidence_without_link line=waf_dedicated"]
+REJECTIONS["waf_verificada_com_link_invalido.json"] = [
+    "evidence_without_link line=waf_dedicated"
+]
 REJECTIONS["regiao_em_modulo.json"] = [
     "forbidden_region region=us-west-2 type=aws_s3_bucket address=module.child.aws_s3_bucket.west"
 ]

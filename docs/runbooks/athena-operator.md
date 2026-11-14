@@ -49,6 +49,9 @@ Nenhum apply reativa o workgroup (`ignore_changes = [state]`) e nenhuma role de 
 
 ## Ativação da release
 
-A precondição `cloudfront_free_plan_active` bloqueia a ativação. Confirmar que o plano CloudFront
-Free está ACTIVE na conta é decisão PENDENTE DO USUÁRIO; sem ela, a web ACL custa USD 7 por mês e
-estoura o envelope de 8 USD.
+A precondição `cloudfront_free_plan_active` foi comprovada na #476:
+<https://github.com/VINIClUS/CnesData/issues/476#issuecomment-6882664275>.
+O plano CloudFront Free está ACTIVE na distribuição e na WAF exatas, e a raiz não publica mais
+bloqueio de ativação. Se a assinatura deixar de valer, a web ACL volta a custar USD 7 por mês e
+estoura o envelope de 8 USD; nesse caso, voltar `evidence` a `"pending"` no manifesto e o bloqueio
+na raiz antes de qualquer ativação.

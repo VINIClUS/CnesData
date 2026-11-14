@@ -267,8 +267,8 @@ run "contrato_de_ativacao" {
   command = plan
 
   assert {
-    condition     = output.activation_blocking_preconditions == ["cloudfront_free_plan_active"]
-    error_message = "activation must stay blocked until the CloudFront Free plan is confirmed"
+    condition     = output.activation_blocking_preconditions == []
+    error_message = "CloudFront Free plan is ACTIVE per #476; no precondition may block activation"
   }
 
   assert {

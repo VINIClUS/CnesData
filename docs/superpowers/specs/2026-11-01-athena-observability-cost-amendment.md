@@ -216,6 +216,8 @@ pytest com as mensagens exatas. O CI instala conftest 0.71.1 com sha256 fixo, s�
 
 ## WAF: precondição bloqueia a ativação
 
+Histórico: o texto abaixo descreve o estado até 2026-11-14; ver a emenda dessa data.
+
 A linha `waf_dedicated` vale 0 com `precondition: "cloudfront_free_plan_active"`, `blocking:
 "activation"`, `exposure_usd: 7` e `evidence: "pending"`; `cloudfront_free_plan` também declara
 `blocking: "activation"` e `evidence: "pending"`, porque o plano Free ACTIVE não está provado. O
@@ -227,6 +229,34 @@ exposição, `blocking: "activation"` ou `evidence: "pending"` (`waf_unbound_exp
 teste do manifesto repete as regras. A raiz publica `activation_blocking_preconditions =
 ["cloudfront_free_plan_active"]`, consumido pela ativação da delivery (#382). Limitação: o manifesto
 não prova o plano ACTIVE; a ativação deve esperar a confirmação humana.
+
+### Emenda 2026-11-14: plano Free ACTIVE comprovado (#476)
+
+A #476 registrou o plano CloudFront Free `ACTIVE` sobre a distribuição e a WAF exatas, com replay
+`cloudfront_free_active:pass` e `tofu plan` sem diff:
+<https://github.com/VINIClUS/CnesData/issues/476#issuecomment-6882664275>.
+Pelo runbook
+`cloudfront-free.md`, um PR humano próprio remove `cloudfront_free_plan_active` de
+`activation_blocking_preconditions`. O merge é decisão do coordenador da EPIC #465, por delegação
+do dono. Paths alterados:
+- `infra/opentofu/modules/observability/cost-manifest.json`: `cloudfront_free_plan` e
+  `waf_dedicated` passam a `evidence: "verified"` com `evidence_url` do comentário da #476. A
+  linha WAF mantém `precondition`, `blocking: "activation"` e `exposure_usd: 7`: se a assinatura
+  deixar de valer, a reversão é só voltar `evidence` a `"pending"`.
+- `schemas/cost-manifest.schema.json`: `evidence` aceita `pending` ou `verified`; `evidence_url`
+  só aceita link de comentário de issue do CnesData.
+- `policies/cnesdata.rego`: `waf_gated` aceita evidência `pending` ou `verified`, e
+  `evidence_without_link` rejeita `verified` sem link válido.
+- `tests/fixtures/plans/accepted/waf_com_evidencia_verificada.json` e as rejeitadas
+  `waf_verificada_sem_link.json` e `waf_verificada_com_link_invalido.json`.
+- `infra/opentofu/env/prod/main.tf` publica `activation_blocking_preconditions = []`;
+  `infra/opentofu/tests/production.tftest.hcl` (`contrato_de_ativacao`) e
+  `tests/production/infra/_athena_contracts.py` acompanham. A lista esperada passa a ser derivada
+  do manifesto: as precondições de linhas com `blocking: "activation"` e `evidence: "pending"`.
+
+Efeito em produção: só a output da raiz. O state continua com a lista antiga até o próximo apply
+da raiz, e o plan seguinte mostra a mudança em "Changes to Outputs", sem recurso alterado.
+`certificate_domain_validated` (HSTS) e o corte de DNS seguem em mudanças próprias.
 
 ## Base da quantidade máxima por linha (`max_basis`)
 
