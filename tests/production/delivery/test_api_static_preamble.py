@@ -80,3 +80,9 @@ def test_cli_falha_fechado_sem_evidencia_valida(tmp_path: Path) -> None:
     assert main(["--evidence", str(good)]) == 0
     assert main(["--evidence", str(bad)]) == 1
     assert main(["--evidence", str(tmp_path / "missing.json")]) == 1
+
+
+def test_check_obrigatorio_de_outro_app_nao_conta_como_verde() -> None:
+    foreign = _run("delivery-contracts", ident=200) | {"app": {"id": 999}}
+    with pytest.raises(PreambleError, match="check"):
+        check_preamble(evidence(check_runs=_with_run(foreign)))
