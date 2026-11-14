@@ -8,7 +8,8 @@ AWS: a assinatura fica fora do state do OpenTofu (`docs/superpowers/specs/
 2026-08-29-cnesdata-production-deployment-design.md`, seção 6.1). O gate só vê os sinais de
 plano pago no plan (certificado `vip`, Origin Shield, monitoring subscription e real-time
 logs, regras do `policies/cnesdata.rego`) e o bloqueio de ativação
-`cloudfront_free_plan_active`, que fica pendente até esta evidência.
+`cloudfront_free_plan_active`, que ficou pendente até esta evidência e saiu pela emenda de
+2026-11-14 (#476).
 
 ## Aprovação
 
@@ -46,7 +47,7 @@ plan não tem diff. Trocar conta, ID da distribuição e ARN da WAF por `<conta>
 - Nada a apagar. Se o plano não ficou `ACTIVE`, manter a ativação bloqueada e abrir issue.
   Nunca cancelar/substituir a assinatura ou desfazer a associação automaticamente.
 - Só depois da evidência, um humano remove `cloudfront_free_plan_active` de
-  `activation_blocking_preconditions` em PR próprio.
+  `activation_blocking_preconditions` em PR próprio. Feito pela emenda de 2026-11-14 (#476).
 
 
 ## Ferramenta #476 e elegibilidade real

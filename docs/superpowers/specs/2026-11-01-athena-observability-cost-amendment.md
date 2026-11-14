@@ -216,6 +216,8 @@ pytest com as mensagens exatas. O CI instala conftest 0.71.1 com sha256 fixo, s�
 
 ## WAF: precondição bloqueia a ativação
 
+Histórico: o texto abaixo descreve o estado até 2026-11-14; ver a emenda dessa data.
+
 A linha `waf_dedicated` vale 0 com `precondition: "cloudfront_free_plan_active"`, `blocking:
 "activation"`, `exposure_usd: 7` e `evidence: "pending"`; `cloudfront_free_plan` também declara
 `blocking: "activation"` e `evidence: "pending"`, porque o plano Free ACTIVE não está provado. O
