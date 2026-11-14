@@ -64,6 +64,7 @@ PRODUCTION_COPIES = (
     f"--chmod=0555 {READER_PATH} {READER_TARGET}",
     f"--chmod=0444 {AWS_CONFIG_PATH} {AWS_CONFIG_TARGET}",
 )
+AWS_CONFIG_DIRECTORY = "install -d -m 0755 /etc/cnesdata"
 ROLES_ANYWHERE_DIRECTORY = "/etc/cnesdata/aws/"
 HOST_IMAGE = "ghcr.io/viniclus/cnesdata/central_api@sha256:" + "0" * 64
 UVICORN_EXEC = (
@@ -214,6 +215,21 @@ def test_estagio_de_producao_fixa_o_perfil_aws_da_imagem(production: Stage) -> N
     assert _key_values(production.arguments("ENV")) == FIXED_SETTINGS
     assert entrypoints == [[ENTRYPOINT_TARGET]]
     assert [copy for copy in PRODUCTION_COPIES if copy in copies] == list(PRODUCTION_COPIES)
+
+
+def test_diretorio_do_perfil_aws_e_criado_atravessavel_antes_do_copy(production: Stage) -> None:
+    instructions = list(production.instructions)
+    created = [
+        index for index, item in enumerate(instructions)
+        if item.keyword == "RUN" and item.arguments == AWS_CONFIG_DIRECTORY
+    ]
+    copied = [
+        index for index, item in enumerate(instructions)
+        if item.keyword == "COPY" and item.arguments.endswith(f" {AWS_CONFIG_TARGET}")
+    ]
+
+    assert len(created) == len(copied) == 1
+    assert created[0] < copied[0]
 
 
 def test_helper_baixado_por_https_com_sha256_pinado_e_verificado(production: Stage) -> None:
