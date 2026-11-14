@@ -21,7 +21,8 @@ READER_SUBPROCESS_TESTS = (
 )
 IGNORE_PREFIX = "sonar.issue.ignore.multicriteria"
 PATH_TRAVERSAL_RULE = "pythonsecurity:S8707"
-EXCLUSION_OPTIONS = ("--ignore=", "--ignore-glob=", "--deselect=")
+EXCLUSION_OPTIONS = ("--ignore", "--ignore-glob", "--deselect")
+VALUE_OPTIONS = (*EXCLUSION_OPTIONS, "-k", "-m")
 EXCLUDED_MARKER = re.compile(r"\bnot\s+(\w+)")
 
 
@@ -50,19 +51,36 @@ def _matches(pattern: str, path: str) -> bool:
     return any(fnmatchcase(path, form.replace("**", "*")) for form in forms)
 
 
-def _excludes(option: str, test: str) -> bool:
-    flag, target = option.split("=", 1)
-    target = target.split("::", 1)[0].rstrip("/")
+def _excludes(flag: str, value: str, test: str) -> bool:
+    target = value.split("::", 1)[0].rstrip("/")
     if flag == "--ignore-glob":
         return _matches(target, test)
     return test == target or test.startswith(f"{target}/")
 
 
-def _runtime_python() -> tuple[dict[str, Any], list[str], dict[str, Any]]:
+def _arguments(command: list[str]) -> tuple[list[str], list[tuple[str, str]]]:
+    positionals: list[str] = []
+    options: list[tuple[str, str]] = []
+    pending = ""
+    for argument in command:
+        flag, _, value = argument.partition("=")
+        if pending:
+            options.append((pending, argument))
+            pending = ""
+        elif argument in VALUE_OPTIONS:
+            pending = argument
+        elif flag in VALUE_OPTIONS:
+            options.append((flag, value))
+        else:
+            positionals.append(argument)
+    return positionals, options
+
+
+def _runtime_python() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     workflow = yaml.safe_load(RUNTIME_WORKFLOW.read_text(encoding="utf-8"))
     job = workflow["jobs"]["runtime-python"]
-    command = shlex.split(next(s["run"] for s in job["steps"] if s.get("id") == "python-contracts"))
-    return job, command, workflow["jobs"]["production-runtime-acceptance"]
+    step = next(s for s in job["steps"] if s.get("id") == "python-contracts")
+    return job, step, workflow["jobs"]["production-runtime-acceptance"]
 
 
 def test_ignore_de_path_traversal_do_leitor_e_escopado_no_caminho_exato() -> None:
@@ -83,22 +101,33 @@ def test_exclusao_de_cobertura_do_leitor_e_o_caminho_exato() -> None:
     assert [pattern for pattern in exclusions if _matches(pattern, READER)] == [READER]
 
 
-def test_job_obrigatorio_roda_os_testes_de_subprocesso_do_leitor() -> None:
-    job, command, aggregate = _runtime_python()
-    options = [arg for arg in command if arg.startswith(EXCLUSION_OPTIONS)]
+def test_leitor_continua_no_escopo_de_analise_do_sonar() -> None:
+    entries = _properties()
 
-    assert "tests/production" in command
+    assert any(READER.startswith(f"{source}/") for source in _list(entries["sonar.sources"]))
+    assert not [p for p in _list(entries["sonar.exclusions"]) if _matches(p, READER)]
+
+
+def test_job_obrigatorio_roda_os_testes_de_subprocesso_do_leitor() -> None:
+    job, step, aggregate = _runtime_python()
+    positionals, options = _arguments(shlex.split(step["run"]))
+    gates = {key: v for key, v in (job | step).items() if key in {"if", "continue-on-error"}}
+
+    assert "tests/production" in positionals
     assert "runtime-python" in aggregate["needs"]
-    assert not job.get("continue-on-error")
+    assert gates == {}
+    assert [flag for flag, _ in options if flag == "-k"] == []
     assert not [
-        (option, test) for option in options for test in READER_SUBPROCESS_TESTS
-        if _excludes(option, test)
+        (flag, value, test) for flag, value in options for test in READER_SUBPROCESS_TESTS
+        if flag in EXCLUSION_OPTIONS and _excludes(flag, value, test)
     ]
 
 
 def test_testes_de_subprocesso_do_leitor_nao_carregam_marker_excluido_pelo_job() -> None:
-    _, command, _ = _runtime_python()
-    excluded = set(EXCLUDED_MARKER.findall(command[command.index("-m") + 1]))
+    _, step, _ = _runtime_python()
+    _, options = _arguments(shlex.split(step["run"]))
+    expressions = [value for flag, value in options if flag == "-m"]
+    excluded = {name for value in expressions for name in EXCLUDED_MARKER.findall(value)}
     sources = {
         test: (REPO_ROOT / test).read_text(encoding="utf-8") for test in READER_SUBPROCESS_TESTS
     }
