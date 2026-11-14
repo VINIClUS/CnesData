@@ -124,6 +124,10 @@ class FakeStaticPort:
         entry = self.latest(key)
         return None if entry is None else entry.version_id
 
+    def body(self, key: str) -> bytes | None:
+        entry = self.latest(key)
+        return None if entry is None else entry.body
+
     def writes(self, operation: str = "PutObject") -> list[str]:
         return [params["Key"] for _, _, op, params in self.calls if op == operation]
 

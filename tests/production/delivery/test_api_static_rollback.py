@@ -7,13 +7,6 @@ import json
 from datetime import timedelta
 
 import pytest
-from scripts.promotion.rollback_api_static import (
-    HostStep,
-    after_host,
-    host_outcome,
-    recovery_window,
-    rollback_static,
-)
 
 from scripts.promotion.publish_dashboard import (
     PublicationError,
@@ -24,6 +17,13 @@ from scripts.promotion.publish_dashboard import (
     publish_release,
     read_candidate,
     take_inventory,
+)
+from scripts.promotion.rollback_api_static import (
+    HostStep,
+    after_host,
+    host_outcome,
+    recovery_window,
+    rollback_static,
 )
 from tests.production.delivery._api_static_fixtures import (
     BUCKET,
@@ -108,7 +108,7 @@ def test_rollback_restaura_index_e_theme_init() -> None:
     invalidation = next(p for _, _, op, p in calls if op == "CreateInvalidation")
     assert invalidation["InvalidationBatch"]["Paths"]["Items"] == ["/index.html", "/theme-init.js"]
     for key in ROOT:
-        assert port.latest(key).body == release_files("v0")[key]
+        assert port.body(key) == release_files("v0")[key]
     assert dict(receipt.restored)["index.html"] == port.version("index.html")
     assert receipt.residual is False
 
