@@ -38,6 +38,10 @@ from tests.production.delivery._api_static_fixtures import (
 )
 
 TARGET = StaticTarget(BUCKET, DISTRIBUTION)
+
+
+def _scan(port: FakeStaticPort) -> UploadWindow:
+    return UploadWindow(port.now, NOW + timedelta(seconds=180))
 OLD = NOW - timedelta(days=30)
 ROOT = ("index.html", "theme-init.js")
 
@@ -59,7 +63,7 @@ def _window(port: FakeStaticPort, seconds: int = 180) -> UploadWindow:
 def _inventory(port: FakeStaticPort, files: dict[str, bytes], current=None, prior=None):
     candidate = read_candidate(dist_tar(files))
     channel = StaticChannel(port, TARGET)
-    return take_inventory(channel, baseline(current, prior), candidate, NOW), candidate
+    return take_inventory(channel, baseline(current, prior), candidate, _scan(port)), candidate
 
 
 def test_list_object_versions_vira_stored_version_sem_delete_marker() -> None:
@@ -199,11 +203,11 @@ def test_baseline_sem_index_ou_fora_do_bucket_e_recusado() -> None:
     old = _publish_existing(port, release_files("v0"))
     candidate = read_candidate(dist_tar(release_files("v1")))
     raw = baseline([ref for ref in old if ref[0] != "index.html"], None)
-    assert take_inventory(StaticChannel(port, TARGET), raw, candidate, NOW).decision.outcome is (
-        ReleaseOutcome.REJECTED_INVALID)
+    inventory = take_inventory(StaticChannel(port, TARGET), raw, candidate, _scan(port))
+    assert inventory.decision.outcome is ReleaseOutcome.REJECTED_INVALID
     missing = baseline([*old, (INDEX_JS + "x", "nope")], None)
     with pytest.raises(PublicationError, match="baseline"):
-        take_inventory(StaticChannel(port, TARGET), missing, candidate, NOW)
+        take_inventory(StaticChannel(port, TARGET), missing, candidate, _scan(port))
 
 
 def test_current_antigo_continua_alvo_de_rollback() -> None:
@@ -312,3 +316,16 @@ def test_dist_tar_com_link_traversal_ou_chave_fora_do_contrato_e_recusado() -> N
         read_candidate(dist_tar(release_files() | {"robots.txt": b"x"}))
     with pytest.raises(CandidateError, match="key"):
         read_candidate(dist_tar(release_files() | {"../index.html": b"x"}))
+
+
+def test_inventario_sem_prazo_recusa_antes_de_listar_e_vencido_fica_incerto() -> None:
+    port = FakeStaticPort()
+    candidate = read_candidate(dist_tar(release_files()))
+    raw = baseline(None, None)
+    with pytest.raises(UploadDeadlineError):
+        take_inventory(StaticChannel(port, TARGET), raw, candidate, UploadWindow(port.now, NOW))
+    assert port.calls == []
+    port.seed(INDEX_JS, b"x", NOW - timedelta(days=1))
+    port.latency[INDEX_JS] = timedelta(seconds=60)
+    with pytest.raises(UploadDeadlineError):
+        take_inventory(StaticChannel(port, TARGET), raw, candidate, _scan(port))

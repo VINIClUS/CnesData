@@ -35,6 +35,10 @@ from tests.production.delivery._api_static_fixtures import (
 )
 
 TARGET = StaticTarget(BUCKET, DISTRIBUTION)
+
+
+def _scan(port: FakeStaticPort) -> UploadWindow:
+    return UploadWindow(port.now, NOW + timedelta(seconds=180))
 ROOT = ("index.html", "theme-init.js")
 CALLER = {
     "repository": "VINIClUS/CnesData",
@@ -92,7 +96,7 @@ def _published(port: FakeStaticPort):
              for key, body in release_files("v0").items()}
     candidate = read_candidate(dist_tar(files))
     channel = StaticChannel(port, TARGET)
-    inventory = take_inventory(channel, baseline(old, None), candidate, NOW)
+    inventory = take_inventory(channel, baseline(old, None), candidate, _scan(port))
     window = UploadWindow(port.now, NOW + timedelta(seconds=180))
     return old, inventory, publish_release(channel, inventory, candidate, window)
 
@@ -132,7 +136,7 @@ def test_primeira_publicacao_sem_par_anterior_fica_residual_sem_restaurar() -> N
     port = FakeStaticPort()
     candidate = read_candidate(dist_tar(release_files("v1")))
     channel = StaticChannel(port, TARGET)
-    inventory = take_inventory(channel, baseline(None, None), candidate, NOW)
+    inventory = take_inventory(channel, baseline(None, None), candidate, _scan(port))
     window = UploadWindow(port.now, NOW + timedelta(seconds=180))
     publication = publish_release(channel, inventory, candidate, window)
     before = len(port.calls)
