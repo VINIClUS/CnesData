@@ -16,6 +16,8 @@ from scripts.promotion.accept_routing import (
     MODES,
     CanaryAcceptance,
     PhaseCWatchdog,
+    assert_fence,
+    observe_gate,
     read_routes,
 )
 from scripts.promotion.mode_canary import RESULT_FIELDS, RESULT_SCHEMA
@@ -72,12 +74,13 @@ def _second(value: str) -> datetime:
 
 @dataclass(frozen=True)
 class PhaseCContext:
-    """Phase B autenticada, close-drain original e evidências das fases C aceitas, em ordem."""
+    """Phase B autenticada, close-drain original, fases C e canaries aceitos, em ordem."""
 
     phase_b: PhaseBContext
     phase_b_evidence: Node
     close: Node
     accepted: tuple[Node, ...] = ()
+    canaries: tuple[CanaryAcceptance, ...] = ()
 
     @property
     def activation_sha256(self) -> str:
@@ -125,7 +128,8 @@ class PhaseCContext:
             and evidence.get("common") == self.phase_b_evidence["common"]
             and evidence.get("close_drain_sha256") == self.phase_b_evidence["close_drain_sha256"]
             and evidence.get("before") == self.checkpoint
-            and evidence.get("routes") == self.routes_for(str(mode)),
+            and evidence.get("routes") == self.routes_for(str(mode))
+            and len(self.canaries) == len(self.accepted),
             "phase_c=evidence",
         )
         return replace(self, accepted=(*self.accepted, deepcopy(dict(evidence))))
@@ -254,6 +258,7 @@ def _run_policy_contract(change: Node, mode: str, context: PhaseCContext) -> Non
 def review_scheduler_plan(plan: Mapping[str, Any], mode: str, context: PhaseCContext) -> str:
     """Returns: initial/established. Raises: ValueError: Delta fora do Scheduler do modo."""
     _require(mode == context.next_mode, "phase_c=order")
+    _require(len(context.canaries) == len(context.accepted), "phase_c=prior_canary")
     _variables(plan, mode, context)
     _assert_task_revisions_unchanged(plan)
     changes = _changes(plan)
@@ -308,8 +313,7 @@ def _apply_reviewed(native: NativePhaseB, raw: bytes, review: Callable[[Node], N
 
 
 def _advanced(before: Node, after: Node) -> None:
-    _require(after["lineage"] == before["lineage"] and after["serial"] > before["serial"]
-             and after["object_version"] != before["object_version"],
+    _require(after["lineage"] == before["lineage"] and after["serial"] > before["serial"],
              "phase_c=checkpoint_not_advanced")
 
 
@@ -318,14 +322,13 @@ def execute_reviewed_phase_c(context: PhaseCContext, native: NativePhaseB,
     """Aplica só o binário auditado do próximo modo sobre o checkpoint real, antes do corte."""
     mode, close = context.next_mode, context.close
     _require(mode is not None, "phase_c=complete")
-    native.assert_closed(close)
     before, _ = native.checkpoint()
     _require(before == context.checkpoint, "phase_c=checkpoint_chain")
     raw, audit = _audited(approval, str(mode), context, before)
 
     def review(plan: Node) -> None:
         review_scheduler_plan(plan, str(mode), context)
-        native.assert_closed(close)
+        assert_fence(observe_gate(native)[1], close)
         context.watchdog.admit(f"phase-c-{mode}", datetime.now(UTC), APPLY_SECONDS)
 
     applied = _apply_reviewed(native, raw, review, before)
@@ -334,7 +337,7 @@ def execute_reviewed_phase_c(context: PhaseCContext, native: NativePhaseB,
     _advanced(before, after)
     routes = read_routes(native, context, state)
     _require(routes == context.routes_for(str(mode)), "phase_c=routes")
-    native.assert_closed(close)
+    assert_fence(observe_gate(native)[1], close)
     return {
         "version": 1, "kind": f"phase-c-{mode}", "common": dict(close["common"]),
         "close_drain_sha256": object_hash(close), "before": before, "after": after,
@@ -348,6 +351,7 @@ def execute_reviewed_phase_c(context: PhaseCContext, native: NativePhaseB,
 def _bound(result: Node, mode: str, context: PhaseCContext) -> None:
     applied = [e for e in context.accepted if e["kind"] == f"phase-c-{mode}"]
     _require(len(applied) == 1, "canary=route_not_accepted")
+    _require(len(context.canaries) == MODES.index(mode), "canary=order")
     canary, common = context.phase_b.canary, context.close["common"]
     _require(
         all(result["common"][key] == canary[key] for key in _RESULT_COMMON)
@@ -407,22 +411,15 @@ def verify_mode_route(readbacks: Node, mode: str, context: PhaseCContext) -> Non
     )
 
 
-def fenced(context: PhaseCContext, gate_state: Any) -> None:
-    """Raises: ValueError: Fence de outra promoção, aberto ou permit unit ainda em voo."""
-    fence = gate_state.fence
-    _require(fence.state.value == "CLOSED"
-             and fence.promotion_id == context.close["fence"]["promotion_id"], "canary=fence")
-    _require(gate_state.permit is None, "canary=unit_in_flight")
-
-
 def accept_mode_canary(raw: bytes, mode: str, context: PhaseCContext,
-                       evidence: Mapping[str, Any]) -> CanaryAcceptance:
-    """Returns: Aceite tipado do mode-result. Raises: ValueError: Rota, janela ou fence."""
+                       evidence: Mapping[str, Any]) -> PhaseCContext:
+    """Returns: Contexto com o aceite do canary. Raises: ValueError: Rota, janela ou fence."""
     verify_mode_route(evidence["readbacks"], mode, context)
     result = mode_result(raw, mode, context, evidence["readbacks"])
-    fenced(context, evidence["gate"])
-    return CanaryAcceptance(
+    assert_fence(evidence["gate"], context.close)
+    accepted = CanaryAcceptance(
         mode=mode, common=dict(result["common"]),
+        phase_c_sha256=object_hash(context.accepted[MODES.index(mode)]),
         result_sha256=hashlib.sha256(raw).hexdigest(),
         routing_sha256=result["routing_before_sha256"],
         task_receipts=len(result["task_receipts"]), observed_at=result["observed_at"],
@@ -430,10 +427,11 @@ def accept_mode_canary(raw: bytes, mode: str, context: PhaseCContext,
         deadline_drill_sha256=result["deadline_drill_sha256"],
         operational_requirements=tuple(result["operational_requirements"]),
     )
+    return replace(context, canaries=(*context.canaries, accepted))
 
 
 def accept_recovery_canary(raw: bytes, context: PhaseCContext, readbacks: Node,
-                           gate_state: Any) -> CanaryAcceptance:
-    """Returns: Aceite do canary de recovery. Raises: ValueError: Task unit ainda em voo."""
+                           gate_state: Any) -> PhaseCContext:
+    """Returns: Contexto com o canary de recovery aceito. Raises: ValueError: Permit em voo."""
     return accept_mode_canary(raw, "recovery", context,
                               {"readbacks": readbacks, "gate": gate_state})
