@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import copy
-import dataclasses
 import hashlib
 import json
 import subprocess
+from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
 from functools import partial, reduce
 from pathlib import Path
@@ -27,10 +27,9 @@ from tests.production.delivery import test_mode_canary as mc
 from tests.production.delivery import test_phase_b_execution as base
 
 activation, case, ddb, github = base.activation, base.case, base.ddb, base.github
-operation, replace = base.operation, dataclasses.replace
 SCHEDULE, RUN_POLICY, VARIABLES = rec.SCHEDULE, rec.RUN_POLICY, rec.VARIABLES
 MODES, _instant, accept_and_reopen = routing.MODES, routing._instant, routing.accept_and_reopen
-ROOT = Path(__file__).resolve().parents[3]
+operation, ROOT = base.operation, Path(__file__).resolve().parents[3]
 ORDER, PRIOR = ([(f"phase_c={reason}", lambda bad: None)] for reason in ("order", "prior_canary"))
 COMMANDS = {"recovery": ["recover-once"], "audit": ["dispatch-outbox-once"]}
 TASK = 'module.processing.aws_ecs_task_definition.processor["recovery"]'
@@ -408,12 +407,13 @@ def _checkpoint(head=copy.copy, body=copy.copy):
 
 APPLY, HALF = (), MODES[:1]
 MIXED = {
-    "apply_com_permit": (APPLY, _permit, "fence=permit_in_flight"),
+    "antes_do_apply_com_permit": (APPLY, _permit, "fence=permit_in_flight"),
+    "apply_com_permit_no_meio": (APPLY, _stray(lambda op, _: _permit(op)), "permit_in_flight"),
     "apply_sujo": (APPLY, _stray(lambda op, _: setattr(op, "dirty", True)), "post_apply_drift"),
     "apply_parou": (APPLY, _stray(lambda _, b: setattr(b, "serial", b.serial - 1)), "not_advanced"),
-    "apply_lineage": (APPLY, _stray(_checkpoint(lambda h: {**h, "lineage": "x"})), "not_advanced"),
-    "apply_no_corte": (APPLY, lambda op: _late(op, RECOVERY_SECONDS + 100, ("phase_c_recovery",)),
-                       "window=cutoff step=phase-c-recovery"),
+    "apply_lineage": (APPLY, _stray(_checkpoint(lambda h: dict(h, lineage="x"))), "not_advanced"),
+    "antes_do_apply_no_corte": (APPLY, lambda op: _late(op, RECOVERY_SECONDS + 100, (
+        "phase_c_recovery",)), "window=cutoff step=phase-c-recovery"),
     "incompleto": (HALF, lambda _: None, "reopen=phase_c_incomplete"),
     "sem_canary_de_audit": (MODES, lambda op: setattr(op, "ctx", replace(
         op.ctx, canaries=op.ctx.canaries[:1])), "reopen=canaries"),
@@ -421,8 +421,7 @@ MIXED = {
     "maquina_mista": (MODES, _wrap("describe_state_machine", lambda _, read: {
         **read, "definition": "{}"}), "routes=machine_readback"),
     "state_sujo": (MODES, lambda op: setattr(op, "dirty", True), "phase_b=post_apply_drift"),
-    "checkpoint_mudou": (MODES, lambda op: setattr(op.boundary, "serial", op.boundary.serial + 1),
-                         "reopen=checkpoint_changed"),
+    "serial_mudou": (MODES, lambda op: setattr(op.boundary, "serial", 99), "checkpoint_changed"),
     "checkpoint_muda_na_leitura": (MODES, _wrap("describe_state_machine", lambda b, read: (
         setattr(b, "serial", b.serial + 1), read)[1]), "reopen=checkpoint_changed"),
     "vazio": (MODES, _checkpoint(body=lambda s: {**s, "resources": []}), "recovery_missing"),
@@ -449,6 +448,8 @@ def test_estado_misto_nao_reabre_fence(phase_c, case_name):
         _apply, phase_c, "recovery")
     with pytest.raises(ValueError, match=reason):
         act()
+    applied = phase_c.boundary.revisions.get("recovery") == phase_c.ctx.revisions["recovery"]
+    assert modes or applied != case_name.startswith("antes_do_apply")
     state = phase_c.adapter.observe_environment_gate("prod")
     assert state.fence.state.value == "CLOSED"
     assert state.fence.promotion_id == phase_c.close["fence"]["promotion_id"]
@@ -464,7 +465,7 @@ def test_rotas_aceitas_e_state_limpo_reabrem_fence(phase_c):
     changes = ({"common": {**audit.common, "activation_sha256": "0" * 64}}, {"mode": "recovery"},
                {"common": {**audit.common, "promotion_generation": 0}}, {"task_receipts": 2},
                {"phase_c_sha256": "0" * 64}, {"freeze_proof_sha256": None})
-    for forged in (dataclasses.asdict(audit), *(replace(audit, **change) for change in changes)):
+    for forged in (asdict(audit), *(replace(audit, **change) for change in changes)):
         with pytest.raises(ValueError, match="reopen=canary_binding"):
             routing.canary_status(replace(ctx, canaries=(ctx.canaries[0], forged)))
     evidence = accept_and_reopen(ctx, phase_c.native)
