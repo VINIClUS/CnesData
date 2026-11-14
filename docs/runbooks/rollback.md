@@ -37,7 +37,9 @@ S3 para trás, nem edita state ou o control plane à mão.
 4. `execute_reviewed_rollback` revisa a cópia 0400 do plan. Um só plan troca a máquina, os dois
    Schedulers e os dois grants `ecs:RunTask`. Plan parcial, nova revisão ECS, mudança no grant
    da state machine ou rota diferente da anterior recusam o plan inteiro.
-5. Logo antes e depois do apply, o fence precisa estar fechado na mesma promoção, sem permit.
+5. O documento de close-drain precisa ser da activation atual (`activation_sha256`); outro
+   recusa antes de ler o plan. Logo antes e depois do apply, o fence precisa estar fechado na
+   mesma promoção, sem permit.
    Depois do apply: state limpo, checkpoint que avançou e as três rotas anteriores lidas forte.
 6. Apply com falha exige plan novo e nova auditoria.
 
@@ -59,6 +61,9 @@ dono, com as rotas anteriores lidas forte e o state limpo.
 ## 4. Poda
 
 - Só depois do drain. Sem drain, `execute_prune` não lê nem apaga nada.
+- As referências vêm de `PruneReferences.from_drain(result, prior)`: atual, retidas, em voo e
+  drenado saem do `DrainResult` e do alvo dele. A anterior tem uma revisão por família, fora da
+  atual, com a unit no conjunto retido; vazia só quando o conjunto retido é só a unit atual.
 - O inventário lê o ECR e as três famílias de task definition até o fim da paginação. Página sem
   fim, revisão fora do contrato ou referência sem digest tagueado tornam o inventário
   incompleto, e nada é podado.
@@ -66,8 +71,8 @@ dono, com as rotas anteriores lidas forte e o state limpo.
   em voo ou os retidos. Um digest só sai quando todas as revisões que o usam são mais antigas
   que a atual e a anterior e não estão protegidas.
 - Ordem: leitura, decisão, segunda leitura igual, deregister das revisões, `BatchDeleteImage`
-  por digest e leitura final. Mudança entre leituras, falha de delete ou recurso que volta na
-  leitura final param a poda.
+  por digest e leitura final. Mudança entre leituras, falha de delete, leitura final incompleta
+  ou recurso que volta na leitura final param a poda.
 - `retained_after` propõe o conjunto retido reduzido às unit atual, anterior e em voo. Os
   grants antigos só saem por um novo plan revisado com esse conjunto.
 

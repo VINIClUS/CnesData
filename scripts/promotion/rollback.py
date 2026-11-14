@@ -193,6 +193,8 @@ def read_rollback_routes(native: NativePhaseB, context: RollbackContext,
 def execute_reviewed_rollback(context: RollbackContext, native: NativePhaseB,
                               approval: Mapping[str, Any], close: Mapping[str, Any]) -> Node:
     """Aplica só o plan de rollback auditado, com o fence fechado, e lê as rotas anteriores."""
+    _require(close["common"]["activation_sha256"] == _sha(context.current.activation or b""),
+             "rollback=activation_binding")
     before, _ = native.checkpoint()
     raw, audit = _audited(approval, before, close)
 

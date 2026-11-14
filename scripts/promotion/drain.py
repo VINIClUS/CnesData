@@ -56,13 +56,14 @@ class CancelApproval:
 
 @dataclass(frozen=True)
 class DrainResult:
-    """Desfecho do drain; sem drain, as revisões em voo continuam protegidas."""
+    """Desfecho do drain no alvo lido; sem drain, as revisões em voo continuam protegidas."""
 
     drained: bool
     in_flight: frozenset[str]
     executions: tuple[str, ...]
     cancelled: tuple[Node, ...]
     observations: int
+    target: DrainTarget
 
 
 def _validate(approval: CancelApproval | None, machine: str) -> None:
@@ -132,8 +133,8 @@ def drain_old_work(clients: Mapping[str, Any], target: DrainTarget, clock: Drain
             cancelled += _cancel(clients, target, approval, pending)
         clean = clean + 1 if complete and not executions and not revisions else 0
         if clean >= CLEAN_READS:
-            return DrainResult(True, frozenset(), (), tuple(cancelled), observations)
+            return DrainResult(True, frozenset(), (), tuple(cancelled), observations, target)
         if clock.monotonic() >= limit:
             return DrainResult(False, _in_flight(target, executions, revisions, complete),
-                               tuple(executions), tuple(cancelled), observations)
+                               tuple(executions), tuple(cancelled), observations, target)
         clock.sleep(POLL_SECONDS)
