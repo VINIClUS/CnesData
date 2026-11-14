@@ -180,6 +180,8 @@ roles `observer`, `normal` e `recovery` de `static-promotion.tf`; não há fallb
   `current`, dentro de min(D_rec, choice_at+300) da decisão original de recovery.
 - A regra `static-web-gc` está `Enabled`, filtrada pela tag `static-web-gc=eligible`. `retire` do
   contrato não depende dela.
+- `retire` e `retire_latest` são reportados na inventory e não são executados pela promoção: o
+  plano estático leva `retire_versions` vazio até existir operação de retirada no lifecycle.
 
 Saída manual com bucket cheio e sem `current`: a recusa `REJECTED_CAPACITY` não devolve o que
 retirar, porque sem referência atual nada prova que um objeto saiu de uso. O dono revisa o
