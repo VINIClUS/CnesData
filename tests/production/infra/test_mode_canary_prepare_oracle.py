@@ -18,16 +18,40 @@ from scripts.promotion.prepare_mode_canary import (
     prepare_receipt,
     validate_mode_canary_prepare,
 )
-from tests.production.infra._mode_canary_native import ALIASES, CONTA, PREFIXO, _entrada, _nome
+from tests.production.infra._mode_canary_native import (
+    ALIASES,
+    CONTA,
+    PREFIXO,
+    _entrada,
+    _escopo,
+    _nome,
+)
 
-_RECURSOS = {"table_arn": f"arn:aws:dynamodb:us-east-2:{CONTA}:table/cnesdata-prod"}
-_TIPOS = ("aws_iam_role", "aws_iam_role_policy")
-_ACOES = {
-    "mode_seed": "dynamodb:PutItem",
-    "mode_dispatch": "ecs:RunTask",
-    "mode_audit_launch": "ecs:RunTask",
-    "mode_observe": "dynamodb:GetItem",
+_REGIAO = f"us-east-2:{CONTA}"
+_MODOS = ("audit", "recovery", "unit")
+_RECURSOS = {
+    "table_arn": f"arn:aws:dynamodb:{_REGIAO}:table/cnesdata-prod",
+    "index_arn": f"arn:aws:dynamodb:{_REGIAO}:table/cnesdata-prod/index/gsi5",
+    "data_bucket_arn": "arn:aws:s3:::cnesdata-prod-data",
+    "audit_bucket_arn": "arn:aws:s3:::cnesdata-prod-audit",
+    "cluster_arn": f"arn:aws:ecs:{_REGIAO}:cluster/cnesdata-prod",
+    "machine_arn": f"arn:aws:states:{_REGIAO}:stateMachine:cnesdata-prod",
+    "revisions": {m: f"arn:aws:ecs:{_REGIAO}:task-definition/cnesdata-prod-{m}:17" for m in _MODOS},
+    "task_role_arns": {m: f"arn:aws:iam::{CONTA}:role/cnesdata-prod-task-{m}" for m in _MODOS},
+    "execution_role_arn": f"arn:aws:iam::{CONTA}:role/cnesdata-prod-execution",
+    "network": {"public_subnet_ids": ["subnet-0a", "subnet-0b"], "security_group_id": "sg-0c"},
+    "log_group_arn": f"arn:aws:logs:{_REGIAO}:log-group:/cnesdata/prod/processor",
+    "schedule_arns": {
+        m: f"arn:aws:scheduler:{_REGIAO}:schedule/cnesdata-prod-{m}/cnesdata-prod-{m}"
+        for m in ("audit", "recovery")
+    },
+    "alarm_arns": {
+        k: f"arn:aws:cloudwatch:{_REGIAO}:alarm:cnesdata-prod-{k}"
+        for k in ("audit_outbox_backlog", "audit_repeated_failure", "recovery_repeated_failure")
+    },
+    "scope": _escopo(),
 }
+_TIPOS = ("aws_iam_role", "aws_iam_role_policy")
 
 
 def _sha(texto):
@@ -49,12 +73,112 @@ def _trust(entrada, alias, fechado):
     return _json({"Statement": [regra], "Version": "2012-10-17"})
 
 
-def _politica(alias, fechado):
+def _prazo(entrada):
+    return {"DateLessThan": {"aws:CurrentTime": entrada["enabled_until"]}}
+
+
+def _cluster(entrada):
+    return _prazo(entrada) | {"ArnEquals": {"ecs:cluster": entrada["resources"]["cluster_arn"]}}
+
+
+def _regra(sid, acoes, recurso, condicao):
+    regra = {"Action": acoes, "Condition": condicao, "Effect": "Allow", "Resource": recurso}
+    return regra if sid is None else regra | {"Sid": sid}
+
+
+def _dynamo(entrada, sid, acoes, chaves):
+    condicao = _prazo(entrada) | {
+        "ForAllValues:StringEquals": {"dynamodb:LeadingKeys": chaves},
+        "Null": {"dynamodb:LeadingKeys": "false"},
+    }
+    tabela = entrada["resources"]["table_arn"]
+    return _regra(sid, [f"dynamodb:{a}" for a in acoes.split()], tabela, condicao)
+
+
+def _particoes(escopo):
+    tenant = "TENANT#" + escopo["tenant_id"].encode().hex()
+    return [tenant, *(f"{tenant}#RUN#{run.encode().hex()}" for run in escopo["run_ids"])]
+
+
+def _ecs(entrada, modo):
+    r = entrada["resources"]
+    servico = {"StringEquals": {"iam:PassedToService": "ecs-tasks.amazonaws.com"}}
+    papeis = [r["task_role_arns"][modo], r["execution_role_arn"]]
+    return [_regra("Launch", ["ecs:RunTask"], r["revisions"][modo], _cluster(entrada)),
+            _regra("Roles", ["iam:PassRole"], papeis, _prazo(entrada) | servico)]
+
+
+def _tarefas(entrada, acoes):
+    tarefas = entrada["resources"]["cluster_arn"].replace(":cluster/", ":task/") + "/*"
+    return _regra("Tasks", acoes, tarefas, _cluster(entrada))
+
+
+def _maquina(entrada, acoes, execucoes):
+    arn = entrada["resources"]["machine_arn"]
+    alvo = arn.replace(":stateMachine:", ":execution:") + ":*"
+    return [_regra("Machine", acoes, arn, _prazo(entrada)),
+            _regra("Executions", execucoes, alvo, _prazo(entrada))]
+
+
+def _s3(entrada, sid, acoes, chaves):
+    r = entrada["resources"]
+    balde = r["audit_bucket_arn"] if chaves == "audit_object_keys" else r["data_bucket_arn"]
+    return _regra(sid, acoes, [f"{balde}/{k}" for k in r["scope"][chaves]], _prazo(entrada))
+
+
+def _leituras_observe(entrada):
+    r, prazo = entrada["resources"], _prazo(entrada)
+    fluxos = ("unit", "recovery", "audit")
+    logs = [f"{r['log_group_arn']}:log-stream:{m}/processor/*" for m in fluxos]
+    regras = [
+        _regra(None, ["ecs:DescribeTaskDefinition"], ["*"], prazo),
+        _regra(None, ["scheduler:GetSchedule"], [r["schedule_arns"][m] for m in _MODOS[:2]], prazo),
+        _regra(None, ["cloudwatch:DescribeAlarms"],
+               [r["alarm_arns"][k] for k in sorted(r["alarm_arns"])], prazo),
+        _regra(None, ["logs:GetLogEvents"], logs, prazo),
+    ]
+    if entrada["context_kind"] == "readiness":
+        regras += [_regra(None, ["ecs:ListTasks"], "*", _cluster(entrada)),
+                   _regra(None, ["cloudwatch:GetMetricData"], "*", prazo)]
+    return regras
+
+
+def _declaracoes(entrada):
+    tenant = _particoes(entrada["resources"]["scope"])
+    descrever = ["states:DescribeStateMachine"], ["states:DescribeExecution"]
+    return {
+        "mode_seed": [_dynamo(entrada, "Seed", "GetItem PutItem", tenant),
+                      _s3(entrada, "Raw", ["s3:PutObject", "s3:GetObject"], "raw_object_keys")],
+        "mode_dispatch": [
+            _dynamo(entrada, "Dispatch", "GetItem Query PutItem UpdateItem ConditionCheckItem",
+                    tenant),
+            _dynamo(entrada, "Fence", "GetItem ConditionCheckItem", ["ENV#prod#FENCE"]),
+            _dynamo(entrada, "Semaphore", "GetItem UpdateItem", ["ENV#prod#SEMAPHORE"]),
+            _dynamo(entrada, "Attempts", "UpdateItem", ["ENV#prod#ATTEMPTS"]),
+            *_ecs(entrada, "recovery"), _tarefas(entrada, ["ecs:DescribeTasks", "ecs:StopTask"]),
+            *_maquina(entrada, [*descrever[0], "states:StartExecution"],
+                      [*descrever[1], "states:StopExecution"]),
+        ],
+        "mode_audit_launch": [*_ecs(entrada, "audit"), _tarefas(entrada, ["ecs:DescribeTasks"])],
+        "mode_observe": [
+            _dynamo(entrada, "Observe", "GetItem Query", tenant),
+            _dynamo(entrada, "Cursor", "GetItem", ["OUTBOX#CURSOR"]),
+            _s3(entrada, "Outputs", ["s3:GetObject"], "output_object_keys"),
+            _s3(entrada, "Audit", ["s3:GetObject", "s3:GetObjectRetention"], "audit_object_keys"),
+            _tarefas(entrada, ["ecs:DescribeTasks"]), *_maquina(entrada, *descrever),
+            *_leituras_observe(entrada),
+        ],
+    }
+
+
+def _documento(regras):
+    return _json({"Statement": regras, "Version": "2012-10-17"})
+
+
+def _politica(entrada, alias, fechado):
     if fechado:
-        regra = {"Action": "*", "Effect": "Deny", "Resource": "*"}
-    else:
-        regra = {"Action": [_ACOES[alias]], "Effect": "Allow", "Resource": "*"}
-    return _json({"Statement": [regra], "Version": "2012-10-17"})
+        return _documento([{"Action": "*", "Effect": "Deny", "Resource": "*"}])
+    return _documento(_declaracoes(entrada)[alias])
 
 
 def _linha(endereco, tipo, depois, acao):
@@ -72,7 +196,8 @@ def _plano(entrada, acao="create", fechar=True):
         papel = {"name": nome, "arn": f"arn:aws:iam::{CONTA}:role/{nome}",
                  "assume_role_policy": _trust(entrada, alias, fechado),
                  "max_session_duration": 3600}
-        politica = {"name": nome + "-runtime", "role": nome, "policy": _politica(alias, fechado)}
+        politica = {"name": nome + "-runtime", "role": nome,
+                    "policy": _politica(entrada, alias, fechado)}
         enderecos = tuple(f"{PREFIXO}.{t}.{alias}[0]" for t in _TIPOS)
         linhas += [_linha(enderecos[0], "aws_iam_role", papel, acao),
                    _linha(enderecos[1], "aws_iam_role_policy", politica, acao)]
@@ -216,7 +341,7 @@ def test_root_inventory_so_duas_excecoes_runtask():
     plano = _plano(entrada)
     assert validate_mode_canary_prepare(plano, entrada, "initial")
     politica = _endereco(plano, "mode_seed")["change"]["after"]
-    politica["policy"] = _politica("mode_dispatch", False)
+    politica["policy"] = _politica(entrada, "mode_dispatch", False)
     with pytest.raises(ContractError):
         validate_mode_canary_prepare(plano, entrada, "initial")
 
@@ -249,3 +374,98 @@ def test_readiness_fecha_audit_launch_com_deny():
     assert prova["context_kind"] == "readiness"
     with pytest.raises(ContractError):
         validate_mode_canary_prepare(_plano(entrada, fechar=False), entrada, "initial")
+
+
+def _saida(plano):
+    return plano["planned_values"]["outputs"]["mode_canary_capabilities"]["value"]
+
+
+def _trocar(plano, alias, tipo, texto):
+    campo, digest = (("policy", "policy_sha256") if tipo == "aws_iam_role_policy"
+                     else ("assume_role_policy", "trust_sha256"))
+    _endereco(plano, alias, tipo)["change"]["after"][campo] = texto
+    _saida(plano)["delegations"][alias][digest] = _sha(texto)
+
+
+def _ampla(**campos):
+    return {"Effect": "Allow", "Resource": "*"} | campos
+
+
+def _cluster_alheio(regras):
+    regras[0]["Condition"]["ArnEquals"]["ecs:cluster"] = "*"
+
+
+_MUTANTES_POLITICA = {
+    "seed_run_curinga": ("mode_seed", "run_task",
+                         lambda r: r.append(_ampla(Action=["ecs:Run*"]))),
+    "seed_runtask_caixa_mista": ("mode_seed", "run_task",
+                                 lambda r: r.append(_ampla(Action="ECS:runTASK"))),
+    "seed_iam_dynamo_amplos": ("mode_seed", "policy",
+                               lambda r: r.append(_ampla(Action=["iam:*", "dynamodb:*"]))),
+    "seed_tabela_qualquer": ("mode_seed", "policy", lambda r: r[0].update(Resource="*")),
+    "observe_not_action": ("mode_observe", "run_task",
+                           lambda r: r.append(_ampla(NotAction=["iam:*"]))),
+    "dispatch_runtask_qualquer_revisao": ("mode_dispatch", "run_task",
+                                          lambda r: r[4].update(Resource="*")),
+    "dispatch_revisao_unit": ("mode_dispatch", "run_task",
+                              lambda r: r[4].update(Resource=_RECURSOS["revisions"]["unit"])),
+    "dispatch_passrole_amplo": ("mode_dispatch", "policy", lambda r: r[5].update(Resource="*")),
+    "audit_runtask_qualquer_cluster": ("mode_audit_launch", "run_task", _cluster_alheio),
+    "audit_passrole_sem_servico": ("mode_audit_launch", "policy",
+                                   lambda r: r[1]["Condition"].pop("StringEquals")),
+}
+
+
+@pytest.mark.parametrize("mutante", sorted(_MUTANTES_POLITICA))
+def test_policy_mutante_com_hash_recalculado_e_recusada(mutante):
+    alias, campo, mutar = _MUTANTES_POLITICA[mutante]
+    entrada = _entrada(_RECURSOS)
+    plano = _plano(entrada)
+    assert validate_mode_canary_prepare(deepcopy(plano), entrada, "initial")
+    regras = _declaracoes(entrada)[alias]
+    mutar(regras)
+    _trocar(plano, alias, "aws_iam_role_policy", _documento(regras))
+    with pytest.raises(ContractError, match=rf"field={campo}\.{alias}$"):
+        validate_mode_canary_prepare(plano, entrada, "initial")
+
+
+_MUTANTES_TRUST = {
+    "acao_curinga": lambda regra: regra.update(Action="sts:*"),
+    "acao_extra": lambda regra: regra.update(Action=["sts:AssumeRole", "sts:TagSession"]),
+    "condicao_extra": lambda regra: regra["Condition"].update(
+        Bool={"aws:SecureTransport": "true"}),
+    "not_principal": lambda regra: regra.update(NotPrincipal=regra.pop("Principal")),
+}
+
+
+@pytest.mark.parametrize("mutante", sorted(_MUTANTES_TRUST))
+def test_trust_mutante_com_hash_recalculado_e_recusada(mutante):
+    entrada = _entrada(_RECURSOS)
+    plano = _plano(entrada)
+    documento = json.loads(_trust(entrada, "mode_dispatch", False))
+    _MUTANTES_TRUST[mutante](documento["Statement"][0])
+    _trocar(plano, "mode_dispatch", "aws_iam_role", _json(documento))
+    with pytest.raises(ContractError, match=r"field=trust\.mode_dispatch$"):
+        validate_mode_canary_prepare(plano, entrada, "initial")
+
+
+def test_bytes_reformatados_com_hash_recalculado_sao_recusados():
+    entrada = _entrada(_RECURSOS)
+    plano = _plano(entrada)
+    texto = json.dumps(json.loads(_politica(entrada, "mode_observe", False)), indent=2)
+    _trocar(plano, "mode_observe", "aws_iam_role_policy", texto)
+    with pytest.raises(ContractError, match=r"field=policy\.mode_observe$"):
+        validate_mode_canary_prepare(plano, entrada, "initial")
+
+
+@pytest.mark.parametrize(("chave", "mudanca"), [
+    ("revisions", lambda r: r["revisions"].pop("unit")),
+    ("scope", lambda r: r["scope"].update(tenant_id="Prod-Canary-X")),
+    ("resources", lambda r: r.update(extra="arn:aws:s3:::alheio")),
+])
+def test_resources_fora_do_shape_fechado_sao_recusados(chave, mudanca):
+    recursos = deepcopy(_RECURSOS)
+    mudanca(recursos)
+    entrada = _entrada(recursos)
+    with pytest.raises(ContractError, match=rf"field=resources(\.{chave})?$"):
+        validate_mode_canary_prepare(_plano(entrada), entrada, "initial")

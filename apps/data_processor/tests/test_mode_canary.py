@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 import boto3
 import pytest
+from botocore.exceptions import ClientError
 from moto import mock_aws
 
 from cnes_domain.control_plane.environment_gate import PermitHolder
@@ -373,8 +374,9 @@ def test_audit_pendente_visivel_entrega_compliance_com_cursor(
     head = s3.head_object(Bucket="cursor-audit", Key=event["object_key"])
     assert event["event_sha256"] == hashlib.sha256(stored).hexdigest()
     assert s3.get_object(Bucket="cursor-audit", Key=event["object_key"])["Body"].read() == stored
-    assert event["retention_mode"] == head["ObjectLockMode"] == "COMPLIANCE"
-    assert event["retain_until"] == head["ObjectLockRetainUntilDate"].isoformat()
+    assert not {"retention_mode", "retain_until"} & event.keys()
+    assert event["configured_retention_mode"] == head["ObjectLockMode"] == "COMPLIANCE"
+    assert event["configured_retain_until"] == head["ObjectLockRetainUntilDate"].isoformat()
     assert (event["event_id"], event["appended"], event["delivered"]) == (
         _SYNTHETIC_EVENT, "true", "true")
     assert cursor["before"] == "none"
@@ -427,6 +429,22 @@ def test_audit_cas_perdido_fica_registrado_sem_mudar_resultado(
 
     cursor = _fields(_audit_lines(caplog)[-1])
     assert (cursor["cas"], cursor["after"]) == ("conflict", "none")
+
+
+def test_falha_da_observacao_preserva_o_erro_original_do_despacho(
+    outbox: OutboxHarness,
+) -> None:
+    outbox.put(_event(_SYNTHETIC_EVENT, tenant_id=_TENANT))
+    runtime, _ = _audit_runtime(outbox)
+    erro = ClientError({"Error": {"Code": "ProvisionedThroughputExceededException"}}, "Query")
+    with (
+        patch.object(type(outbox.adapter), "read_outbox_page", side_effect=erro),
+        patch("data_processor.audit_dispatch.logger.info", side_effect=OSError("log")),
+        pytest.raises(ClientError) as capturado,
+    ):
+        run_audit_dispatch_once(runtime, _LOCATOR)
+
+    assert capturado.value is erro
 
 
 def test_entrypoint_entrega_locator_audit_a_observacao(

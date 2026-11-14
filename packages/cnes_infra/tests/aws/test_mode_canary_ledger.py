@@ -139,6 +139,18 @@ def test_reentrada_reutiliza_ticket_sem_gastar_contador(ledger: _Ledger) -> None
     assert ledger.control() == before
 
 
+def test_reentrada_com_ticket_existente_apos_o_prazo_recusa(ledger: _Ledger) -> None:
+    ledger.seed()
+    context = ledger.context()
+    context.binding_for(_HOLDER, _NOW)
+    before = ledger.control()
+
+    with pytest.raises(SyntheticContextRequired, match="reason=context_expired"):
+        context.binding_for(_HOLDER, datetime(2026, 11, 12, 12, 30, tzinfo=UTC))
+
+    assert ledger.control() == before
+
+
 def test_contador_esgotado_recusa_antes_de_qualquer_ticket(ledger: _Ledger) -> None:
     ledger.seed(admitted_counts={"unit_tasks": 7, "recovery_resumes": 0, "recovery_hangs": 0})
 
