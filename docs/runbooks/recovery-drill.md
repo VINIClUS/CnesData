@@ -27,12 +27,19 @@ Fonte: `docs/superpowers/specs/2026-08-29-cnesdata-production-operations-design.
 
 ## SMK-06: falha forçada de recovery e de audit
 
-1. Forçar a falha de recovery só pelo mecanismo do pacote v4 do #499 descrito em
-   [mode-canary.md](mode-canary.md). Este drill não cria outro.
-2. Esperado: a passada termina com exit 1 e `processor_recovery_completed` com `failed > 0`,
-   sem afetar runs de tenant normal.
-3. Na mesma janela, o `dispatch-outbox-once` entrega o audit a um objeto com Object Lock:
-   `mode_observe` confirma versão e retenção.
+O repositório não tem mecanismo de falha forçada. A canary de modo só injeta o
+`hang_no_dispatch` do SMK-07 e espera exit 0 nos demais modos
+([mode-canary.md](mode-canary.md#leitura-do-resultado)). O jeito de forçar a falha de recovery
+e de audit é definido no estágio Produção da #474 e aprovado pelo dono antes do drill. Sem
+isso, o item fica `BLOCKED`.
+
+1. Esperado do `recover-once` com um run falho: tenta os demais candidatos, registra `failed`
+   no resumo e sai com exit 1
+   ([aws-runtime-validation.md](aws-runtime-validation.md#recover-once-agendado)).
+2. Esperado do `dispatch-outbox-once` com evento falho ou erro operacional: exit 1
+   ([aws-runtime-validation.md](aws-runtime-validation.md#dispatch-outbox-once-dedicado)).
+3. Fora da falha forçada, o audit chega a um objeto com Object Lock: `mode_observe` confirma
+   versão e retenção ([mode-canary.md](mode-canary.md#limites)).
 4. Com o freeze simulado da canary (`frozen=true`), seed e dispatch são negados antes de
    qualquer efeito e o audit continua admitido, com `freeze_proof_sha256` no resultado.
 

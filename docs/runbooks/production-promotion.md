@@ -234,8 +234,9 @@ corpo sintético, e-mail ou ID de tenant, run ou usuário.
   - Estágio: Produção da #474.
 - **SMK-06** Falha forçada de recovery e de audit
   - Plano: `recovery/audit failure behavior`
-  - Verificação: [recovery-drill.md](recovery-drill.md), [mode-canary.md](mode-canary.md)
-  - Evidência: falha registrada e audit entregue a objeto com Object Lock.
+  - Verificação: [recovery-drill.md](recovery-drill.md),
+    [aws-runtime-validation.md](aws-runtime-validation.md), [mode-canary.md](mode-canary.md)
+  - Evidência: exit 1 com `failed` no resumo e audit entregue a objeto com Object Lock.
   - Estágio: Produção da #474.
 - **SMK-07** Recovery travado para no deadline do PID 1
   - Plano: `hung recovery stop`

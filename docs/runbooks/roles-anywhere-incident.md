@@ -36,8 +36,11 @@ Com credenciais emitidas antes do incidente (no drill, um leaf de teste como o
 - S3: leitura de `serving/` no bucket de dados negada;
 - Step Functions: describe da máquina de produção negado.
 
-Os três precisam voltar `AccessDenied` antes de declarar fail-closed. As sondas são as de
-`scripts/promotion/smoke_production.py`. A identidade usada é conferida só por leitura:
+Os três precisam voltar `AccessDenied` antes de declarar fail-closed. O repositório não tem
+essas três sondas: o smoke de produção (`scripts/promotion/smoke_production.py`) só confere a
+CRL e a recusa do leaf revogado ao abrir sessão, não sessões já emitidas. A forma exata das
+três leituras entra no plan do drill aprovado pelo dono. A identidade usada é conferida só
+por leitura:
 
 ```bash
 aws sts get-caller-identity --query Arn --output text
