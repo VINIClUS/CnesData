@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import timedelta
 from hashlib import sha256
 from typing import TYPE_CHECKING, Any, Final, Protocol, cast
 
@@ -52,6 +53,8 @@ def _digest(text: str) -> str:
 
 
 def _stamp(moment: datetime) -> str:
+    if moment.utcoffset() != timedelta(0):
+        raise _refuse("clock_not_utc")
     return moment.isoformat(timespec="seconds")
 
 

@@ -210,10 +210,8 @@ def _tasks(resources: Node, actions: list[str], expiry: Node) -> Node:
 
 
 def _machine(machine: str, dispatch: bool, expiry: Node) -> list[Node]:
-    describe, executions = ["states:DescribeStateMachine"], ["states:DescribeExecution"]
-    if dispatch:
-        describe, executions = [*describe, "states:StartExecution"], [
-            *executions, "states:StopExecution"]
+    describe = ["states:DescribeStateMachine", *(["states:StartExecution"] if dispatch else [])]
+    executions = ["states:DescribeExecution", *(["states:StopExecution"] if dispatch else [])]
     target = machine.replace(":stateMachine:", ":execution:") + ":*"
     return [_allow("Machine", describe, machine, expiry),
             _allow("Executions", executions, target, expiry)]
@@ -289,11 +287,11 @@ def _parsed(text: Any) -> Any:
         return None
 
 
-def _check_attachments(role: Node, name: str, policy: Node, alias: str) -> None:
+def _check_attachments(role: Node, name: str, allowed: tuple[Any, ...], alias: str) -> None:
     inline = cast("list[Any]", role.get("inline_policy") or [])
     _require(not role.get("managed_policy_arns") and not role.get("permissions_boundary")
              and all(type(item) is dict and cast("Node", item).get("name") == name
-                     and _parsed(cast("Node", item).get("policy")) == policy for item in inline),
+                     and _parsed(cast("Node", item).get("policy")) in allowed for item in inline),
              f"attachments.{alias}")
 
 
@@ -333,7 +331,10 @@ def _delegation(
     trust, text = (_jsonencode(document) for document in documents)
     _require(role["assume_role_policy"] == trust, f"trust.{alias}")
     _require(policy["policy"] == text, f"policy.{alias}")
-    _check_attachments(role, policy["name"], documents[1], alias)
+    before = cast("Node", changes[policy_address]["change"].get("before") or {})
+    previous = _parsed(before.get("policy"))
+    allowed = (documents[1],) if previous is None else (documents[1], previous)
+    _check_attachments(role, policy["name"], allowed, alias)
     closed = _closed(fields["context_kind"], alias)
     return {
         "role_arn": role["arn"], "role_name": name, "role_address": role_address,
