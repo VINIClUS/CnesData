@@ -6,12 +6,17 @@ import gzip
 import hashlib
 import io
 import json
+import re
 import tarfile
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
 from scripts.promotion.build_host_archive import (
+    CALLER_REF,
+    CALLER_WORKFLOW,
+    REPOSITORY,
     ArchiveError,
     HostRelease,
     archive_manifest,
@@ -160,3 +165,16 @@ def test_manifest_embutido_so_e_lido_de_archive_verificado() -> None:
     for raw in (_repacked(spaced, compose), _repacked(b"[]\n", compose), b"not-gzip"):
         with pytest.raises(ArchiveError):
             archive_manifest(raw)
+
+
+STATIC_IAM = (Path(__file__).resolve().parents[3]
+              / "infra/opentofu/modules/runtime-iam/static-promotion.tf")
+
+
+def test_caller_do_produto_coincide_com_caller_by_purpose_do_iam_498() -> None:
+    text = STATIC_IAM.read_text(encoding="utf-8")
+    block = re.search(r"promotion = \{(.*?)\}", text, re.S)
+    assert block is not None, "caller_by_purpose_ausente"
+    fields = dict(re.findall(r'(\w+)\s*=\s*"([^"]+)"', block.group(1)))
+    assert fields == {"repository": REPOSITORY, "workflow_path": CALLER_WORKFLOW,
+                      "ref": CALLER_REF, "environment": "production"}
