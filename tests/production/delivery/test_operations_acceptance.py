@@ -125,12 +125,14 @@ def test_matriz_de_pre_producao_cobre_todos_os_itens_do_plano():
     extra = [row for row in rows if "Plano" not in row]
     assert len(extra) == 5
     assert all("6715569897" in row["Origem"] for row in extra)
-    assert all(row["Estágio"].startswith("Código") or "Produção da #" in row["Estágio"]
-               for row in rows)
+    assert all(row["Estágio"].startswith("Código") for row in rows)
 
 
 def test_matriz_de_producao_inclui_checks_do_d5():
     rows = _assert_matrix("SMK")
+    staged = re.compile(r"Produção da (?:" + "|".join(STAGES) + r")\.")
+    for row in rows:
+        assert staged.fullmatch(row["Estágio"]), f"estagio={row['id']}"
     origins = _origins(rows)
     documented = _documented_only()
     assert sum(documented.values()) == 3
@@ -218,9 +220,8 @@ def test_runbooks_novos_referenciam_os_existentes():
 
 def test_gate_nao_faz_deploy():
     for name in NEW:
-        for block in _FENCE.findall(_runbook(name)):
-            hits = [rule.pattern for rule in _MUTATING if rule.search(block)]
-            assert not hits, f"comando_mutante={name}"
+        hits = [rule.pattern for rule in _MUTATING if rule.search(_runbook(name))]
+        assert not hits, f"comando_mutante={name}"
     tree = ast.parse(Path(__file__).read_text())
     imported = {alias.name.split(".")[0] for node in ast.walk(tree)
                 if isinstance(node, ast.Import) for alias in node.names}
