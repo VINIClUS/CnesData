@@ -357,6 +357,108 @@ deny contains resource_msg("cloudfront_origin_shield", rc) if {
 	shield.enabled == true
 }
 
+free_plan_ineligible_types := {
+	"aws_cloudfront_cache_policy",
+	"aws_cloudfront_continuous_deployment_policy",
+	"aws_cloudfront_field_level_encryption_config",
+	"aws_cloudfront_field_level_encryption_profile",
+	"aws_cloudfront_key_value_store",
+	"aws_cloudfront_origin_request_policy",
+	"aws_cloudfront_response_headers_policy",
+}
+
+caching_optimized_policy := "658327ea-f89d-4fab-a63d-7e88639e58f6"
+
+free_plan_absent_behavior_fields := {
+	"field_level_encryption_id",
+	"forwarded_values",
+	"origin_request_policy_id",
+	"realtime_log_config_arn",
+	"response_headers_policy_id",
+}
+
+free_plan_excluded_rule_groups := {
+	"AWSManagedRulesACFPRuleSet",
+	"AWSManagedRulesATPRuleSet",
+	"AWSManagedRulesBotControlRuleSet",
+}
+
+filled(value) if {
+	value != null
+	value != ""
+	value != []
+}
+
+deny contains resource_msg("free_plan_ineligible", rc) if {
+	some rc in live_changes
+	free_plan_ineligible_types[rc.type]
+}
+
+deny contains resource_msg("free_plan_ineligible", rc) if {
+	some rc in live_changes
+	rc.type == "aws_wafv2_rule_group"
+	rc.change.after.scope == "CLOUDFRONT"
+}
+
+cache_behaviors(after) := array.concat(
+	object.get(after, "default_cache_behavior", []),
+	object.get(after, "ordered_cache_behavior", []),
+)
+
+free_plan_distribution_violation(after) if count(cache_behaviors(after)) > 5
+
+free_plan_distribution_violation(after) if filled(object.get(after, "logging_config", []))
+
+free_plan_distribution_violation(after) if {
+	some behavior in cache_behaviors(after)
+	object.get(behavior, "cache_policy_id", null) != caching_optimized_policy
+}
+
+free_plan_distribution_violation(after) if {
+	some behavior in cache_behaviors(after)
+	some field in free_plan_absent_behavior_fields
+	filled(object.get(behavior, field, null))
+}
+
+deny contains resource_msg("free_plan_ineligible", rc) if {
+	some rc in live_changes
+	rc.type == "aws_cloudfront_distribution"
+	free_plan_distribution_violation(rc.change.after)
+}
+
+web_acl_statements(after) := [statement |
+	some rule in object.get(after, "rule", [])
+	some statement in object.get(rule, "statement", [])
+]
+
+free_plan_web_acl_violation(after) if count(object.get(after, "rule", [])) > 5
+
+free_plan_web_acl_violation(after) if filled(object.get(after, "rule_json", null))
+
+free_plan_web_acl_violation(after) if {
+	some statement in web_acl_statements(after)
+	filled(object.get(statement, "rule_group_reference_statement", []))
+}
+
+free_plan_web_acl_violation(after) if {
+	some statement in web_acl_statements(after)
+	some group in object.get(statement, "managed_rule_group_statement", [])
+	group.vendor_name != "AWS"
+}
+
+free_plan_web_acl_violation(after) if {
+	some statement in web_acl_statements(after)
+	some group in object.get(statement, "managed_rule_group_statement", [])
+	free_plan_excluded_rule_groups[group.name]
+}
+
+deny contains resource_msg("free_plan_ineligible", rc) if {
+	some rc in live_changes
+	rc.type == "aws_wafv2_web_acl"
+	rc.change.after.scope == "CLOUDFRONT"
+	free_plan_web_acl_violation(rc.change.after)
+}
+
 deny contains resource_msg("mutable_image_tag", rc) if {
 	some rc in live_changes
 	rc.type == "aws_ecr_repository"

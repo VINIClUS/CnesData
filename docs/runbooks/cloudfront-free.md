@@ -90,6 +90,64 @@ release. O código não roda tofu, altera HSTS, remove bloqueio ou troca DNS. An
 a confirmação independente de `tofu plan` sem diff; não alegar que a saída do script
 comprova ausência de diff ou elegibilidade futura. Não publicar binding/ARN/ID/journal.
 
+## Forma elegível do static-web (#476)
+
+Em 2026-11-14 o `CreateSubscription` FREE foi recusado com `ValidationException`. O modelo
+`pricing-plan-manager` 2025-08-05 (botocore 1.43.82) descreve esse erro como "The request
+failed a business rule validation". A mensagem no CloudTrail (#476, comentário 6876244915)
+nomeia só a distribuição, não a feature.
+
+Base documental: a tabela "Pricing plan features" e a seção "Unsupported features" de
+<https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/flat-rate-pricing-plan.html>.
+- No Free, cache e headers de resposta ficam só nas regras padrão (policies gerenciadas);
+  policies próprias de cache, headers e origem são Business/Premium.
+- CloudFront Functions entram em todos os tiers. KeyValueStore e logs de acesso são Pro ou
+  acima.
+- Real-time logs, field-level encryption, deploy contínuo e ForwardedValues não são
+  suportados.
+- A web ACL é obrigatória e cabe em 5 regras ("custom rules and AWS Managed Rules").
+
+Forma atual:
+- Cache policy gerenciada CachingOptimized (`658327ea-f89d-4fab-a63d-7e88639e58f6`: TTL
+  mínimo 1 s, padrão 24 h, máximo 1 ano).
+- A Function viewer-response `cnesdata-prod-static-web-headers` emite os valores da antiga
+  response headers policy: `nosniff`, `DENY`, `strict-origin-when-cross-origin`,
+  `Permissions-Policy` e a CSP report-only. HSTS só sai com `certificate_domain_validated`, e
+  a CSP enforce só com `csp_mode = "enforce"`.
+- O `Cache-Control` por objeto já vem da publicação (`static_release`), conferido no readback
+  do `PutObject`: `no-cache` nos entrypoints e `public,max-age=31536000,immutable` nos
+  assets. Com o TTL mínimo de 1 s, os entrypoints ficam até 1 s em cache, e a publicação os
+  invalida.
+
+Diferença aceita: o CloudFront não executa Functions viewer-response quando a origem
+responde 400 ou mais ("HTTP status codes" em
+<https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/edge-function-restrictions-all.html>).
+Respostas 403/404 do S3 saem sem os headers de segurança.
+
+Risco residual: a web ACL mantém os grupos gerenciados AWS `AWSManagedRulesCommonRuleSet` e
+`AWSManagedRulesAmazonIpReputationList`. Pela decisão do coordenador da EPIC #465, a linha
+"Rule Groups" da tabela é lida como rule group próprio. Partner Managed Rules, Bot Control,
+ATP e ACFP seguem fora.
+
+Guardas:
+- `policies/cnesdata.rego` recusa como `free_plan_ineligible`:
+  - policies próprias, KeyValueStore, deploy contínuo e field-level encryption;
+  - rule group próprio de escopo CloudFront;
+  - distribuição com mais de 5 behaviors, logs, ForwardedValues ou behavior fora da
+    CachingOptimized;
+  - web ACL CloudFront com mais de 5 regras, `rule_json`, rule group próprio ou de parceiro,
+    Bot Control, ATP ou ACFP.
+- `test_static_web.py` fixa a forma do HCL.
+- `test_static_web_composition.py` executa a Function renderizada no plano mockado e confere
+  a borda exclusiva: uma distribuição, sem associação de web ACL.
+
+Uma nova tentativa usa journal novo, e o anterior fica preservado; a decisão é do coordenador
+da EPIC #465, por delegação do dono. Antes dela, conferir:
+- conta fora do Free Tier;
+- sem Firewall Manager;
+- sem Shield Advanced;
+- no máximo 3 planos Free.
+
 ## Ordem operacional P1/P2/P3
 
 1. #468 fase 1 gera receipt ACM. EXT-4 confere os registros exatos

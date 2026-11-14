@@ -16,7 +16,15 @@ from tests.production.infra._root_native_identities import (
     preserve_root_mock_defaults,
     root_identity_seeds,
 )
-from tests.production.infra._static_web_inventory import MODULE_TYPES, OUTPUTS, STATIC_TYPES
+from tests.production.infra._static_web_free import (
+    DISTRIBUTION,
+    FUNCTION_ADDRESSES,
+    SECURITY_HEADERS,
+    assert_exclusive_edge,
+    assert_free_distribution,
+    run_headers_function,
+)
+from tests.production.infra._static_web_inventory import MODULE_TYPES, OUTPUTS, STATIC_ADDRESSES
 from tests.production.infra.conftest import ROOT_FIXTURE_CONTRACT
 
 type Node = dict[str, Any]
@@ -275,16 +283,12 @@ def _cognito_references(composition: Composition) -> None:
 
 
 def _report_only_csp(composition: Composition) -> str:
-    policy = _resource(composition, "module.static_web.aws_cloudfront_response_headers_policy.this")
-    security = policy["security_headers_config"][0]
-    assert not security.get("content_security_policy"), "enforcing_csp_forbidden"
-    assert not security.get("strict_transport_security"), "hsts_requires_validation"
-    headers = policy["custom_headers_config"][0]["items"]
-    values = [h["value"] for h in headers if h["header"] == "Content-Security-Policy-Report-Only"]
-    assert values, "report_only_csp_required"
-    assert len(values) == 1, "report_only_csp_required"
-    assert isinstance(values[0], str), "report_only_csp_required"
-    return values[0]
+    function = _resource(composition, FUNCTION_ADDRESSES[1])
+    headers = run_headers_function(function["code"])
+    csp = headers.pop("content-security-policy-report-only", None)
+    assert headers == SECURITY_HEADERS, f"security_headers_drift headers={headers}"
+    assert isinstance(csp, str), "report_only_csp_required"
+    return csp
 
 
 def _region(composition: Composition, address: str) -> str:
@@ -297,10 +301,9 @@ def _region(composition: Composition, address: str) -> str:
 def test_raiz_agenda_static_web_e_acm_do_produto(static_web_composition: Composition) -> None:
     composition = static_web_composition
     static = [c for c in _changes(composition) if c["address"].startswith("module.static_web.")]
-    assert {c["address"] for c in static} == {
-        f"module.static_web.{kind}.{'spa' if kind == 'aws_cloudfront_function' else 'this'}"
-        for kind in STATIC_TYPES
-    }, "static_web_resource_inventory_incomplete"
+    assert {c["address"] for c in static} == STATIC_ADDRESSES, (
+        "static_web_resource_inventory_incomplete"
+    )
     assert _resource(composition, "module.static_web.aws_s3_bucket.this")["bucket"] == (
         "cnesdata-prod-static-web"
     )
@@ -352,6 +355,16 @@ def test_composicao_permanece_em_validacao_sem_hsts(static_web_composition: Comp
     assert sorted((group["name"], group["vendor_name"]) for group in groups) == [
         ("AWSManagedRulesAmazonIpReputationList", "AWS"), ("AWSManagedRulesCommonRuleSet", "AWS"),
     ]
+
+
+def test_distribuicao_cabe_no_plano_free_com_borda_exclusiva(
+    static_web_composition: Composition,
+) -> None:
+    composition = static_web_composition
+    functions = {address: _resource(composition, address) for address in FUNCTION_ADDRESSES}
+
+    assert_free_distribution(_resource(composition, DISTRIBUTION), functions)
+    assert_exclusive_edge(_changes(composition))
 
 
 def test_acm_apex_dns_e_borda_us_east_1(static_web_composition: Composition) -> None:

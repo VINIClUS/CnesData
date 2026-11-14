@@ -1,0 +1,938 @@
+{
+ "format_version": "1.2",
+ "terraform_version": "1.13.2",
+ "variables": {},
+ "resource_changes": [
+  {
+   "address": "aws_cloudfront_cache_policy.custom",
+   "mode": "managed",
+   "type": "aws_cloudfront_cache_policy",
+   "name": "custom",
+   "provider_name": "registry.opentofu.org/hashicorp/aws",
+   "change": {
+    "actions": [
+     "create"
+    ],
+    "before": null,
+    "after": {
+     "name": "custom"
+    },
+    "after_unknown": {}
+   }
+  },
+  {
+   "address": "aws_cloudfront_response_headers_policy.custom",
+   "mode": "managed",
+   "type": "aws_cloudfront_response_headers_policy",
+   "name": "custom",
+   "provider_name": "registry.opentofu.org/hashicorp/aws",
+   "change": {
+    "actions": [
+     "create"
+    ],
+    "before": null,
+    "after": {
+     "name": "custom"
+    },
+    "after_unknown": {}
+   }
+  },
+  {
+   "address": "aws_cloudfront_origin_request_policy.custom",
+   "mode": "managed",
+   "type": "aws_cloudfront_origin_request_policy",
+   "name": "custom",
+   "provider_name": "registry.opentofu.org/hashicorp/aws",
+   "change": {
+    "actions": [
+     "create"
+    ],
+    "before": null,
+    "after": {
+     "name": "custom"
+    },
+    "after_unknown": {}
+   }
+  },
+  {
+   "address": "aws_cloudfront_key_value_store.edge",
+   "mode": "managed",
+   "type": "aws_cloudfront_key_value_store",
+   "name": "edge",
+   "provider_name": "registry.opentofu.org/hashicorp/aws",
+   "change": {
+    "actions": [
+     "create"
+    ],
+    "before": null,
+    "after": {
+     "name": "edge"
+    },
+    "after_unknown": {}
+   }
+  },
+  {
+   "address": "aws_cloudfront_continuous_deployment_policy.staging",
+   "mode": "managed",
+   "type": "aws_cloudfront_continuous_deployment_policy",
+   "name": "staging",
+   "provider_name": "registry.opentofu.org/hashicorp/aws",
+   "change": {
+    "actions": [
+     "create"
+    ],
+    "before": null,
+    "after": {
+     "enabled": true
+    },
+    "after_unknown": {}
+   }
+  },
+  {
+   "address": "aws_cloudfront_field_level_encryption_config.fle",
+   "mode": "managed",
+   "type": "aws_cloudfront_field_level_encryption_config",
+   "name": "fle",
+   "provider_name": "registry.opentofu.org/hashicorp/aws",
+   "change": {
+    "actions": [
+     "create"
+    ],
+    "before": null,
+    "after": {
+     "comment": "fle"
+    },
+    "after_unknown": {}
+   }
+  },
+  {
+   "address": "aws_wafv2_rule_group.own",
+   "mode": "managed",
+   "type": "aws_wafv2_rule_group",
+   "name": "own",
+   "provider_name": "registry.opentofu.org/hashicorp/aws",
+   "change": {
+    "actions": [
+     "create"
+    ],
+    "before": null,
+    "after": {
+     "name": "own",
+     "scope": "CLOUDFRONT",
+     "capacity": 10
+    },
+    "after_unknown": {}
+   }
+  },
+  {
+   "address": "aws_wafv2_rule_group.regional",
+   "mode": "managed",
+   "type": "aws_wafv2_rule_group",
+   "name": "regional",
+   "provider_name": "registry.opentofu.org/hashicorp/aws",
+   "change": {
+    "actions": [
+     "create"
+    ],
+    "before": null,
+    "after": {
+     "name": "regional",
+     "scope": "REGIONAL",
+     "capacity": 10
+    },
+    "after_unknown": {}
+   }
+  },
+  {
+   "address": "aws_cloudfront_distribution.limpa",
+   "mode": "managed",
+   "type": "aws_cloudfront_distribution",
+   "name": "limpa",
+   "provider_name": "registry.opentofu.org/hashicorp/aws",
+   "change": {
+    "actions": [
+     "create"
+    ],
+    "before": null,
+    "after": {
+     "enabled": true,
+     "default_cache_behavior": [
+      {
+       "cache_policy_id": "658327ea-f89d-4fab-a63d-7e88639e58f6",
+       "target_origin_id": "web",
+       "forwarded_values": [],
+       "function_association": [],
+       "realtime_log_config_arn": null,
+       "response_headers_policy_id": null,
+       "origin_request_policy_id": null,
+       "field_level_encryption_id": null
+      }
+     ],
+     "ordered_cache_behavior": [],
+     "logging_config": []
+    },
+    "after_unknown": {}
+   }
+  },
+  {
+   "address": "aws_cloudfront_distribution.politica_propria",
+   "mode": "managed",
+   "type": "aws_cloudfront_distribution",
+   "name": "politica_propria",
+   "provider_name": "registry.opentofu.org/hashicorp/aws",
+   "change": {
+    "actions": [
+     "create"
+    ],
+    "before": null,
+    "after": {
+     "enabled": true,
+     "default_cache_behavior": [
+      {
+       "cache_policy_id": "custom-policy-id",
+       "target_origin_id": "web",
+       "forwarded_values": [],
+       "function_association": [],
+       "realtime_log_config_arn": null,
+       "response_headers_policy_id": null,
+       "origin_request_policy_id": null,
+       "field_level_encryption_id": null
+      }
+     ],
+     "ordered_cache_behavior": [],
+     "logging_config": []
+    },
+    "after_unknown": {}
+   }
+  },
+  {
+   "address": "aws_cloudfront_distribution.headers_proprios",
+   "mode": "managed",
+   "type": "aws_cloudfront_distribution",
+   "name": "headers_proprios",
+   "provider_name": "registry.opentofu.org/hashicorp/aws",
+   "change": {
+    "actions": [
+     "create"
+    ],
+    "before": null,
+    "after": {
+     "enabled": true,
+     "default_cache_behavior": [
+      {
+       "cache_policy_id": "658327ea-f89d-4fab-a63d-7e88639e58f6",
+       "target_origin_id": "web",
+       "forwarded_values": [],
+       "function_association": [],
+       "realtime_log_config_arn": null,
+       "response_headers_policy_id": "custom-headers-id",
+       "origin_request_policy_id": null,
+       "field_level_encryption_id": null
+      }
+     ],
+     "ordered_cache_behavior": [],
+     "logging_config": []
+    },
+    "after_unknown": {}
+   }
+  },
+  {
+   "address": "aws_cloudfront_distribution.origem_propria",
+   "mode": "managed",
+   "type": "aws_cloudfront_distribution",
+   "name": "origem_propria",
+   "provider_name": "registry.opentofu.org/hashicorp/aws",
+   "change": {
+    "actions": [
+     "create"
+    ],
+    "before": null,
+    "after": {
+     "enabled": true,
+     "default_cache_behavior": [
+      {
+       "cache_policy_id": "658327ea-f89d-4fab-a63d-7e88639e58f6",
+       "target_origin_id": "web",
+       "forwarded_values": [],
+       "function_association": [],
+       "realtime_log_config_arn": null,
+       "response_headers_policy_id": null,
+       "origin_request_policy_id": "custom-origin-id",
+       "field_level_encryption_id": null
+      }
+     ],
+     "ordered_cache_behavior": [],
+     "logging_config": []
+    },
+    "after_unknown": {}
+   }
+  },
+  {
+   "address": "aws_cloudfront_distribution.legado",
+   "mode": "managed",
+   "type": "aws_cloudfront_distribution",
+   "name": "legado",
+   "provider_name": "registry.opentofu.org/hashicorp/aws",
+   "change": {
+    "actions": [
+     "create"
+    ],
+    "before": null,
+    "after": {
+     "enabled": true,
+     "default_cache_behavior": [
+      {
+       "cache_policy_id": "658327ea-f89d-4fab-a63d-7e88639e58f6",
+       "target_origin_id": "web",
+       "forwarded_values": [
+        {
+         "query_string": false
+        }
+       ],
+       "function_association": [],
+       "realtime_log_config_arn": null,
+       "response_headers_policy_id": null,
+       "origin_request_policy_id": null,
+       "field_level_encryption_id": null
+      }
+     ],
+     "ordered_cache_behavior": [],
+     "logging_config": []
+    },
+    "after_unknown": {}
+   }
+  },
+  {
+   "address": "aws_cloudfront_distribution.realtime",
+   "mode": "managed",
+   "type": "aws_cloudfront_distribution",
+   "name": "realtime",
+   "provider_name": "registry.opentofu.org/hashicorp/aws",
+   "change": {
+    "actions": [
+     "create"
+    ],
+    "before": null,
+    "after": {
+     "enabled": true,
+     "default_cache_behavior": [
+      {
+       "cache_policy_id": "658327ea-f89d-4fab-a63d-7e88639e58f6",
+       "target_origin_id": "web",
+       "forwarded_values": [],
+       "function_association": [],
+       "realtime_log_config_arn": "arn:aws:cloudfront::123456789012:realtime-log-config/x",
+       "response_headers_policy_id": null,
+       "origin_request_policy_id": null,
+       "field_level_encryption_id": null
+      }
+     ],
+     "ordered_cache_behavior": [],
+     "logging_config": []
+    },
+    "after_unknown": {}
+   }
+  },
+  {
+   "address": "aws_cloudfront_distribution.criptografia",
+   "mode": "managed",
+   "type": "aws_cloudfront_distribution",
+   "name": "criptografia",
+   "provider_name": "registry.opentofu.org/hashicorp/aws",
+   "change": {
+    "actions": [
+     "create"
+    ],
+    "before": null,
+    "after": {
+     "enabled": true,
+     "default_cache_behavior": [
+      {
+       "cache_policy_id": "658327ea-f89d-4fab-a63d-7e88639e58f6",
+       "target_origin_id": "web",
+       "forwarded_values": [],
+       "function_association": [],
+       "realtime_log_config_arn": null,
+       "response_headers_policy_id": null,
+       "origin_request_policy_id": null,
+       "field_level_encryption_id": "fle-id"
+      }
+     ],
+     "ordered_cache_behavior": [],
+     "logging_config": []
+    },
+    "after_unknown": {}
+   }
+  },
+  {
+   "address": "aws_cloudfront_distribution.logs",
+   "mode": "managed",
+   "type": "aws_cloudfront_distribution",
+   "name": "logs",
+   "provider_name": "registry.opentofu.org/hashicorp/aws",
+   "change": {
+    "actions": [
+     "create"
+    ],
+    "before": null,
+    "after": {
+     "enabled": true,
+     "default_cache_behavior": [
+      {
+       "cache_policy_id": "658327ea-f89d-4fab-a63d-7e88639e58f6",
+       "target_origin_id": "web",
+       "forwarded_values": [],
+       "function_association": [],
+       "realtime_log_config_arn": null,
+       "response_headers_policy_id": null,
+       "origin_request_policy_id": null,
+       "field_level_encryption_id": null
+      }
+     ],
+     "ordered_cache_behavior": [],
+     "logging_config": [
+      {
+       "bucket": "logs.s3.amazonaws.com",
+       "include_cookies": false
+      }
+     ]
+    },
+    "after_unknown": {}
+   }
+  },
+  {
+   "address": "aws_cloudfront_distribution.comportamentos",
+   "mode": "managed",
+   "type": "aws_cloudfront_distribution",
+   "name": "comportamentos",
+   "provider_name": "registry.opentofu.org/hashicorp/aws",
+   "change": {
+    "actions": [
+     "create"
+    ],
+    "before": null,
+    "after": {
+     "enabled": true,
+     "default_cache_behavior": [
+      {
+       "cache_policy_id": "658327ea-f89d-4fab-a63d-7e88639e58f6",
+       "target_origin_id": "web",
+       "forwarded_values": [],
+       "function_association": [],
+       "realtime_log_config_arn": null,
+       "response_headers_policy_id": null,
+       "origin_request_policy_id": null,
+       "field_level_encryption_id": null
+      }
+     ],
+     "ordered_cache_behavior": [
+      {
+       "cache_policy_id": "658327ea-f89d-4fab-a63d-7e88639e58f6",
+       "target_origin_id": "web",
+       "forwarded_values": [],
+       "function_association": [],
+       "realtime_log_config_arn": null,
+       "response_headers_policy_id": null,
+       "origin_request_policy_id": null,
+       "field_level_encryption_id": null,
+       "path_pattern": "/p0/*"
+      },
+      {
+       "cache_policy_id": "658327ea-f89d-4fab-a63d-7e88639e58f6",
+       "target_origin_id": "web",
+       "forwarded_values": [],
+       "function_association": [],
+       "realtime_log_config_arn": null,
+       "response_headers_policy_id": null,
+       "origin_request_policy_id": null,
+       "field_level_encryption_id": null,
+       "path_pattern": "/p1/*"
+      },
+      {
+       "cache_policy_id": "658327ea-f89d-4fab-a63d-7e88639e58f6",
+       "target_origin_id": "web",
+       "forwarded_values": [],
+       "function_association": [],
+       "realtime_log_config_arn": null,
+       "response_headers_policy_id": null,
+       "origin_request_policy_id": null,
+       "field_level_encryption_id": null,
+       "path_pattern": "/p2/*"
+      },
+      {
+       "cache_policy_id": "658327ea-f89d-4fab-a63d-7e88639e58f6",
+       "target_origin_id": "web",
+       "forwarded_values": [],
+       "function_association": [],
+       "realtime_log_config_arn": null,
+       "response_headers_policy_id": null,
+       "origin_request_policy_id": null,
+       "field_level_encryption_id": null,
+       "path_pattern": "/p3/*"
+      },
+      {
+       "cache_policy_id": "658327ea-f89d-4fab-a63d-7e88639e58f6",
+       "target_origin_id": "web",
+       "forwarded_values": [],
+       "function_association": [],
+       "realtime_log_config_arn": null,
+       "response_headers_policy_id": null,
+       "origin_request_policy_id": null,
+       "field_level_encryption_id": null,
+       "path_pattern": "/p4/*"
+      }
+     ],
+     "logging_config": []
+    },
+    "after_unknown": {}
+   }
+  },
+  {
+   "address": "aws_cloudfront_distribution.ordenado_proprio",
+   "mode": "managed",
+   "type": "aws_cloudfront_distribution",
+   "name": "ordenado_proprio",
+   "provider_name": "registry.opentofu.org/hashicorp/aws",
+   "change": {
+    "actions": [
+     "create"
+    ],
+    "before": null,
+    "after": {
+     "enabled": true,
+     "default_cache_behavior": [
+      {
+       "cache_policy_id": "658327ea-f89d-4fab-a63d-7e88639e58f6",
+       "target_origin_id": "web",
+       "forwarded_values": [],
+       "function_association": [],
+       "realtime_log_config_arn": null,
+       "response_headers_policy_id": null,
+       "origin_request_policy_id": null,
+       "field_level_encryption_id": null
+      }
+     ],
+     "ordered_cache_behavior": [
+      {
+       "cache_policy_id": "custom",
+       "target_origin_id": "web",
+       "forwarded_values": [],
+       "function_association": [],
+       "realtime_log_config_arn": null,
+       "response_headers_policy_id": null,
+       "origin_request_policy_id": null,
+       "field_level_encryption_id": null,
+       "path_pattern": "/x/*"
+      }
+     ],
+     "logging_config": []
+    },
+    "after_unknown": {}
+   }
+  },
+  {
+   "address": "aws_wafv2_web_acl.limpa",
+   "mode": "managed",
+   "type": "aws_wafv2_web_acl",
+   "name": "limpa",
+   "provider_name": "registry.opentofu.org/hashicorp/aws",
+   "change": {
+    "actions": [
+     "create"
+    ],
+    "before": null,
+    "after": {
+     "name": "limpa",
+     "scope": "CLOUDFRONT",
+     "rule": [
+      {
+       "name": "r0",
+       "priority": 0,
+       "statement": [
+        {
+         "managed_rule_group_statement": [
+          {
+           "name": "AWSManagedRulesCommonRuleSet",
+           "vendor_name": "AWS"
+          }
+         ],
+         "rule_group_reference_statement": []
+        }
+       ]
+      },
+      {
+       "name": "r1",
+       "priority": 1,
+       "statement": [
+        {
+         "managed_rule_group_statement": [
+          {
+           "name": "AWSManagedRulesAmazonIpReputationList",
+           "vendor_name": "AWS"
+          }
+         ],
+         "rule_group_reference_statement": []
+        }
+       ]
+      }
+     ]
+    },
+    "after_unknown": {}
+   }
+  },
+  {
+   "address": "aws_wafv2_web_acl.grupo_proprio",
+   "mode": "managed",
+   "type": "aws_wafv2_web_acl",
+   "name": "grupo_proprio",
+   "provider_name": "registry.opentofu.org/hashicorp/aws",
+   "change": {
+    "actions": [
+     "create"
+    ],
+    "before": null,
+    "after": {
+     "name": "grupo_proprio",
+     "scope": "CLOUDFRONT",
+     "rule": [
+      {
+       "name": "r0",
+       "priority": 0,
+       "statement": [
+        {
+         "managed_rule_group_statement": [],
+         "rule_group_reference_statement": [
+          {
+           "arn": "arn:aws:wafv2:us-east-1:123456789012:global/rulegroup/own/x"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    "after_unknown": {}
+   }
+  },
+  {
+   "address": "aws_wafv2_web_acl.parceiro",
+   "mode": "managed",
+   "type": "aws_wafv2_web_acl",
+   "name": "parceiro",
+   "provider_name": "registry.opentofu.org/hashicorp/aws",
+   "change": {
+    "actions": [
+     "create"
+    ],
+    "before": null,
+    "after": {
+     "name": "parceiro",
+     "scope": "CLOUDFRONT",
+     "rule": [
+      {
+       "name": "r0",
+       "priority": 0,
+       "statement": [
+        {
+         "managed_rule_group_statement": [
+          {
+           "name": "F5BotDetection",
+           "vendor_name": "F5"
+          }
+         ],
+         "rule_group_reference_statement": []
+        }
+       ]
+      }
+     ]
+    },
+    "after_unknown": {}
+   }
+  },
+  {
+   "address": "aws_wafv2_web_acl.bot_control",
+   "mode": "managed",
+   "type": "aws_wafv2_web_acl",
+   "name": "bot_control",
+   "provider_name": "registry.opentofu.org/hashicorp/aws",
+   "change": {
+    "actions": [
+     "create"
+    ],
+    "before": null,
+    "after": {
+     "name": "bot_control",
+     "scope": "CLOUDFRONT",
+     "rule": [
+      {
+       "name": "r0",
+       "priority": 0,
+       "statement": [
+        {
+         "managed_rule_group_statement": [
+          {
+           "name": "AWSManagedRulesBotControlRuleSet",
+           "vendor_name": "AWS"
+          }
+         ],
+         "rule_group_reference_statement": []
+        }
+       ]
+      }
+     ]
+    },
+    "after_unknown": {}
+   }
+  },
+  {
+   "address": "aws_wafv2_web_acl.atp",
+   "mode": "managed",
+   "type": "aws_wafv2_web_acl",
+   "name": "atp",
+   "provider_name": "registry.opentofu.org/hashicorp/aws",
+   "change": {
+    "actions": [
+     "create"
+    ],
+    "before": null,
+    "after": {
+     "name": "atp",
+     "scope": "CLOUDFRONT",
+     "rule": [
+      {
+       "name": "r0",
+       "priority": 0,
+       "statement": [
+        {
+         "managed_rule_group_statement": [
+          {
+           "name": "AWSManagedRulesATPRuleSet",
+           "vendor_name": "AWS"
+          }
+         ],
+         "rule_group_reference_statement": []
+        }
+       ]
+      }
+     ]
+    },
+    "after_unknown": {}
+   }
+  },
+  {
+   "address": "aws_wafv2_web_acl.acfp",
+   "mode": "managed",
+   "type": "aws_wafv2_web_acl",
+   "name": "acfp",
+   "provider_name": "registry.opentofu.org/hashicorp/aws",
+   "change": {
+    "actions": [
+     "create"
+    ],
+    "before": null,
+    "after": {
+     "name": "acfp",
+     "scope": "CLOUDFRONT",
+     "rule": [
+      {
+       "name": "r0",
+       "priority": 0,
+       "statement": [
+        {
+         "managed_rule_group_statement": [
+          {
+           "name": "AWSManagedRulesACFPRuleSet",
+           "vendor_name": "AWS"
+          }
+         ],
+         "rule_group_reference_statement": []
+        }
+       ]
+      }
+     ]
+    },
+    "after_unknown": {}
+   }
+  },
+  {
+   "address": "aws_wafv2_web_acl.seis_regras",
+   "mode": "managed",
+   "type": "aws_wafv2_web_acl",
+   "name": "seis_regras",
+   "provider_name": "registry.opentofu.org/hashicorp/aws",
+   "change": {
+    "actions": [
+     "create"
+    ],
+    "before": null,
+    "after": {
+     "name": "seis_regras",
+     "scope": "CLOUDFRONT",
+     "rule": [
+      {
+       "name": "r0",
+       "priority": 0,
+       "statement": [
+        {
+         "managed_rule_group_statement": [
+          {
+           "name": "AWSManagedRulesCommonRuleSet",
+           "vendor_name": "AWS"
+          }
+         ],
+         "rule_group_reference_statement": []
+        }
+       ]
+      },
+      {
+       "name": "r1",
+       "priority": 1,
+       "statement": [
+        {
+         "managed_rule_group_statement": [
+          {
+           "name": "AWSManagedRulesCommonRuleSet",
+           "vendor_name": "AWS"
+          }
+         ],
+         "rule_group_reference_statement": []
+        }
+       ]
+      },
+      {
+       "name": "r2",
+       "priority": 2,
+       "statement": [
+        {
+         "managed_rule_group_statement": [
+          {
+           "name": "AWSManagedRulesCommonRuleSet",
+           "vendor_name": "AWS"
+          }
+         ],
+         "rule_group_reference_statement": []
+        }
+       ]
+      },
+      {
+       "name": "r3",
+       "priority": 3,
+       "statement": [
+        {
+         "managed_rule_group_statement": [
+          {
+           "name": "AWSManagedRulesCommonRuleSet",
+           "vendor_name": "AWS"
+          }
+         ],
+         "rule_group_reference_statement": []
+        }
+       ]
+      },
+      {
+       "name": "r4",
+       "priority": 4,
+       "statement": [
+        {
+         "managed_rule_group_statement": [
+          {
+           "name": "AWSManagedRulesCommonRuleSet",
+           "vendor_name": "AWS"
+          }
+         ],
+         "rule_group_reference_statement": []
+        }
+       ]
+      },
+      {
+       "name": "r5",
+       "priority": 5,
+       "statement": [
+        {
+         "managed_rule_group_statement": [
+          {
+           "name": "AWSManagedRulesCommonRuleSet",
+           "vendor_name": "AWS"
+          }
+         ],
+         "rule_group_reference_statement": []
+        }
+       ]
+      }
+     ]
+    },
+    "after_unknown": {}
+   }
+  },
+  {
+   "address": "aws_wafv2_web_acl.rule_json",
+   "mode": "managed",
+   "type": "aws_wafv2_web_acl",
+   "name": "rule_json",
+   "provider_name": "registry.opentofu.org/hashicorp/aws",
+   "change": {
+    "actions": [
+     "create"
+    ],
+    "before": null,
+    "after": {
+     "name": "rule_json",
+     "scope": "CLOUDFRONT",
+     "rule": [
+      {
+       "name": "r0",
+       "priority": 0,
+       "statement": [
+        {
+         "managed_rule_group_statement": [
+          {
+           "name": "AWSManagedRulesCommonRuleSet",
+           "vendor_name": "AWS"
+          }
+         ],
+         "rule_group_reference_statement": []
+        }
+       ]
+      }
+     ],
+     "rule_json": "{\"Rules\":[]}"
+    },
+    "after_unknown": {}
+   }
+  },
+  {
+   "address": "aws_wafv2_web_acl.regional",
+   "mode": "managed",
+   "type": "aws_wafv2_web_acl",
+   "name": "regional",
+   "provider_name": "registry.opentofu.org/hashicorp/aws",
+   "change": {
+    "actions": [
+     "create"
+    ],
+    "before": null,
+    "after": {
+     "name": "regional",
+     "scope": "REGIONAL",
+     "rule": [
+      {
+       "name": "r0",
+       "priority": 0,
+       "statement": [
+        {
+         "managed_rule_group_statement": [],
+         "rule_group_reference_statement": [
+          {
+           "arn": "arn:aws:wafv2:us-east-1:123456789012:global/rulegroup/own/x"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    },
+    "after_unknown": {}
+   }
+  }
+ ]
+}
