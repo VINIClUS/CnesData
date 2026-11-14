@@ -5,12 +5,14 @@ import io
 import json
 import os
 import pathlib
+import re
 from pathlib import Path
 
 import dotenv
 import pytest
 
 CHAVE = "_TEST_CONFIG_JSON_CHAVE"
+AWS_SRC = Path(__file__).resolve().parents[1] / "src/cnes_infra/aws"
 
 
 def _config(tmp_path: Path, valores: object) -> Path:
@@ -100,6 +102,12 @@ def test_conteudo_fora_do_contrato_e_recusado_sem_alterar_nada(
         "AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE", "AWS_EC2_METADATA_SERVICE_ENDPOINT",
         "AWS_EC2_METADATA_DISABLED", "AWS_ENDPOINT_URL", "AWS_ENDPOINT_URL_STS",
         "DYNAMODB_ENDPOINT_URL", "LD_PRELOAD", "PYTHONPATH", "DOCKER_HOST", "SSH_AUTH_SOCK",
+        "AWS_USE_FIPS_ENDPOINT", "AWS_USE_DUALSTACK_ENDPOINT", "AWS_STS_REGIONAL_ENDPOINTS",
+        "AWS_S3_US_EAST_1_REGIONAL_ENDPOINT", "AWS_IGNORE_CONFIGURED_ENDPOINT_URLS",
+        "AWS_METADATA_SERVICE_TIMEOUT", "AWS_ACCOUNT_ID", "AWS_CREDENTIAL_FILE", "AWS_CHAVE_NOVA",
+        "BOTO_CONFIG", "HOME", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+        "SSL_CERT_FILE", "SSL_CERT_DIR", "SSLKEYLOGFILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE",
+        "OPENSSL_CONF", "S3_ENDPOINT_URL", "S3_PUBLIC_ENDPOINT_URL",
     ],
 )
 def test_arquivo_nao_define_fonte_de_credencial_nem_endpoint(tmp_path: Path, chave: str) -> None:
@@ -110,6 +118,29 @@ def test_arquivo_nao_define_fonte_de_credencial_nem_endpoint(tmp_path: Path, cha
     with pytest.raises(OSError, match=f"config_json=credential_authority key={chave}"):
         carregar_config_json(arquivo, ambiente)
     assert ambiente == _credenciais(tmp_path)
+
+
+def test_chaves_aws_lidas_pelo_produto_sao_carregaveis(tmp_path: Path) -> None:
+    from cnes_infra.config import carregar_config_json
+
+    literais = {
+        chave for fonte in sorted(AWS_SRC.glob("*.py"))
+        for chave in re.findall(r"[\"'](AWS_[A-Z0-9_]+)[\"']", fonte.read_text(encoding="utf-8"))
+    }
+    produto = literais - {"AWS_ENDPOINT_URL"}
+    assert {"AWS_REGION", "AWS_CONTROL_PLANE_TABLE", "AWS_PRODUCTION_POLICY"} <= produto
+    ambiente = _credenciais(tmp_path)
+    carregar_config_json(_config(tmp_path, dict.fromkeys(sorted(produto), "v")), ambiente)
+    assert ambiente == _credenciais(tmp_path) | dict.fromkeys(produto, "v")
+
+
+def test_config_sob_arquivo_regular_equivale_a_ausente(tmp_path: Path) -> None:
+    from cnes_infra.config import carregar_config_json
+
+    (tmp_path / "run").write_text("", encoding="utf-8")
+    ambiente = {"PROFILE": "aws"}
+    carregar_config_json(tmp_path / "run" / "config.json", ambiente)
+    assert ambiente == {"PROFILE": "aws"}
 
 
 def test_config_ilegivel_e_recusado(tmp_path: Path) -> None:
@@ -151,10 +182,28 @@ def test_arquivo_de_credencial_ilegivel_e_recusado(tmp_path: Path) -> None:
     assert "AWS_REGION" not in ambiente
 
 
+@pytest.mark.skipif(os.name != "posix" or os.geteuid() == 0, reason="root atravessa modo 000")
+def test_credencial_em_diretorio_sem_busca_e_recusada(tmp_path: Path) -> None:
+    from cnes_infra.config import carregar_config_json
+
+    fechado = tmp_path / "fechado"
+    fechado.mkdir()
+    ambiente = _credenciais(fechado)
+    arquivo = _config(tmp_path, {"AWS_REGION": "us-east-2"})
+    fechado.chmod(0)
+    try:
+        with pytest.raises(OSError, match="credentials_file=unreadable"):
+            carregar_config_json(arquivo, ambiente)
+    finally:
+        fechado.chmod(0o700)
+    assert "AWS_REGION" not in ambiente
+
+
 @pytest.fixture
 def recarregar_config(monkeypatch: pytest.MonkeyPatch):
     yield
     monkeypatch.undo()
+    os.environ.pop(CHAVE, None)
     from cnes_infra import config
 
     importlib.reload(config)
@@ -165,8 +214,7 @@ def test_modulo_aplica_o_config_fixo_antes_do_dotenv(
 ) -> None:
     for chave, valor in _credenciais(tmp_path).items():
         monkeypatch.setenv(chave, valor)
-    monkeypatch.setenv(CHAVE, "registrada")
-    monkeypatch.delenv(CHAVE)
+    monkeypatch.delenv(CHAVE, raising=False)
     bruto = json.dumps({CHAVE: "do-arquivo"}).encode()
     abrir = pathlib.Path.open
 
