@@ -97,6 +97,7 @@ def _published(port: FakeStaticPort):
     candidate = read_candidate(dist_tar(files))
     channel = StaticChannel(port, TARGET)
     inventory = take_inventory(channel, baseline(old, None), candidate, _scan(port))
+    port.scope(inventory.decision.upload_order, tuple(r.key for r in inventory.rollback_versions))
     window = UploadWindow(port.now, NOW + timedelta(seconds=180))
     return old, inventory, publish_release(channel, inventory, candidate, window)
 
@@ -137,6 +138,7 @@ def test_primeira_publicacao_sem_par_anterior_fica_residual_sem_restaurar() -> N
     candidate = read_candidate(dist_tar(release_files("v1")))
     channel = StaticChannel(port, TARGET)
     inventory = take_inventory(channel, baseline(None, None), candidate, _scan(port))
+    port.scope(inventory.decision.upload_order, ())
     window = UploadWindow(port.now, NOW + timedelta(seconds=180))
     publication = publish_release(channel, inventory, candidate, window)
     before = len(port.calls)

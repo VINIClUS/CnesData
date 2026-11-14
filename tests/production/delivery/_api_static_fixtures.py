@@ -18,6 +18,14 @@ DISTRIBUTION = "E2EXAMPLE123"
 INDEX_JS = "assets/index-AbCd1234.js"
 INDEX_CSS = "assets/index-EfGh5678.css"
 FONT = "assets/inter-IjKl9012.woff2"
+ROLE_OPERATIONS = {
+    "observer": frozenset({"ListObjectVersions", "HeadObject", "ListMultipartUploads",
+                           "ListParts", "GetInvalidation"}),
+    "normal": frozenset({"PutObject", "GetObject", "CreateInvalidation", "GetInvalidation",
+                         "DeleteObjectVersion"}),
+    "recovery": frozenset({"CopyObject", "CreateInvalidation", "GetInvalidation",
+                           "ListParts", "AbortMultipartUpload"}),
+}
 
 
 def stamp(value: datetime) -> str:
@@ -91,7 +99,10 @@ class Entry:
 
 @dataclass
 class FakeStaticPort:
-    """Bucket versionado + CloudFront mínimo; cada call avança o relógio em `latency`."""
+    """Bucket versionado + CloudFront mínimo com o IAM #498 por role e chaves do plano.
+
+    Cada call avança o relógio em `latency`; `keys` restringe as chaves de normal/recovery.
+    """
 
     clock: datetime = NOW
     objects: dict[str, list[Entry]] = field(default_factory=dict)
@@ -101,6 +112,7 @@ class FakeStaticPort:
     corrupt: set[str] = field(default_factory=set)
     guards: int = 0
     serial: int = 0
+    keys: dict[str, frozenset[str]] = field(default_factory=dict)
 
     def now(self) -> datetime:
         return self.clock
@@ -131,9 +143,16 @@ class FakeStaticPort:
     def writes(self, operation: str = "PutObject") -> list[str]:
         return [params["Key"] for _, _, op, params in self.calls if op == operation]
 
+    def scope(self, normal: tuple[str, ...], recovery: tuple[str, ...]) -> None:
+        self.keys = {"normal": frozenset(normal), "recovery": frozenset(recovery)}
+
     def call(self, role: str, service: str, operation: str, parameters: dict[str, Any]) -> Any:
         self.calls.append((role, service, operation, json.loads(json.dumps(parameters))))
         key = parameters.get("Key", "")
+        allowed = self.keys.get(role)
+        if operation not in ROLE_OPERATIONS[role] or (allowed is not None and key
+                                                      and key not in allowed):
+            raise PermissionError(f"AccessDenied role={role} operation={operation} key={key}")
         self.clock += self.latency.get(key, timedelta(seconds=1))
         handler = getattr(self, "_" + re.sub(r"(?<!^)(?=[A-Z])", "_", operation).lower())
         return handler(parameters)
