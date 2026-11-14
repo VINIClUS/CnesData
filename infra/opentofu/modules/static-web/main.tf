@@ -20,6 +20,20 @@ locals {
     "${local.hosted_login_origin} ${local.api_origin} ${local.serving_origin}; ",
     "object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
   ])
+  caching_optimized_policy_id = "658327ea-f89d-4fab-a63d-7e88639e58f6"
+  csp_header = (
+    var.csp_mode == "enforce" ? "content-security-policy" : "content-security-policy-report-only"
+  )
+  response_headers = merge(
+    {
+      "x-content-type-options" = "nosniff"
+      "x-frame-options"        = "DENY"
+      "referrer-policy"        = "strict-origin-when-cross-origin"
+      "permissions-policy"     = "camera=(), microphone=(), geolocation=()"
+      (local.csp_header)       = local.csp
+    },
+    var.certificate_domain_validated ? { "strict-transport-security" = "max-age=31536000" } : {},
+  )
 }
 
 resource "aws_s3_bucket" "this" {
@@ -144,75 +158,13 @@ resource "aws_cloudfront_function" "spa" {
   code    = file("${path.module}/function.js")
 }
 
-resource "aws_cloudfront_cache_policy" "this" {
-  name        = "cnesdata-prod-static-web"
-  min_ttl     = 0
-  default_ttl = 0
-  max_ttl     = 31536000
-
-  parameters_in_cache_key_and_forwarded_to_origin {
-    cookies_config {
-      cookie_behavior = "none"
-    }
-    headers_config {
-      header_behavior = "none"
-    }
-    query_strings_config {
-      query_string_behavior = "none"
-    }
-    enable_accept_encoding_gzip   = true
-    enable_accept_encoding_brotli = true
-  }
-}
-
-resource "aws_cloudfront_response_headers_policy" "this" {
-  name = "cnesdata-prod-static-web"
-
-  security_headers_config {
-    content_type_options {
-      override = true
-    }
-    frame_options {
-      frame_option = "DENY"
-      override     = true
-    }
-    referrer_policy {
-      referrer_policy = "strict-origin-when-cross-origin"
-      override        = true
-    }
-    dynamic "strict_transport_security" {
-      for_each = var.certificate_domain_validated ? [1] : []
-      content {
-        access_control_max_age_sec = 31536000
-        include_subdomains         = false
-        preload                    = false
-        override                   = true
-      }
-    }
-    dynamic "content_security_policy" {
-      for_each = var.csp_mode == "enforce" ? [1] : []
-      content {
-        content_security_policy = local.csp
-        override                = true
-      }
-    }
-  }
-
-  custom_headers_config {
-    items {
-      header   = "Permissions-Policy"
-      value    = "camera=(), microphone=(), geolocation=()"
-      override = true
-    }
-    dynamic "items" {
-      for_each = var.csp_mode == "report_only" ? [1] : []
-      content {
-        header   = "Content-Security-Policy-Report-Only"
-        value    = local.csp
-        override = true
-      }
-    }
-  }
+resource "aws_cloudfront_function" "headers" {
+  name    = "cnesdata-prod-static-web-headers"
+  runtime = "cloudfront-js-2.0"
+  publish = true
+  code = templatefile("${path.module}/headers.js", {
+    headers = jsonencode(local.response_headers)
+  })
 }
 
 resource "aws_wafv2_web_acl" "this" {
@@ -281,17 +233,21 @@ resource "aws_cloudfront_distribution" "this" {
   }
 
   default_cache_behavior {
-    target_origin_id           = "static-web-s3"
-    cache_policy_id            = aws_cloudfront_cache_policy.this.id
-    response_headers_policy_id = aws_cloudfront_response_headers_policy.this.id
-    viewer_protocol_policy     = "redirect-to-https"
-    allowed_methods            = ["GET", "HEAD"]
-    cached_methods             = ["GET", "HEAD"]
-    compress                   = true
+    target_origin_id       = "static-web-s3"
+    cache_policy_id        = local.caching_optimized_policy_id
+    viewer_protocol_policy = "redirect-to-https"
+    allowed_methods        = ["GET", "HEAD"]
+    cached_methods         = ["GET", "HEAD"]
+    compress               = true
 
     function_association {
       event_type   = "viewer-request"
       function_arn = aws_cloudfront_function.spa.arn
+    }
+
+    function_association {
+      event_type   = "viewer-response"
+      function_arn = aws_cloudfront_function.headers.arn
     }
   }
 

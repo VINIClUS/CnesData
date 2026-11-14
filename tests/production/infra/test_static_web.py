@@ -82,9 +82,9 @@ HEADERS_CODE = (
     'templatefile("${path.module}/headers.js", { headers = jsonencode(local.response_headers) })'
 )
 FREE_INELIGIBLE = re.compile(
-    r"forwarded_values|min_ttl|default_ttl|max_ttl|realtime_log_config_arn|"
+    r"\b(?:forwarded_values|min_ttl|default_ttl|max_ttl|realtime_log_config_arn|"
     r"response_headers_policy_id|origin_request_policy_id|field_level_encryption_id|"
-    r"logging_config|continuous_deployment_policy_id|key_value_store|trusted_"
+    r"logging_config|continuous_deployment_policy_id|key_value_store\w*|trusted_\w+)\b"
 )
 MULTILINE = {
     ("csp", 2): r'join\("", \[\n.*?^  \]\)',

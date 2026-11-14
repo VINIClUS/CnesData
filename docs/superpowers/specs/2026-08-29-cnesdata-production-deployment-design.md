@@ -153,9 +153,14 @@ is binding; published content/inventory unproven pending release evidence. Avoid
 dependency within the existing envelope. Real AWS-0132 HIGH exception; owner repository account
 VINIClUS; expires 2027-02-03 00:00 UTC; only this file/resource:
 infra/opentofu/modules/static-web/main.tf; aws_s3_bucket_server_side_encryption_configuration.this.
-main.tf SHA256: 93cc7515f9276a0ac28331258c2ae16c72f4cf029c7f71c5f00e14c38375e701 after the #473
-re-review (2026-11-13, static-web-gc Enabled; Trivy 0.74.0 no-ignore CRITICAL/HIGH: only AWS-0132 on
-this resource, raw SHA256 da275307fa14972f0eca1286116d7450a121a554becb1a08950ca53f2c8561aa;
+main.tf SHA256: 259e0c206a165c4bfe828d8265d33d3c44de1e133f94e8f9c5c3bbee100e0253 after the #476
+re-review (2026-11-14, Free eligibility: managed CachingOptimized, viewer-response headers Function,
+custom cache/response headers policies removed; Trivy 0.74.0 no-ignore CRITICAL/HIGH: only AWS-0132
+on this resource, raw SHA256 952fa9b9c43c85d0b7507fcfedf8610e8e491272d095327e7177d4ad53f199b9;
+.trivyignore.yaml at root: 0 findings). Previous main.tf SHA256:
+93cc7515f9276a0ac28331258c2ae16c72f4cf029c7f71c5f00e14c38375e701 after the #473 re-review
+(2026-11-13, static-web-gc Enabled; Trivy 0.74.0 no-ignore CRITICAL/HIGH: only AWS-0132 on this
+resource, raw SHA256 da275307fa14972f0eca1286116d7450a121a554becb1a08950ca53f2c8561aa;
 .trivyignore.yaml at root: 0 findings); D11 reviewed
 b94212cb1c9d65c04e02f7cb6550b108f8b3ced71613c28ace7c3eaec3ce8e17. Original raw:
 task-9-static-web-provider-gates-ready/trivy-raw.json SHA256:
