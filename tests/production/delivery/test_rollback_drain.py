@@ -44,10 +44,13 @@ class Registry:
         self.images = {DIGESTS[n]: [NOW - timedelta(days=AGES[n]), [_tag(n)]] for n in releases}
         self.revisions = {_arn(m, n): DIGESTS[n] for n in releases for m in MODES}
         self.page, self.calls, self.reads, self.failures, self.after_read = page, [], 0, [], {}
+        self.endless, self.status = False, {}
 
-    def _paged(self, items, key, request):
+    def _paged(self, items, key, request, endless=False):
         start = int(request.get("nextToken") or 0)
         body = {key: items[start:start + self.page]}
+        if endless:
+            return body | {"nextToken": str((start + self.page) % len(items))}
         more = start + self.page < len(items)
         return body | ({"nextToken": str(start + self.page)} if more else {})
 
@@ -62,13 +65,13 @@ class Registry:
     def list_task_definitions(self, **request):
         assert request["status"] == "ACTIVE"
         family = request["familyPrefix"]
-        arns = sorted(a for a in self.revisions if a.split("/")[1].split(":")[0] == family)
-        return self._paged(arns, "taskDefinitionArns", request)
+        arns = sorted(a for a in self.revisions if a.split("/")[1].startswith(family))
+        return self._paged(arns, "taskDefinitionArns", request, self.endless)
 
     def describe_task_definition(self, **request):
         arn = request["taskDefinition"]
-        image = f"{URI}@{self.revisions[arn]}"
-        return {"taskDefinition": {"taskDefinitionArn": arn, "status": "ACTIVE",
+        image, status = f"{URI}@{self.revisions[arn]}", self.status.get(arn, "ACTIVE")
+        return {"taskDefinition": {"taskDefinitionArn": arn, "status": status,
                                    "containerDefinitions": [{"image": image}]}}
 
     def deregister_task_definition(self, **request):
@@ -127,6 +130,10 @@ def test_so_revisao_antiga_sem_referencia_e_elegivel():
     assert _deleted(registry) == [DIGESTS[1], DIGESTS[2]]
     assert _deregistered(registry) == sorted(_arn(m, n) for m in MODES for n in (1, 2))
     assert evidence["deregistered"] == _deregistered(registry)
+    registry = Registry()
+    registry.images[DIGESTS[3]][0] = NOW - timedelta(days=31)
+    _prune(registry, _refs(prior=2, retained=(2, 4)))
+    assert _deleted(registry) == [DIGESTS[1]]
 
 
 def test_mapeia_revisao_para_digest_e_consome_processor_retention(monkeypatch):
@@ -157,7 +164,11 @@ INCOMPLETE = {
     "digest_referenciado_sem_tag": lambda r: _untag(r, 3),
     "revisao_fora_do_repositorio": lambda r: r.revisions.update({_arn("unit", 1): "x@" + "y"}),
     "revisao_referenciada_ausente": lambda r: r.revisions.pop(_arn("audit", 3)),
-    "paginas_sem_fim": lambda r: setattr(r, "page", 0),
+    "paginas_sem_fim": lambda r: setattr(r, "endless", True),
+    "revisao_inativa": lambda r: r.status.update({_arn("unit", 1): "INACTIVE"}),
+    "revisao_de_outra_familia": lambda r: r.revisions.update(
+        {_arn("unit", 1).replace("-unit:", "-unitx:"): DIGESTS[1]}),
+    "release_com_dois_digests": lambda r: r.revisions.update({_arn("recovery", 4): DIGESTS[3]}),
 }
 
 
@@ -343,6 +354,7 @@ def _rollback_tofu(op, rb, plan):
             op.boundary.serial += 1
             op.boundary.context = rb.prior
             op.boundary.revisions = {m: rb.prior.canary["revisions"][m] for m in pc.MODES}
+            op.stray(op.boundary)
         out = {"show": json.dumps(plan).encode(), "apply": b"rollback apply"}.get(args[1], b"plan")
         return subprocess.CompletedProcess(args, 0, out, b"")
     return run
@@ -416,11 +428,19 @@ def test_rollback_restaura_as_tres_rotas_e_grants_juntos(phase_c):
     held = phase_c.adapter.observe_environment_gate("prod").permit
     released = ReleaseUnitPermit("prod", held.token, datetime.now(UTC))
     assert phase_c.adapter.release_unit_permit(released)
+    audit = current.canary["revisions"]["audit"]
+    def stray(boundary):
+        boundary.revisions.update(audit=audit)
+        phase_c.stray = lambda _: None
+
+    phase_c.stray = stray
+    with pytest.raises(ValueError, match="rollback=routes"):
+        rollback.execute_reviewed_rollback(rb, native, _rollback_approval(phase_c), close)
     evidence = rollback.execute_reviewed_rollback(rb, native, _rollback_approval(phase_c), close)
     assert evidence["routes"] == old
     assert evidence["kind"] == "rollback-processor"
     assert evidence["prior_activation_sha256"] == hashlib.sha256(prior.activation).hexdigest()
-    assert phase_c.boundary.serial == serial + 1
+    assert phase_c.boundary.serial == serial + 2
     assert phase_c.adapter.observe_environment_gate("prod").fence.state.value == "CLOSED"
 
 
