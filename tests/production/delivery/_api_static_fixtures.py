@@ -120,6 +120,10 @@ class FakeStaticPort:
         entries = self.objects.get(key, [])
         return entries[-1] if entries else None
 
+    def version(self, key: str) -> str | None:
+        entry = self.latest(key)
+        return None if entry is None else entry.version_id
+
     def writes(self, operation: str = "PutObject") -> list[str]:
         return [params["Key"] for _, _, op, params in self.calls if op == operation]
 

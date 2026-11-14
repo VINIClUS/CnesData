@@ -6,9 +6,12 @@ import tarfile
 from datetime import timedelta
 
 import pytest
+
+from cnes_domain.orchestration.static_release import ReleaseOutcome, StoredVersion, VersionRef
 from scripts.promotion.publish_dashboard import (
     CandidateError,
     PublicationError,
+    StaticChannel,
     StaticTarget,
     UploadDeadlineError,
     UploadWindow,
@@ -17,8 +20,6 @@ from scripts.promotion.publish_dashboard import (
     stored_versions,
     take_inventory,
 )
-
-from cnes_domain.orchestration.static_release import ReleaseOutcome, StoredVersion, VersionRef
 from tests.production.delivery._api_static_fixtures import (
     BUCKET,
     DISTRIBUTION,
@@ -47,13 +48,18 @@ def _publish_existing(
     return [(key, port.seed(key, body, when)) for key, body in sorted(files.items())]
 
 
+def _next_root(files: dict[str, bytes]) -> dict[str, bytes]:
+    return {key: body + b"-next" if key in ROOT else body for key, body in files.items()}
+
+
 def _window(port: FakeStaticPort, seconds: int = 180) -> UploadWindow:
     return UploadWindow(port.now, NOW + timedelta(seconds=seconds))
 
 
 def _inventory(port: FakeStaticPort, files: dict[str, bytes], current=None, prior=None):
     candidate = read_candidate(dist_tar(files))
-    return take_inventory(port, TARGET, baseline(current, prior), candidate, NOW), candidate
+    channel = StaticChannel(port, TARGET)
+    return take_inventory(channel, baseline(current, prior), candidate, NOW), candidate
 
 
 def test_list_object_versions_vira_stored_version_sem_delete_marker() -> None:
@@ -102,7 +108,7 @@ def test_hash_desconhecido_recusa_sobrescrita() -> None:
     inventory, candidate = _inventory(port, release_files())
     assert inventory.decision.outcome is ReleaseOutcome.REJECTED_OVERWRITE
     with pytest.raises(PublicationError, match="REJECTED_OVERWRITE"):
-        publish_release(port, TARGET, inventory, candidate, _window(port))
+        publish_release(StaticChannel(port, TARGET), inventory, candidate, _window(port))
     assert port.writes() == []
 
 
@@ -114,9 +120,9 @@ def test_release_misturada_deixa_raiz_inalterada() -> None:
     inventory, candidate = _inventory(port, files, current=old)
     assert inventory.decision.outcome is ReleaseOutcome.REJECTED_INVALID
     with pytest.raises(PublicationError, match="REJECTED_INVALID"):
-        publish_release(port, TARGET, inventory, candidate, _window(port))
+        publish_release(StaticChannel(port, TARGET), inventory, candidate, _window(port))
     assert port.writes() == []
-    assert port.latest("index.html").version_id == dict(old)["index.html"]
+    assert port.version("index.html") == dict(old)["index.html"]
 
 
 def test_sobrescrita_de_prefixo_imutavel_e_asset_corrompido_deixam_raiz_inalterada() -> None:
@@ -130,14 +136,14 @@ def test_sobrescrita_de_prefixo_imutavel_e_asset_corrompido_deixam_raiz_inaltera
     inventory, candidate = _inventory(clean, release_files("v1", font=False))
     clean.corrupt.add(INDEX_JS)
     with pytest.raises(PublicationError, match="readback"):
-        publish_release(clean, TARGET, inventory, candidate, _window(clean))
+        publish_release(StaticChannel(clean, TARGET), inventory, candidate, _window(clean))
     assert not set(clean.writes()) & set(ROOT)
 
 
 def test_publicacao_sobe_assets_antes_e_entrypoints_por_ultimo() -> None:
     port = FakeStaticPort()
     inventory, candidate = _inventory(port, release_files())
-    receipt = publish_release(port, TARGET, inventory, candidate, _window(port))
+    receipt = publish_release(StaticChannel(port, TARGET), inventory, candidate, _window(port))
     writes = port.writes()
     assert writes[-2:] == ["theme-init.js", "index.html"]
     assert set(writes[:-2]) == {INDEX_JS, INDEX_CSS, FONT}
@@ -149,7 +155,7 @@ def test_publicacao_sobe_assets_antes_e_entrypoints_por_ultimo() -> None:
     assert [p["InvalidationBatch"]["Paths"]["Items"] for p in invalidations] == [
         ["/index.html", "/theme-init.js"]]
     assert receipt.invalidation_id is not None
-    assert dict(receipt.uploaded)["index.html"] == port.latest("index.html").version_id
+    assert dict(receipt.uploaded)["index.html"] == port.version("index.html")
     assert port.guards >= len(writes) + 1
 
 
@@ -158,7 +164,7 @@ def test_upload_vencido_aborta_sem_tocar_raiz() -> None:
     inventory, candidate = _inventory(port, release_files())
     port.latency[INDEX_CSS] = timedelta(seconds=400)
     with pytest.raises(UploadDeadlineError) as raised:
-        publish_release(port, TARGET, inventory, candidate, _window(port))
+        publish_release(StaticChannel(port, TARGET), inventory, candidate, _window(port))
     assert raised.value.unknown == (INDEX_CSS,)
     assert not set(port.writes()) & set(ROOT)
     assert port.latest("index.html") is None
@@ -169,8 +175,9 @@ def test_prazo_insuficiente_recusa_antes_de_enviar() -> None:
     port = FakeStaticPort()
     inventory, candidate = _inventory(port, release_files())
     before = len(port.calls)
+    window = UploadWindow(port.now, port.now())
     with pytest.raises(UploadDeadlineError):
-        publish_release(port, TARGET, inventory, candidate, UploadWindow(port.now, port.now()))
+        publish_release(StaticChannel(port, TARGET), inventory, candidate, window)
     assert len(port.calls) == before
 
 
@@ -192,18 +199,19 @@ def test_baseline_sem_index_ou_fora_do_bucket_e_recusado() -> None:
     old = _publish_existing(port, release_files("v0"))
     candidate = read_candidate(dist_tar(release_files("v1")))
     raw = baseline([ref for ref in old if ref[0] != "index.html"], None)
-    assert take_inventory(port, TARGET, raw, candidate, NOW).decision.outcome is (
+    assert take_inventory(StaticChannel(port, TARGET), raw, candidate, NOW).decision.outcome is (
         ReleaseOutcome.REJECTED_INVALID)
     missing = baseline([*old, (INDEX_JS + "x", "nope")], None)
     with pytest.raises(PublicationError, match="baseline"):
-        take_inventory(port, TARGET, missing, candidate, NOW)
+        take_inventory(StaticChannel(port, TARGET), missing, candidate, NOW)
 
 
 def test_current_antigo_continua_alvo_de_rollback() -> None:
     port = FakeStaticPort()
     current = _publish_existing(port, release_files("v0"))
     port.seed("index.html", b"<html>interrupted</html>", NOW - timedelta(days=1))
-    inventory, _ = _inventory(port, release_files("v1"), current=current)
+    inventory, _ = _inventory(port, _next_root(release_files("v0")), current=current)
+    assert inventory.decision.outcome is ReleaseOutcome.PLANNED
     assert inventory.decision.rollback_entrypoint == VersionRef("index.html",
                                                                 dict(current)["index.html"])
     assert inventory.rollback_versions == (
@@ -236,19 +244,19 @@ def test_bucket_cheio_devolve_retirada_sem_upload() -> None:
     stale = port.seed(INDEX_JS, b"stale", NOW - timedelta(days=20))
     current = _publish_existing(port, release_files("v0"), NOW - timedelta(days=10))
     port.uploads.append(("assets/big-Bbbb2222.js", "u1", [5_000_000_000]))
-    inventory, candidate = _inventory(port, release_files("v1"), current=current)
+    inventory, candidate = _inventory(port, _next_root(release_files("v0")), current=current)
     assert inventory.decision.outcome is ReleaseOutcome.REJECTED_CAPACITY
     assert VersionRef(INDEX_JS, stale) in inventory.decision.retire
     assert inventory.snapshot.incomplete_upload_bytes == 5_000_000_000
     with pytest.raises(PublicationError, match="REJECTED_CAPACITY"):
-        publish_release(port, TARGET, inventory, candidate, _window(port))
+        publish_release(StaticChannel(port, TARGET), inventory, candidate, _window(port))
     assert port.writes() == []
 
 
 def test_bucket_cheio_sem_current_recusa_sem_retirada() -> None:
     port = FakeStaticPort()
-    port.seed(INDEX_JS, b"stale", NOW - timedelta(days=20))
-    port.seed(INDEX_JS, b"newer", NOW - timedelta(days=19))
+    port.seed("assets/stale-Dddd4444.js", b"stale", NOW - timedelta(days=20))
+    port.seed("assets/stale-Dddd4444.js", b"newer", NOW - timedelta(days=19))
     port.uploads.append(("assets/big-Bbbb2222.js", "u1", [5_000_000_000]))
     inventory, _ = _inventory(port, release_files("v1"))
     assert inventory.decision.outcome is ReleaseOutcome.REJECTED_CAPACITY
@@ -262,7 +270,7 @@ def test_objeto_com_mesmo_sha256_vai_para_already_published() -> None:
     current = _publish_existing(port, files)
     inventory, candidate = _inventory(port, files, current=current)
     assert set(inventory.decision.already_published) == set(files)
-    receipt = publish_release(port, TARGET, inventory, candidate, _window(port))
+    receipt = publish_release(StaticChannel(port, TARGET), inventory, candidate, _window(port))
     assert port.writes() == []
     assert receipt.invalidation_id is None
     assert set(receipt.already_published) == set(files)
@@ -275,11 +283,11 @@ def test_readback_confere_referencias_fora_do_index() -> None:
     inventory, candidate = _inventory(port, files)
     assert inventory.decision.outcome is ReleaseOutcome.PLANNED
     with pytest.raises(PublicationError, match="reference"):
-        publish_release(port, TARGET, inventory, candidate, _window(port))
+        publish_release(StaticChannel(port, TARGET), inventory, candidate, _window(port))
     assert not set(port.writes()) & set(ROOT)
     complete = FakeStaticPort()
     inventory, candidate = _inventory(complete, release_files("v1"))
-    publish_release(complete, TARGET, inventory, candidate, _window(complete))
+    publish_release(StaticChannel(complete, TARGET), inventory, candidate, _window(complete))
     assert complete.latest(FONT) is not None
 
 
