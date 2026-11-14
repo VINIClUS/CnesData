@@ -46,9 +46,27 @@ SETTINGS = TaskSettings(
 )
 
 
+# Defaults que o ECS preenche no registro; o módulo os declara (forma canônica, #469) e o payload do
+# ensaio não, mas as duas revisões registradas ficam iguais.
+ECS_CONTAINER_DEFAULTS: Node = {
+    "essential": True, "portMappings": [], "systemControls": [], "volumesFrom": [],
+}
+
+
+def with_ecs_defaults(container: Node) -> Node:
+    """Returns: cópia do container com os defaults de registro do ECS que faltarem."""
+    value = copy.deepcopy(container)
+    for key, default in ECS_CONTAINER_DEFAULTS.items():
+        value.setdefault(key, copy.deepcopy(default))
+    capabilities = value.get("linuxParameters", {}).get("capabilities")
+    if isinstance(capabilities, dict):
+        capabilities.setdefault("add", [])
+    return value
+
+
 def masked(container: Node) -> Node:
     """Returns: container com os campos permitidos trocados por um marcador fixo."""
-    value = copy.deepcopy(container)
+    value = with_ecs_defaults(container)
     value["image"] = PLACEHOLDER
     value["logConfiguration"]["options"]["awslogs-group"] = PLACEHOLDER
     names = [item["name"] for item in value["environment"]]
@@ -160,7 +178,19 @@ def _mutations() -> dict[str, tuple[str, object]]:
         "mounts": ("mountPoints", []),
         "log_driver": ("logConfiguration", {"logDriver": "json-file", "options": {}}),
         "chave_extra": ("essential", False),
+        "porta": ("portMappings", [{"containerPort": 80, "protocol": "tcp"}]),
+        "sysctl": ("systemControls", [{"namespace": "net.ipv4.ip_forward", "value": "1"}]),
+        "volumes_from": ("volumesFrom", [{"sourceContainer": "outro"}]),
+        "cap_add": ("linuxParameters", {"capabilities": {"add": ["SYS_ADMIN"], "drop": ["ALL"]}}),
     }
+
+
+def test_defaults_do_ecs_ausentes_nao_divergem_do_container_que_os_declara() -> None:
+    container = payload()["containerDefinitions"][0]
+    declared = with_ecs_defaults(container)
+    assert set(declared) - set(container) <= set(ECS_CONTAINER_DEFAULTS)
+    assert declared["linuxParameters"]["capabilities"]["add"] == []
+    assert container_differences(container, declared) == []
 
 
 @pytest.mark.parametrize("case", sorted(_mutations()))
