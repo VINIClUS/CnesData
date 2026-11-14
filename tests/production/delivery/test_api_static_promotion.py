@@ -227,10 +227,13 @@ def test_request_fora_do_abi2_e_recusado(campo: str, valor: Any, erro: str) -> N
                                                                                inputs))
 
 
-def test_input_com_bytes_divergentes_e_recusado() -> None:
+@pytest.mark.parametrize(
+    "troca", [lambda raw: raw + b"x", lambda raw: raw[:-1] + bytes([raw[-1] ^ 1])],
+)
+def test_input_com_bytes_divergentes_e_recusado(troca) -> None:
     inputs = _inventory_inputs(release_files())
     request = _request("inventory", inputs, PREPARE)
-    context = FakeContext(FakeStaticPort(), inputs | {"archive": inputs["archive"] + b"x"})
+    context = FakeContext(FakeStaticPort(), inputs | {"archive": troca(inputs["archive"])})
     with pytest.raises(ValueError, match="input=mismatch name=archive"):
         promote_api.execute_shared_operation("inventory", request, context)
 
