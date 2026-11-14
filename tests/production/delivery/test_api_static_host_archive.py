@@ -10,6 +10,7 @@ import tarfile
 from datetime import UTC, datetime, timedelta
 
 import pytest
+
 from scripts.promotion.build_host_archive import (
     ArchiveError,
     HostRelease,
@@ -21,7 +22,7 @@ from scripts.promotion.build_host_archive import (
 )
 
 NOW = datetime(2026, 11, 13, 12, 0, tzinfo=UTC)
-IMAGE = "ghcr.io/viniclus/cnesdata-central_api@sha256:" + "e" * 64
+IMAGE = "ghcr.io/viniclus/cnesdata/central_api@sha256:" + "e" * 64
 PLAN = {
     "evidence_id": "plan-20261113-1",
     "evidence_sha256": "1" * 64,
@@ -73,7 +74,7 @@ def test_archive_de_host_liga_origem_digest_e_validade() -> None:
 @pytest.mark.parametrize(
     ("changes", "reason"),
     [
-        ({"api_image": "ghcr.io/viniclus/cnesdata-central_api:latest"}, "image"),
+        ({"api_image": "ghcr.io/viniclus/cnesdata/central_api:latest"}, "image"),
         ({"expires_at": NOW + timedelta(hours=25)}, "expires_at"),
         ({"expires_at": NOW - timedelta(seconds=1)}, "expires_at"),
         ({"requested_action": "deploy-now"}, "requested_action"),
