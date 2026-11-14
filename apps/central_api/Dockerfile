@@ -36,6 +36,12 @@ RUN rm -rf /usr/local/lib/python3.13/site-packages/pip \
            /usr/local/lib/python3.13/ensurepip
 COPY --chmod=0555 apps/central_api/docker/production-entrypoint.sh \
      /usr/local/bin/production-entrypoint
+COPY --chmod=0555 apps/central_api/docker/aws_credentials.py \
+     /usr/local/bin/cnesdata-aws-credentials
+# BuildKit applies COPY --chmod to the parents it creates: 0444 would leave /etc/cnesdata
+# untraversable for uid 10001 and botocore would silently find no profile.
+RUN install -d -m 0755 /etc/cnesdata
+COPY --chmod=0444 apps/central_api/docker/aws-config /etc/cnesdata/aws-config
 ARG OS_PATCH_LEVEL=base
 RUN echo "os-patch-level=${OS_PATCH_LEVEL}" && \
     apt-get update && \
@@ -43,7 +49,9 @@ RUN echo "os-patch-level=${OS_PATCH_LEVEL}" && \
     rm -rf /var/lib/apt/lists/*
 ENV PROFILE=aws \
     AWS_PRODUCTION_POLICY=true \
-    AWS_SHARED_CREDENTIALS_FILE=/run/credentials/credentials
+    AWS_CONFIG_FILE=/etc/cnesdata/aws-config \
+    AWS_SHARED_CREDENTIALS_FILE=/dev/null \
+    AWS_EC2_METADATA_DISABLED=true
 USER 10001:10001
 EXPOSE 8000
 HEALTHCHECK --interval=15s --timeout=15s --retries=3 --start-period=60s \

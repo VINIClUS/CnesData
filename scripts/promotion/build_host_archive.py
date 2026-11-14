@@ -86,7 +86,6 @@ def render_compose(image: str, port: int) -> bytes:
         "pids_limit": 256,
         "ports": [{"host_ip": "127.0.0.1", "published": port, "target": 8000, "protocol": "tcp"}],
         "networks": ["cnesdata"],
-        "environment": {"AWS_SHARED_CREDENTIALS_FILE": "/run/credentials/credentials"},
         "volumes": mounts,
         "healthcheck": {"test": ["CMD", "python", "-c", _HEALTH], "interval": "15s",
                         "timeout": "15s", "retries": 3, "start_period": "60s"},
@@ -265,8 +264,8 @@ def _require_clean(compose: bytes, config: bytes) -> None:
         raise ArchiveError("compose.yml=structure") from error
     if not isinstance(config_value, dict):
         raise ArchiveError("config.json=structure")
-    environment = service.get("environment", {})
-    if environment != {"AWS_SHARED_CREDENTIALS_FILE": "/run/credentials/credentials"}:
+    # The AWS profile is baked into the image; any compose env could reopen a credential provider.
+    if "environment" in service:
         raise ArchiveError("compose.yml=environment")
 
 

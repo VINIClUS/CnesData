@@ -22,6 +22,7 @@ from scripts.promotion.build_host_archive import (
     archive_manifest,
     build_archive,
     build_envelope,
+    canonical,
     host_manifest,
     render_compose,
     verify_archive,
@@ -110,9 +111,19 @@ def test_archive_sem_segredo_nem_credencial_estatica() -> None:
     secret = b'{"key":"AKIA' + b"ABCDEFGHIJKLMNOP" + b'"}'
     with pytest.raises(ArchiveError, match="secret"):
         host_manifest(release(), compose, secret, NOW)
-    leaked = compose.replace(b'"AWS_SHARED_CREDENTIALS_FILE"', b'"AWS_ACCESS_KEY_ID"')
-    with pytest.raises(ArchiveError, match="environment"):
-        host_manifest(release(), leaked, CONFIG, NOW)
+
+
+@pytest.mark.parametrize("environment", [
+    {"AWS_SHARED_CREDENTIALS_FILE": "/run/credentials/credentials"},
+    {"AWS_CONFIG_FILE": "/run/credentials/config"},
+    {"AWS_PROFILE": "cnesdata"},
+    {},
+], ids=["ini-anterior", "config-do-host", "perfil", "vazio"])
+def test_archive_recusa_compose_com_environment(environment: dict[str, str]) -> None:
+    document = json.loads(render_compose(IMAGE, 18081))
+    document["services"]["api"]["environment"] = environment
+    with pytest.raises(ArchiveError, match=r"^compose\.yml=environment$"):
+        host_manifest(release(), canonical(document), CONFIG, NOW)
 
 
 def test_compose_renderizado_segue_contrato_do_host() -> None:
@@ -121,7 +132,7 @@ def test_compose_renderizado_segue_contrato_do_host() -> None:
     assert service["ports"] == [{"host_ip": "127.0.0.1", "published": 18081, "target": 8000,
                                  "protocol": "tcp"}]
     assert (service["read_only"], service["cap_drop"]) == (True, ["ALL"])
-    assert service["environment"] == {"AWS_SHARED_CREDENTIALS_FILE": "/run/credentials/credentials"}
+    assert "environment" not in service
     mounts = {m["target"]: m["source"] for m in service["volumes"]}
     assert mounts == {"/run/credentials": "/run/personal-platform/credentials/cnesdata/current",
                       "/run/config/config.json": "./config.json"}

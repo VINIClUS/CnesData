@@ -1,5 +1,11 @@
 """Settings e bundle de adapters do profile aws."""
 
+from cnes_infra.aws.credentials import (
+    CredentialAdoption,
+    register_signing_observer,
+    require_process_credentials,
+    watch_credentials,
+)
 from cnes_infra.aws.runtime import (
     AwsClients,
     AwsRuntimeComponents,
@@ -13,6 +19,10 @@ __all__ = (
     "AwsRuntimeComponents",
     "AwsRuntimeConfigurationError",
     "AwsRuntimeSettings",
+    "CredentialAdoption",
     "build_aws_runtime",
     "create_aws_clients",
+    "register_signing_observer",
+    "require_process_credentials",
+    "watch_credentials",
 )
