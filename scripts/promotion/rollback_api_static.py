@@ -125,17 +125,32 @@ def rollback_static(
     PublicationError: checksum da cópia diverge da versão anterior conhecida.
     UploadDeadlineError: chamada sem prazo dentro da janela de recovery.
     """
+    known = {version.ref: version.sha256 for version in inventory.snapshot.versions}
+    targets = tuple((ref, known.get(ref)) for ref in inventory.rollback_versions)
+    return restore_entrypoints(channel, targets, publication, window)
+
+
+def restore_entrypoints(
+    channel: StaticChannel,
+    targets: tuple[tuple[VersionRef, str | None], ...],
+    publication: PublicationReceipt | None,
+    window: UploadWindow,
+) -> RollbackReceipt:
+    """Returns:
+    Entrypoints restaurados para (versão, sha256) planejados; sem par completo, residual.
+    Raises:
+    PublicationError: sha256 desconhecido ou cópia divergente.
+    UploadDeadlineError: chamada sem prazo dentro da janela de recovery.
+    """
     written = {key for key, _ in publication.uploaded} if publication is not None else set()
     if not written & set(ENTRYPOINTS):
         return RollbackReceipt((), False, None)
-    refs = {ref.key: ref for ref in inventory.rollback_versions}
+    refs = {ref.key: (ref, expected) for ref, expected in targets}
     if set(refs) != set(ENTRYPOINTS):
         return RollbackReceipt((), True, None)
-    known = {version.ref: version.sha256 for version in inventory.snapshot.versions}
     restored = []
     for key in ENTRYPOINTS:
-        ref = refs[key]
-        expected = known.get(ref)
+        ref, expected = refs[key]
         if expected is None:
             raise PublicationError(f"rollback=unknown_checksum key={key}")
         restored.append((key, _copy_version(channel, ref, expected, window)))
