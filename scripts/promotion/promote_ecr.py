@@ -290,19 +290,39 @@ def _oci(context: Node, registry: Any, directory: Path) -> tuple[bytes, list[tup
     return data, blobs
 
 
+def _tag_holder(registry: Any, tag: str) -> str | None:
+    observed = registry.describe_image(tag)
+    return None if observed is None else observed.get("digest")
+
+
+def _image_readback(registry: Any, digest: str, manifest: bytes, tag: str) -> None:
+    observed = registry.describe_image(digest) or {}
+    require(
+        observed.get("digest") == digest and observed.get("manifest") == manifest,
+        "ecr=readback",
+    )
+    require(
+        tag in (observed.get("tags") or ()) and _tag_holder(registry, tag) == digest,
+        "ecr=tag_readback",
+    )
+
+
 def promote_image(context: Node, registry: Any) -> Node:
     """Returns: cópia exata conferida; contexto externo exige autenticação prévia de R1/R2."""
     _repository(context, registry)
     _scan(context)
+    tag = context["release_id"]
     with tempfile.TemporaryDirectory(prefix="phase-a-oci-") as directory:
         manifest, blobs = _oci(context, registry, Path(directory))
-        for digest, path in blobs:
-            registry.copy_blob(digest, path)
         digest = "sha256:" + sha256(manifest)
-        registry.put_manifest(digest, manifest)
+        holder = _tag_holder(registry, tag)
+        require(holder in (None, digest), "ecr=tag_conflict")
+        for blob, path in blobs:
+            registry.copy_blob(blob, path)
+        if holder is None:
+            registry.put_manifest(digest, manifest, tag)
         _destination_blobs(registry, blobs, Path(directory))
-    observed = registry.describe_image(digest)
-    require(observed == {"digest": digest, "manifest": manifest}, "ecr=readback")
+    _image_readback(registry, digest, manifest, tag)
     _repository(context, registry)
     return {
         "image_digest": digest,
@@ -451,8 +471,5 @@ def verify_promoted_image(context: Node, registry: Any) -> None:
     with tempfile.TemporaryDirectory(prefix="phase-a-readback-") as directory:
         manifest, blobs = _oci(context, registry, Path(directory))
         digest = "sha256:" + sha256(manifest)
-        require(
-            registry.describe_image(digest) == {"digest": digest, "manifest": manifest},
-            "ecr=readback",
-        )
+        _image_readback(registry, digest, manifest, context["release_id"])
         _destination_blobs(registry, blobs, Path(directory))
