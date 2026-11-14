@@ -39,7 +39,9 @@ PLAN = {
 }
 CI = {"repository": "VINIClUS/CnesData", "workflow": ".github/workflows/promote-production.yml",
       "run_id": 77, "artifact_id": 991, "artifact_digest": "sha256:" + "5" * 64}
-CONFIG = json.dumps({"api_base_url": "https://api.cnesdata.com.br/api/v1"}).encode()
+CONFIG = json.dumps(
+    {"AWS_REGION": "us-east-2", "OIDC_AUDIENCE": "https://api.cnesdata.com.br"}
+).encode()
 
 
 def release(**changes) -> HostRelease:
