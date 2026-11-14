@@ -208,6 +208,8 @@ UNCERTAIN = {
                         "prune=delete_failed"),
     "imagem_volta_no_readback": (lambda r: r.after_read.update(
         {3: lambda: r.images.setdefault(DIGESTS[1], [NOW, [_tag(1)]])}), "prune=post_readback"),
+    "leitura_final_truncada": (lambda r: r.after_read.update(
+        {3: lambda: setattr(r, "endless", True)}), "prune=post_readback_incomplete"),
 }
 
 
