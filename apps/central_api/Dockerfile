@@ -38,6 +38,9 @@ COPY --chmod=0555 apps/central_api/docker/production-entrypoint.sh \
      /usr/local/bin/production-entrypoint
 COPY --chmod=0555 apps/central_api/docker/aws_credentials.py \
      /usr/local/bin/cnesdata-aws-credentials
+# BuildKit applies COPY --chmod to the parents it creates: 0444 would leave /etc/cnesdata
+# untraversable for uid 10001 and botocore would silently find no profile.
+RUN install -d -m 0755 /etc/cnesdata
 COPY --chmod=0444 apps/central_api/docker/aws-config /etc/cnesdata/aws-config
 ARG OS_PATCH_LEVEL=base
 RUN echo "os-patch-level=${OS_PATCH_LEVEL}" && \
