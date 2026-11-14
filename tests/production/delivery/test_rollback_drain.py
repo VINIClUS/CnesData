@@ -334,7 +334,7 @@ def test_drain_vencido_mantem_revisoes_e_grants_antigos():
     work = Work(tasks=[_arn("recovery", 3), _arn("unit", 4), "arn:aws:ecs:outra:1"])
     result = _drain(work)
     assert result.drained is False
-    assert result.in_flight == {_arn("recovery", 3)}
+    assert (result.in_flight, result.target) == ({_arn("recovery", 3)}, TARGET)
     registry = Registry()
     refs = prune.PruneReferences.from_drain(result, {_arn(m, 3) for m in MODES})
     assert (refs.drained, refs.in_flight, refs.current) == (False, result.in_flight, TARGET.current)
@@ -343,7 +343,8 @@ def test_drain_vencido_mantem_revisoes_e_grants_antigos():
     assert evidence["retained_after"] == sorted(refs.retained)
     work = Work(tasks=[_arn("recovery", 3)], done_at=2)
     result = _drain(work)
-    assert (result.drained, result.in_flight, work.reads) == (True, frozenset(), 3)
+    assert (result.drained, result.in_flight, result.target) == (True, frozenset(), TARGET)
+    assert work.reads == 3
 
 
 def _prior_context(ctx):
