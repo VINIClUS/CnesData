@@ -58,6 +58,7 @@ class HostPlan:
     step: HostStep
     fence: str
     decision: dict[str, Any] | None
+    host_action: str | None = None
 
 
 @dataclass(frozen=True)
@@ -93,7 +94,7 @@ def after_host(outcome: HostOutcome) -> HostPlan:
     if outcome.status == "rolled_back":
         return HostPlan(HostStep.FENCED_FAILURE, "CLOSED", None)
     if outcome.status == "recovery_required" and outcome.decision is not None:
-        return HostPlan(HostStep.RECOVERY, "CLOSED", outcome.decision)
+        return HostPlan(HostStep.RECOVERY, "CLOSED", outcome.decision, "rollback-previous")
     return HostPlan(HostStep.UNKNOWN, "CLOSED", None)
 
 
