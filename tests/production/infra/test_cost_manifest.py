@@ -7,6 +7,7 @@ import pytest
 
 from tests.production.infra._athena_contracts import (
     BILLED_QUERIES_PER_MONTH,
+    BLOCKING_PRECONDITIONS,
     CROSSING_QUERIES,
     MANIFEST_PATH,
     MONTH_LIMIT_BYTES,
@@ -37,6 +38,10 @@ from tests.production.infra._processing_native import A_RUN, NativePlans
 from tests.production.infra._step_functions_iam_contracts import output_value
 
 AS_OF = "2026-11-01"
+FREE_PLAN_EVIDENCE = re.compile(
+    r"https://github\.com/VINIClUS/CnesData/issues/476#issuecomment-[0-9]+"
+)
+PROD_MAIN = REPO_ROOT / "infra" / "opentofu" / "env" / "prod" / "main.tf"
 AMENDMENT = (
     REPO_ROOT / "docs/superpowers/specs/2026-11-01-athena-observability-cost-amendment.md"
 )
@@ -217,7 +222,6 @@ def test_limites_fixos_do_produto_cognito_e_waf() -> None:
     assert waf["exposure_usd"] == 7
     assert waf["precondition"] == "cloudfront_free_plan_active"
     assert waf["blocking"] == "activation"
-    assert waf["evidence"] == "pending"
     assert lines["secrets_manager"]["binding"] == "BILLING_MODE=disabled"
     assert lines["step_functions_transitions"]["binding"] == "monthly_attempt_limit=200"
     assert lines["ecr_storage"]["quantity"]["max"] == 2
@@ -253,6 +257,40 @@ def test_toda_precondicao_declara_bloqueio_e_exposicao_acima_do_limite_bloqueia_
         exposure = Decimal(str(line.get("exposure_usd", 0)))
         if product_max + exposure > Decimal(manifest["limits"]["product_usd"]):
             assert line["blocking"] == "activation", f"activation_block_required line={name}"
+
+
+def test_plano_free_ativo_tem_evidencia_na_476_e_mantem_o_gate_da_waf() -> None:
+    lines = _lines(_manifest())
+    for name in ("cloudfront_free_plan", "waf_dedicated"):
+        line = lines[name]
+        assert line["evidence"] == "verified", f"evidence line={name}"
+        assert FREE_PLAN_EVIDENCE.fullmatch(line["evidence_url"]), f"evidence_url line={name}"
+        assert line["precondition"] == "cloudfront_free_plan_active"
+        assert line["blocking"] == "activation"
+    assert lines["waf_dedicated"]["exposure_usd"] == 7
+
+
+def test_schema_aceita_evidencia_verificada_so_com_link_de_comentario_de_issue() -> None:
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    manifest = _manifest()
+    waf = _lines(manifest)["waf_dedicated"]
+    waf["evidence"] = "verified"
+    waf["evidence_url"] = "https://github.com/VINIClUS/CnesData/issues/476#issuecomment-1"
+    assert validate(manifest, schema) == []
+    waf["evidence_url"] = "https://github.com/VINIClUS/CnesData/pull/476"
+    assert any("evidence_url pattern=" in item for item in validate(manifest, schema))
+    waf["evidence_url"] = "https://github.com/VINIClUS/CnesData/issues/476#issuecomment-1"
+    waf["evidence"] = "assumed"
+    assert any("evidence enum=" in item for item in validate(manifest, schema))
+
+
+def test_raiz_publica_so_as_precondicoes_com_evidencia_pendente() -> None:
+    text = PROD_MAIN.read_text(encoding="utf-8")
+    published = re.findall(
+        r"^\s*activation_blocking_preconditions\s*=\s*\[(.*)\]\s*$", text, flags=re.M
+    )
+    assert len(published) == 1
+    assert re.findall(r'"([^"]+)"', published[0]) == BLOCKING_PRECONDITIONS
 
 
 def test_manifest_fica_fora_da_raiz_aplicada() -> None:
