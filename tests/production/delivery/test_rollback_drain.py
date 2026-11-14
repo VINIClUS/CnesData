@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from scripts.promotion import drain
 from scripts.promotion import prune_revisions as prune
 
 ACCOUNT, NOW = "123456789012", datetime(2026, 11, 14, 12, tzinfo=UTC)
@@ -205,3 +206,97 @@ def test_sem_drain_mantem_revisoes_digests_e_grants():
     assert registry.calls == []
     assert registry.reads == 0
     assert evidence["retained_after"] == sorted(refs.retained)
+
+
+MACHINE = f"arn:aws:states:us-east-2:{ACCOUNT}:stateMachine:cnesdata-prod-processor"
+EXECUTION = MACHINE.replace(":stateMachine:", ":execution:") + ":{}"
+OLD, NEW = EXECUTION.format("antiga"), EXECUTION.format("nova")
+TARGET = drain.DrainTarget(
+    state_machine_arn=MACHINE, cluster_arn=f"arn:aws:ecs:us-east-2:{ACCOUNT}:cluster/x",
+    switched_at=NOW, current=frozenset(_arn(m, 4) for m in MODES),
+    retained=frozenset(_arn("unit", n) for n in (3, 4)), seconds=60)
+
+
+class Work:
+    def __init__(self, executions=(), tasks=(), done_at=None, stops_end=False):
+        self.executions = {arn: NOW + timedelta(seconds=delta) for arn, delta in executions}
+        self.tasks = {f"task/{i}": arn for i, arn in enumerate(tasks)}
+        self.done_at, self.stops_end, self.reads, self.stopped = done_at, stops_end, 0, []
+
+    def list_executions(self, **request):
+        assert (request["stateMachineArn"], request["statusFilter"]) == (MACHINE, "RUNNING")
+        self.reads += 1
+        if self.reads == self.done_at:
+            self.executions, self.tasks = {}, {}
+        return {"executions": [{"executionArn": arn, "startDate": start}
+                               for arn, start in self.executions.items()]}
+
+    def list_tasks(self, **request):
+        assert (request["cluster"], request["desiredStatus"]) == (TARGET.cluster_arn, "RUNNING")
+        return {"taskArns": sorted(self.tasks)}
+
+    def describe_tasks(self, **request):
+        return {"tasks": [{"taskArn": arn, "taskDefinitionArn": self.tasks[arn]}
+                          for arn in request["tasks"]], "failures": []}
+
+    def stop_execution(self, **request):
+        self.stopped.append((request["executionArn"], request["cause"]))
+        if self.stops_end:
+            self.executions.pop(request["executionArn"])
+        return {}
+
+
+class Ticker:
+    def __init__(self):
+        self.now = 0.0
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.now += seconds
+
+
+def _drain(work, approval=None):
+    ticker = Ticker()
+    result = drain.drain_old_work({"stepfunctions": work, "ecs": work}, TARGET, ticker, approval)
+    assert ticker.now <= TARGET.seconds + drain.POLL_SECONDS
+    return result
+
+
+def test_execucao_standard_ativa_mantem_definicao_sem_aprovacao():
+    work = Work(executions=[(OLD, -60), (NEW, 60)])
+    result = _drain(work)
+    assert result.drained is False
+    assert (result.executions, work.stopped, result.cancelled) == ((OLD,), [], ())
+    assert result.in_flight == {_arn("unit", 3)}
+    approval = drain.CancelApproval("dono", "rollback", ((OLD, "tenant-1", "run-1"),))
+    work = Work(executions=[(OLD, -60), (NEW, 60)], stops_end=True)
+    result = _drain(work, approval)
+    assert result.drained is True
+    assert work.stopped == [(OLD, "tenant_id=tenant-1 run_id=run-1")]
+    assert result.cancelled == ({"execution_arn": OLD, "tenant_id": "tenant-1", "run_id": "run-1",
+                                 "approval_sha256": approval.sha256()},)
+    work = Work(executions=[(OLD, -60)], stops_end=True)
+    other = drain.CancelApproval("dono", "rollback", ((NEW, "tenant-1", "run-1"),))
+    assert (_drain(work, other).drained, work.stopped) == (False, [])
+    for bad in ((EXECUTION.format("*"), "t", "r"), ("arn:aws:states:x", "t", "r"), (OLD, "", "r")):
+        with pytest.raises(ValueError, match="drain=approval"):
+            _drain(Work(), drain.CancelApproval("dono", "rollback", (bad,)))
+    with pytest.raises(ValueError, match="drain=approval"):
+        _drain(Work(), replace(approval, approver=""))
+
+
+def test_drain_vencido_mantem_revisoes_e_grants_antigos():
+    work = Work(tasks=[_arn("recovery", 3), _arn("unit", 4), "arn:aws:ecs:outra:1"])
+    result = _drain(work)
+    assert result.drained is False
+    assert result.in_flight == {_arn("recovery", 3)}
+    registry = Registry()
+    refs = _refs(in_flight=result.in_flight, retained=(1, 2, 3, 4), drained=result.drained)
+    evidence = _prune(registry, refs)
+    assert (evidence["outcome"], registry.calls) == ("NOT_DRAINED", [])
+    assert evidence["retained_after"] == sorted(refs.retained)
+    work = Work(tasks=[_arn("recovery", 3)], done_at=2)
+    result = _drain(work)
+    assert (result.drained, result.in_flight, work.reads) == (True, frozenset(), 3)
