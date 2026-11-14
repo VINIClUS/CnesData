@@ -9,6 +9,7 @@ import json
 import zipfile
 
 import pytest
+
 from scripts.promotion._api_static_handoff import (
     FAIL_STEP,
     GATE_STEP,
@@ -17,7 +18,6 @@ from scripts.promotion._api_static_handoff import (
     HandoffEvidence,
     authenticated_outcome,
 )
-
 from tests.production.delivery.test_api_static_rollback import CALLER, READY, decision, handoff
 
 RUN, ATTEMPT = CALLER["run_id"], CALLER["run_attempt"]
