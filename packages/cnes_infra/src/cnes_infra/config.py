@@ -34,17 +34,23 @@ CONFIG_JSON = Path("/run/config/config.json")
 _CONFIG_JSON_LIMITE = 65536
 _CREDENCIAL = "AWS_SHARED_CREDENTIALS_FILE"
 _CHAVE_CONFIG = re.compile(r"[A-Z_][A-Z0-9_]*")
-# The host gate admits only AWS_SHARED_CREDENTIALS_FILE among these names in the compose env; the
-# owner-pinned file must not reopen credential, endpoint or loader authority through os.environ.
+# The host gate closes the AWS_ namespace (botocore credential, endpoint and config authority) in
+# the compose env, so the owner-pinned file may reopen only the product keys of cnes_infra.aws;
+# a new AWS_ setting must be added here. Outside it, transport, TLS trust and loader authority
+# stay closed too.
+_CHAVES_AWS_DO_PRODUTO = frozenset({
+    "AWS_REGION", "AWS_CONTROL_PLANE_TABLE", "AWS_DATA_BUCKET", "AWS_AUDIT_BUCKET",
+    "AWS_STATE_MACHINE_ARN", "AWS_PROCESSOR_CONTAINER_NAME", "AWS_SERVING_URL_TTL_SECONDS",
+    "AWS_AUDIT_RETENTION_DAYS", "AWS_PROCESSOR_MAX_CONCURRENCY", "AWS_PROCESSOR_LEASE_SECONDS",
+    "AWS_PROCESSOR_RECOVERY_BATCH_SIZE", "AWS_PUBLIC_SUBNET_IDS", "AWS_SECURITY_GROUP_ID",
+    "AWS_PRODUCTION_POLICY", "AWS_ENVIRONMENT",
+})
 _CHAVES_DE_AUTORIDADE = frozenset({
-    "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_SECURITY_TOKEN",
-    "AWS_PROFILE", "AWS_DEFAULT_PROFILE", "AWS_CONFIG_FILE", _CREDENCIAL, "AWS_ROLE_ARN",
-    "AWS_ROLE_SESSION_NAME", "AWS_WEB_IDENTITY_TOKEN_FILE", "AWS_CA_BUNDLE", "AWS_DATA_PATH",
+    "HOME", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "REQUESTS_CA_BUNDLE",
+    "CURL_CA_BUNDLE", "SSLKEYLOGFILE", "BOTO_CONFIG", "S3_ENDPOINT_URL", "S3_PUBLIC_ENDPOINT_URL",
     "DYNAMODB_ENDPOINT_URL",
 })
-_PREFIXOS_DE_AUTORIDADE = (
-    "AWS_CONTAINER_", "AWS_EC2_METADATA_", "AWS_ENDPOINT_URL", "DOCKER_", "SSH_", "LD_", "PYTHON",
-)
+_PREFIXOS_DE_AUTORIDADE = ("DOCKER_", "SSH_", "LD_", "PYTHON", "SSL_", "OPENSSL_")
 
 
 def carregar_config_json(caminho: Path, ambiente: MutableMapping[str, str]) -> None:
@@ -67,7 +73,7 @@ def _ler_config(caminho: Path) -> bytes | None:
     try:
         with caminho.open("rb") as arquivo:
             bruto = arquivo.read(_CONFIG_JSON_LIMITE + 1)
-    except FileNotFoundError:
+    except (FileNotFoundError, NotADirectoryError):
         return None
     except OSError as err:
         raise OSError(f"config_json=unreadable path={caminho}") from err
@@ -99,11 +105,17 @@ def _valores_config(bruto: bytes) -> dict[str, str]:
 def _valor_config(chave: str, valor: object) -> str:
     if _CHAVE_CONFIG.fullmatch(chave) is None:
         raise OSError(f"config_json=invalid_key key={chave}")
-    if chave in _CHAVES_DE_AUTORIDADE or chave.startswith(_PREFIXOS_DE_AUTORIDADE):
+    if _autoridade(chave):
         raise OSError(f"config_json=credential_authority key={chave}")
     if not isinstance(valor, str) or "\x00" in valor or not _codificavel(valor):
         raise OSError(f"config_json=invalid_value key={chave}")
     return valor
+
+
+def _autoridade(chave: str) -> bool:
+    if chave.startswith("AWS_"):
+        return chave not in _CHAVES_AWS_DO_PRODUTO
+    return chave in _CHAVES_DE_AUTORIDADE or chave.startswith(_PREFIXOS_DE_AUTORIDADE)
 
 
 def _codificavel(valor: str) -> bool:
