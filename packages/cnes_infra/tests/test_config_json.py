@@ -1,4 +1,4 @@
-"""Loader de /run/config/config.json do host gate e AWS_SHARED_CREDENTIALS_FILE (#473)."""
+"""Loader de /run/config/config.json do host gate sob o perfil AWS da imagem (#473)."""
 
 import importlib
 import io
@@ -22,9 +22,11 @@ def _config(tmp_path: Path, valores: object) -> Path:
 
 
 def _credenciais(tmp_path: Path) -> dict[str, str]:
-    arquivo = tmp_path / "credentials"
-    arquivo.write_text("[default]\n", encoding="utf-8")
-    return {"AWS_SHARED_CREDENTIALS_FILE": str(arquivo)}
+    return {
+        "AWS_CONFIG_FILE": "/etc/cnesdata/aws-config",
+        "AWS_SHARED_CREDENTIALS_FILE": os.devnull,
+        "AWS_EC2_METADATA_DISABLED": "true",
+    }
 
 
 def test_arquivo_ausente_nao_altera_o_ambiente(tmp_path: Path) -> None:
@@ -153,50 +155,26 @@ def test_config_ilegivel_e_recusado(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "caminho", [None, "", "relativo/credentials", "/nao/existe/credentials", "/dev/null", "DIR"],
+    "caminho", [None, "", "relativo/credentials", "/nao/existe/credentials", os.devnull],
 )
-def test_config_presente_exige_arquivo_de_credencial_do_host(
+def test_config_presente_nao_exige_arquivo_de_credencial(
     tmp_path: Path, caminho: str | None,
 ) -> None:
     from cnes_infra.config import carregar_config_json
 
     ambiente = {} if caminho is None else {"AWS_SHARED_CREDENTIALS_FILE": caminho}
-    if caminho == "DIR":
-        ambiente["AWS_SHARED_CREDENTIALS_FILE"] = str(tmp_path)
     antes = dict(ambiente)
-    arquivo = _config(tmp_path, {"AWS_REGION": "us-east-2"})
-    with pytest.raises(OSError, match="credentials_file=missing key=AWS_SHARED_CREDENTIALS_FILE"):
-        carregar_config_json(arquivo, ambiente)
-    assert ambiente == antes
+    carregar_config_json(_config(tmp_path, {"AWS_REGION": "us-east-2"}), ambiente)
+    assert ambiente == antes | {"AWS_REGION": "us-east-2"}
 
 
-@pytest.mark.skipif(os.name != "posix" or os.geteuid() == 0, reason="root lê modo 000")
-def test_arquivo_de_credencial_ilegivel_e_recusado(tmp_path: Path) -> None:
+def test_config_presente_aplica_sob_o_perfil_aws_da_imagem(tmp_path: Path) -> None:
     from cnes_infra.config import carregar_config_json
 
-    ambiente = _credenciais(tmp_path)
-    Path(ambiente["AWS_SHARED_CREDENTIALS_FILE"]).chmod(0)
-    arquivo = _config(tmp_path, {"AWS_REGION": "us-east-2"})
-    with pytest.raises(OSError, match="credentials_file=unreadable"):
-        carregar_config_json(arquivo, ambiente)
-    assert "AWS_REGION" not in ambiente
-
-
-@pytest.mark.skipif(os.name != "posix" or os.geteuid() == 0, reason="root atravessa modo 000")
-def test_credencial_em_diretorio_sem_busca_e_recusada(tmp_path: Path) -> None:
-    from cnes_infra.config import carregar_config_json
-
-    fechado = tmp_path / "fechado"
-    fechado.mkdir()
-    ambiente = _credenciais(fechado)
-    arquivo = _config(tmp_path, {"AWS_REGION": "us-east-2"})
-    fechado.chmod(0)
-    try:
-        with pytest.raises(OSError, match="credentials_file=unreadable"):
-            carregar_config_json(arquivo, ambiente)
-    finally:
-        fechado.chmod(0o700)
-    assert "AWS_REGION" not in ambiente
+    ambiente = _credenciais(tmp_path) | {"PROFILE": "aws", "AWS_PRODUCTION_POLICY": "true"}
+    antes = dict(ambiente)
+    carregar_config_json(_config(tmp_path, {"AWS_REGION": "us-east-2", "PROFILE": "aws"}), ambiente)
+    assert ambiente == antes | {"AWS_REGION": "us-east-2"}
 
 
 @pytest.fixture
