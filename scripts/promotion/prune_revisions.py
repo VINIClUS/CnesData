@@ -202,6 +202,7 @@ def execute_prune(clients: Mapping[str, Any], refs: PruneReferences, now: dateti
     _require(second == first, "prune=readback_changed")
     _delete(clients, digests, revisions)
     third = read_inventory(clients)
+    _require(third.complete, "prune=post_readback_incomplete")
     remaining = {image[0] for image in third.images} | {arn for arn, _ in third.revisions}
     _require(not remaining & {*digests, *revisions}, "prune=post_readback")
     return _evidence(outcome, refs, (digests, revisions),

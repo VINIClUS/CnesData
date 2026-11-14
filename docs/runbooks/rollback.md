@@ -68,8 +68,8 @@ dono, com as rotas anteriores lidas forte e o state limpo.
   em voo ou os retidos. Um digest só sai quando todas as revisões que o usam são mais antigas
   que a atual e a anterior e não estão protegidas.
 - Ordem: leitura, decisão, segunda leitura igual, deregister das revisões, `BatchDeleteImage`
-  por digest e leitura final. Mudança entre leituras, falha de delete ou recurso que volta na
-  leitura final param a poda.
+  por digest e leitura final. Mudança entre leituras, falha de delete, leitura final incompleta
+  ou recurso que volta na leitura final param a poda.
 - `retained_after` propõe o conjunto retido reduzido às unit atual, anterior e em voo. Os
   grants antigos só saem por um novo plan revisado com esse conjunto.
 
