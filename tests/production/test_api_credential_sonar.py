@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import re
 import shlex
 from fnmatch import fnmatchcase
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -19,6 +21,8 @@ READER_SUBPROCESS_TESTS = (
 )
 IGNORE_PREFIX = "sonar.issue.ignore.multicriteria"
 PATH_TRAVERSAL_RULE = "pythonsecurity:S8707"
+EXCLUSION_OPTIONS = ("--ignore=", "--ignore-glob=", "--deselect=")
+EXCLUDED_MARKER = re.compile(r"\bnot\s+(\w+)")
 
 
 def _properties() -> dict[str, str]:
@@ -42,7 +46,23 @@ def _list(value: str) -> list[str]:
 
 
 def _matches(pattern: str, path: str) -> bool:
-    return fnmatchcase(path, pattern.replace("**", "*"))
+    forms = {pattern, pattern.replace("**/", "")}
+    return any(fnmatchcase(path, form.replace("**", "*")) for form in forms)
+
+
+def _excludes(option: str, test: str) -> bool:
+    flag, target = option.split("=", 1)
+    target = target.split("::", 1)[0].rstrip("/")
+    if flag == "--ignore-glob":
+        return _matches(target, test)
+    return test == target or test.startswith(f"{target}/")
+
+
+def _runtime_python() -> tuple[dict[str, Any], list[str], dict[str, Any]]:
+    workflow = yaml.safe_load(RUNTIME_WORKFLOW.read_text(encoding="utf-8"))
+    job = workflow["jobs"]["runtime-python"]
+    command = shlex.split(next(s["run"] for s in job["steps"] if s.get("id") == "python-contracts"))
+    return job, command, workflow["jobs"]["production-runtime-acceptance"]
 
 
 def test_ignore_de_path_traversal_do_leitor_e_escopado_no_caminho_exato() -> None:
@@ -50,7 +70,7 @@ def test_ignore_de_path_traversal_do_leitor_e_escopado_no_caminho_exato() -> Non
     scoped = [
         identifier
         for identifier in _list(entries[IGNORE_PREFIX])
-        if entries[f"{IGNORE_PREFIX}.{identifier}.ruleKey"] == PATH_TRAVERSAL_RULE
+        if _matches(entries[f"{IGNORE_PREFIX}.{identifier}.ruleKey"], PATH_TRAVERSAL_RULE)
         and _matches(entries[f"{IGNORE_PREFIX}.{identifier}.resourceKey"], READER)
     ]
 
@@ -64,15 +84,27 @@ def test_exclusao_de_cobertura_do_leitor_e_o_caminho_exato() -> None:
 
 
 def test_job_obrigatorio_roda_os_testes_de_subprocesso_do_leitor() -> None:
-    workflow = yaml.safe_load(RUNTIME_WORKFLOW.read_text(encoding="utf-8"))
-    steps = workflow["jobs"]["runtime-python"]["steps"]
-    command = shlex.split(next(s["run"] for s in steps if s.get("id") == "python-contracts"))
-    ignored = [arg.split("=", 1)[1] for arg in command if arg.startswith("--ignore=")]
-    aggregate = workflow["jobs"]["production-runtime-acceptance"]["needs"]
+    job, command, aggregate = _runtime_python()
+    options = [arg for arg in command if arg.startswith(EXCLUSION_OPTIONS)]
 
     assert "tests/production" in command
-    assert "runtime-python" in aggregate
-    assert all(
-        not test.startswith(f"{prefix}/") for test in READER_SUBPROCESS_TESTS for prefix in ignored
-    )
-    assert all((REPO_ROOT / test).is_file() for test in READER_SUBPROCESS_TESTS)
+    assert "runtime-python" in aggregate["needs"]
+    assert not job.get("continue-on-error")
+    assert not [
+        (option, test) for option in options for test in READER_SUBPROCESS_TESTS
+        if _excludes(option, test)
+    ]
+
+
+def test_testes_de_subprocesso_do_leitor_nao_carregam_marker_excluido_pelo_job() -> None:
+    _, command, _ = _runtime_python()
+    excluded = set(EXCLUDED_MARKER.findall(command[command.index("-m") + 1]))
+    sources = {
+        test: (REPO_ROOT / test).read_text(encoding="utf-8") for test in READER_SUBPROCESS_TESTS
+    }
+
+    assert excluded
+    assert not [
+        (test, marker) for test, text in sources.items() for marker in excluded
+        if f"mark.{marker}" in text
+    ]
