@@ -59,6 +59,7 @@ def test_readback_redigido_nao_carrega_conta_arn_nem_rede() -> None:
     for container in readback().values():
         assert container["image"] == REDACTED
         assert {item["value"] for item in container["environment"]} == {REDACTED}
+        assert container["logConfiguration"]["options"]["awslogs-group"] == REDACTED
 
 
 @pytest.mark.parametrize("key", ECS_DEFAULTS)
