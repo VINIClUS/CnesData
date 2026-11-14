@@ -1,14 +1,18 @@
-"""Aceite das rotas pós-Phase C, reabertura do fence e watchdog da janela de 30 minutos."""
+"""Leitura forte das rotas, watchdog da janela de 30 minutos e reabertura do fence."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import json
+import re
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Final
 
+from cnes_domain.control_plane.environment_gate import ReopenPromotionFence
+from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
 from scripts.promotion.phase_b import _require_utc, object_hash
-from scripts.promotion.phase_c_recovery import MODES, read_routes
 from scripts.promotion.rollback_api_static import CONVERGENCE_SECONDS, RECOVERY_SECONDS
+from scripts.promotion.verify_routes import verify_task_environment_arns
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -17,7 +21,9 @@ if TYPE_CHECKING:
     from scripts.promotion.verify_routes import NativePhaseB
 
 Node = dict[str, Any]
+MODES: Final = ("recovery", "audit")
 WINDOW_SECONDS: Final = 1800
+_DIGEST: Final = re.compile(r"[0-9a-f]{64}")
 
 
 def _instant(value: str) -> datetime:
@@ -29,7 +35,7 @@ def _require(condition: bool, reason: str) -> None:
         raise ValueError(reason)
 
 
-class WindowCutoff(RuntimeError):
+class WindowCutoff(ValueError):
     """Passo recusado pelo watchdog; carrega a decisão de convergência com o fence fechado."""
 
     def __init__(self, decision: Node) -> None:
@@ -76,23 +82,95 @@ class PhaseCWatchdog:
         }
 
 
-def _canaries(context: PhaseCContext, canaries: Mapping[str, Node]) -> str:
+@dataclass(frozen=True)
+class CanaryAcceptance:
+    """Aceite de um mode-result, emitido só pelos aceites de recovery e audit."""
+
+    mode: str
+    common: Node
+    result_sha256: str
+    routing_sha256: str
+    task_receipts: int
+    observed_at: str
+    freeze_proof_sha256: str | None
+    deadline_drill_sha256: str | None
+    operational_requirements: tuple[str, ...]
+
+
+def _machine_route(native: NativePhaseB, context: PhaseCContext) -> str:
+    expected = context.phase_b.machine
+    machine = native.clients["stepfunctions"].describe_state_machine(
+        stateMachineArn=expected["arn"])
+    _require(machine["stateMachineArn"] == expected["arn"]
+             and json.loads(machine["definition"]) == json.loads(expected["definition"]),
+             "routes=machine_readback")
+    return context.revisions["unit"]
+
+
+def _schedule_routes(native: NativePhaseB, state: Mapping[str, Any]) -> dict[str, str | None]:
+    routes: dict[str, str | None] = dict.fromkeys(MODES)
+    for resource in state["resources"]:
+        if resource.get("type") != "aws_scheduler_schedule":
+            continue
+        for instance in resource["instances"]:
+            original = instance["attributes"]
+            arn = original["target"][0]["ecs_parameters"][0]["task_definition_arn"]
+            actual = native.clients["scheduler"].get_schedule(
+                Name=original["name"], GroupName=original["group_name"])["Target"]
+            _require(actual["EcsParameters"]["TaskDefinitionArn"] == arn
+                     and actual["Arn"] == original["target"][0]["arn"],
+                     "routes=scheduler_readback")
+            modes = [mode for mode in MODES if f"processor-{mode}:" in arn]
+            _require(len(modes) == 1 and routes[modes[0]] is None, "routes=scheduler_mode")
+            routes[modes[0]] = arn
+    return routes
+
+
+def read_routes(native: NativePhaseB, context: PhaseCContext,
+                state: Mapping[str, Any]) -> dict[str, str | None]:
+    """Returns: Rotas lidas forte da máquina, dos Schedulers e do state; ambiente das tasks."""
+    routes = {"unit": _machine_route(native, context), **_schedule_routes(native, state)}
+    environments = {}
+    for mode in ("unit", "recovery"):
+        revision = routes[mode]
+        _require(revision is not None, f"routes={mode}_missing")
+        task = native.clients["ecs"].describe_task_definition(taskDefinition=revision)
+        definition = task["taskDefinition"]
+        _require(definition["taskDefinitionArn"] == revision
+                 and len(definition["containerDefinitions"]) == 1, "routes=task_readback")
+        environments[mode] = {"environment": definition["containerDefinitions"][0]["environment"]}
+    verify_task_environment_arns(environments, context.phase_b.machine["arn"])
+    return routes
+
+
+def _canary(context: PhaseCContext, mode: str, accepted: Any) -> bool:
+    common = context.close["common"]
+    return (
+        isinstance(accepted, CanaryAcceptance)
+        and accepted.mode == mode
+        and accepted.common.get("activation_sha256") == context.activation_sha256
+        and accepted.common.get("promotion_generation") == common["promotion_generation"]
+        and accepted.task_receipts == 1
+        and all(_DIGEST.fullmatch(value) for value in (accepted.result_sha256,
+                                                        accepted.routing_sha256))
+        and (mode != "audit" or accepted.freeze_proof_sha256 is not None)
+    )
+
+
+def canary_status(context: PhaseCContext, canaries: Mapping[str, Any]) -> str:
+    """Returns: accepted-open só com drill operacional. Raises: ValueError: Aceite inválido."""
     _require(set(canaries) == set(MODES), "reopen=canaries")
-    for mode, accepted in canaries.items():
-        _require(accepted.get("mode") == mode
-                 and accepted["common"]["activation_sha256"] == context.activation_sha256,
-                 "reopen=canary_binding")
+    _require(all(_canary(context, mode, canaries[mode]) for mode in MODES),
+             "reopen=canary_binding")
     complete = all(
-        item["deadline_drill_sha256"] is not None and not item["operational_requirements"]
-        for item in canaries.values()
+        canaries[mode].deadline_drill_sha256 is not None
+        and not canaries[mode].operational_requirements
+        for mode in MODES
     )
     return "accepted-open" if complete else "routes-open-operational-pending"
 
 
 def _reopen(native: NativePhaseB, close: Mapping[str, Any], now: datetime) -> None:
-    from cnes_domain.control_plane.environment_gate import ReopenPromotionFence
-    from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
-
     gate = DynamoDBControlPlane(native.clients["dynamodb"], native.backend["control_plane_table"],
                                 lambda: datetime.now(UTC))
     promotion = close["fence"]["promotion_id"]
@@ -102,12 +180,12 @@ def _reopen(native: NativePhaseB, close: Mapping[str, Any], now: datetime) -> No
     _require(state.fence.state.value == "OPEN" and state.permit is None, "reopen=readback")
 
 
-def accept_and_reopen(context: PhaseCContext, close: Mapping[str, Any], native: NativePhaseB,
-                      canaries: Mapping[str, Node]) -> Node:
-    """Reabre só com unit, recovery e audit da activation aceitos, state limpo e dentro de F."""
+def accept_and_reopen(context: PhaseCContext, native: NativePhaseB,
+                      canaries: Mapping[str, Any]) -> Node:
+    """Reabre só com unit, recovery e audit da activation aceitos, state limpo e antes do corte."""
     _require(context.next_mode is None, "reopen=phase_c_incomplete")
-    status = _canaries(context, canaries)
-    watchdog = PhaseCWatchdog.from_close(close)
+    status = canary_status(context, canaries)
+    close = context.close
     native.assert_closed(close)
     before, state = native.checkpoint()
     _require(before == context.checkpoint, "reopen=checkpoint_changed")
@@ -117,7 +195,7 @@ def accept_and_reopen(context: PhaseCContext, close: Mapping[str, Any], native: 
     _require(native.checkpoint()[0] == before, "reopen=checkpoint_changed")
     native.assert_closed(close)
     now = datetime.now(UTC)
-    watchdog.admit("reopen", now, 0)
+    context.watchdog.admit("reopen", now, 0)
     _reopen(native, close, now)
     return {
         "version": 1,
@@ -126,7 +204,7 @@ def accept_and_reopen(context: PhaseCContext, close: Mapping[str, Any], native: 
         "common": dict(close["common"]),
         "close_drain_sha256": object_hash(close),
         "phase_c_sha256": [object_hash(item) for item in context.accepted],
-        "canaries_sha256": object_hash(dict(canaries)),
+        "canaries_sha256": object_hash({mode: asdict(canaries[mode]) for mode in MODES}),
         "checkpoint": before,
         "routes": routes,
         "reopened_at": _require_utc(now),
