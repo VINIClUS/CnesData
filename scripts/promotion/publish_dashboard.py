@@ -34,6 +34,7 @@ CALL_SECONDS = 20
 _TAR_LIMIT = 64 * 1024**2
 _MAX_PAGES = 100
 _TAG = re.compile(rb"<(?:script|link)\b[^>]*>", re.IGNORECASE)
+_CANDIDATE_ID = re.compile(r"candidate-[0-9a-f]{40}-[1-9][0-9]*-[1-9][0-9]*")
 _ATTRIBUTE = re.compile(rb"""\b(?:src|href)\s*=\s*(["']?)([^"'\s>]*)""", re.IGNORECASE)
 _CSS_URL = re.compile(rb"""url\(\s*(["']?)([^"')]+)\1\s*\)""")
 
@@ -237,6 +238,17 @@ def call_within(
     if window.clock() > limit:
         raise UploadDeadlineError(f"expired={operation}", (str(parameters.get("Key", "")),))
     return result
+
+
+def binding_release_id(candidate_id: str) -> str:
+    """Returns:
+    release_id do binding #498: "r" + 31 hex do sha256 do id do candidato.
+    Raises:
+    PublicationError: id fora do formato candidate-<sha>-<run>-<attempt>.
+    """
+    if _CANDIDATE_ID.fullmatch(candidate_id) is None:
+        raise PublicationError("candidate_id=invalid")
+    return "r" + hashlib.sha256(candidate_id.encode("utf-8")).hexdigest()[:31]
 
 
 def b64(raw: bytes) -> str:
