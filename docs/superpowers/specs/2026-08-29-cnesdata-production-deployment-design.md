@@ -314,6 +314,12 @@ API/processor roles receive only required table/index actions. GitHub has no dir
 writes; promotion's operator strongly reads fence/semaphore but updates only the
 separate fence item. Demo seed uses another role; semaphore writes are denied.
 
+Exception A1 (#499): `mode_seed` writes only the insert-only synthetic seed items and raw
+objects of `prod-canary-<canary_id>`; `mode_dispatch` writes the synthetic control, tickets,
+per-dispatch bindings and native dispatch/semaphore/quota items of that tenant only. Neither
+writes `TENANT#_GLOBAL`, the fence item or membership. The normal dispatcher never adopts a
+synthetic record: the reserved prefix is refused before reserve, admission or start.
+
 ## 10. Data, serving and audit buckets
 
 ### 10.1 Data bucket
@@ -459,6 +465,11 @@ VPS.
   `.env` file is created.
 - Cognito identifiers, bucket names and API URLs are configuration, not secret
   values.
+- Mode canaries (#499) use four nullable product identities (`mode_seed`,
+  `mode_dispatch`, `mode_audit_launch`, `mode_observe`), assumed only through exact
+  `mc-<code>-<digest>` sessions of the prepared owner; only `mode_dispatch` and
+  `mode_audit_launch` may call `ecs:RunTask`, on exact revisions. Production runtime roles stay
+  cross-tenant: the gate, not IAM, restricts the synthetic tenant.
 
 OpenTofu provisions a `us-east-2` Roles Anywhere trust anchor from an external,
 offline CA public PEM and a profile; AWS Private CA is prohibited by the cost

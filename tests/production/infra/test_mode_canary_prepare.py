@@ -7,6 +7,7 @@ from fnmatch import fnmatchcase
 
 import pytest
 
+from scripts.promotion.prepare_mode_canary import validate_mode_canary_prepare
 from tests.production.infra._athena_root_plan import after_of
 from tests.production.infra._mode_canary_native import (
     ALIASES,
@@ -39,12 +40,7 @@ def _objetos(plano):
 def test_prepare_cria_somente_quatro_roles_e_quatro_policies(preparacao):
     antes = _objetos(preparacao["plans"]["desligado"])
     depois = _objetos(preparacao["plans"]["promocao"])
-    esperado = {
-        f"{PREFIXO}.{tipo}.{alias}[0]"
-        for alias in ALIASES
-        for tipo in ("aws_iam_role", "aws_iam_role_policy")
-    }
-    assert depois.keys() - antes.keys() == esperado
+    assert depois.keys() - antes.keys() == _enderecos_modo()
     assert not antes.keys() - depois.keys()
     assert {endereco: depois[endereco] for endereco in antes} == antes
 
@@ -126,11 +122,8 @@ def test_admissao_nativa_rejeita_entrada_mutante(preparacao):
 
 
 def _enderecos_modo():
-    return {
-        f"{PREFIXO}.{tipo}.{alias}[0]"
-        for alias in ALIASES
-        for tipo in ("aws_iam_role", "aws_iam_role_policy")
-    }
+    tipos = ("aws_iam_role", "aws_iam_role_policy")
+    return {f"{PREFIXO}.{tipo}.{alias}[0]" for alias in ALIASES for tipo in tipos}
 
 
 def _verificar_transicao(plano, esperado):
@@ -490,3 +483,16 @@ def _pedidos_observacao(recursos):
         _pedido("cloudwatch:DescribeAlarms", arn) for arn in recursos["alarm_arns"].values()
     ]
     return pedidos
+
+
+def test_oracle_de_prepare_aceita_planos_nativos_do_ciclo(ciclo_modo, preparacao):
+    planos, antigo, novo = ciclo_modo["plans"], ciclo_modo["input"], ciclo_modo["new_input"]
+    assert validate_mode_canary_prepare(planos["criar"], antigo, "initial")["addresses"]
+    assert validate_mode_canary_prepare(planos["replay"], antigo, "established")["addresses"]
+    assert validate_mode_canary_prepare(planos["novo_owner"], novo, "established")["addresses"]
+    for caso in ("promocao", "readiness"):
+        plano, entrada = deepcopy(preparacao["plans"][caso]), preparacao["cases"][caso]
+        plano["resource_changes"] = [
+            r for r in plano["resource_changes"] if r["address"] in _enderecos_modo()]
+        prova = validate_mode_canary_prepare(plano, entrada["mode_canary"], "initial")
+        assert prova["context_kind"] == entrada["mode_canary"]["context_kind"]

@@ -38,6 +38,7 @@ os apps deployáveis.
 | `contracts/columns.py` | Colunas canônicas CNES (set + listas) |
 | `contracts/sihd_columns.py` | Colunas canônicas SIHD / AIH |
 | `orchestration/source_definitions/sihd.py` | Pipeline SIHD: `SIHD_DEFINITION`, `SIHD_LAYOUT` |
+| `orchestration/mode_canary.py` | Namespace reservado `prod-canary-`, binding, record/control/ticket fechados (#499) |
 | `contracts/schemas.py` | PEP 544 Protocols para DataFrames canônicos |
 | `models/api.py` | Pydantic: `JobCreate`, `JobStatus`, `LeaseResponse` etc. |
 | `models/extraction.py` | `ExtractionIntent` enum + `ExtractionParams` (regex CNES/IBGE) |

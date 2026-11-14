@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
@@ -34,6 +35,7 @@ class DeadlineWatchdog:
     exit_process: Callable[[int], None] = os._exit
     _timer: threading.Timer | None = field(default=None, init=False)
     _expired: bool = field(default=False, init=False)
+    _deadline_at: float | None = field(default=None, init=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
     def arm(self) -> None:
@@ -42,10 +44,28 @@ class DeadlineWatchdog:
         """
         with self._lock:
             self._expired = False
+            self._deadline_at = time.monotonic() + self.policy.seconds
             timer = threading.Timer(self.policy.seconds - 0.1, self._expire)
             timer.daemon = True
             self._timer = timer
             timer.start()
+
+    def shorten(self, seconds: float) -> bool:
+        """Returns: True se o novo teto absoluto antecipa o prazo armado; nunca estende."""
+        with self._lock:
+            current = self._deadline_at
+            if self._expired or self._timer is None or current is None:
+                return False
+            target = time.monotonic() + seconds
+            if target >= current:
+                return False
+            self._timer.cancel()
+            timer = threading.Timer(max(seconds - 0.1, 0.0), self._expire)
+            timer.daemon = True
+            self._timer = timer
+            self._deadline_at = target
+            timer.start()
+            return True
 
     def disarm(self) -> None:
         """Returns:
@@ -80,6 +100,14 @@ class DeadlineWatchdog:
         self.exit_process(3)
 
 
+_ACTIVE: list[DeadlineWatchdog] = []
+
+
+def shorten_active_deadline(seconds: float) -> bool:
+    """Returns: True se o watchdog ativo foi antecipado; False sem watchdog ou sem ganho."""
+    return bool(_ACTIVE) and _ACTIVE[-1].shorten(seconds)
+
+
 @contextmanager
 def processor_deadline(policy: DeadlinePolicy) -> Generator[None]:
     """Args:
@@ -89,7 +117,9 @@ def processor_deadline(policy: DeadlinePolicy) -> Generator[None]:
     """
     watchdog = DeadlineWatchdog(policy)
     watchdog.arm()
+    _ACTIVE.append(watchdog)
     try:
         yield
     finally:
+        _ACTIVE.remove(watchdog)
         watchdog.disarm()

@@ -11,10 +11,13 @@ from unittest.mock import Mock, patch
 import pytest
 
 from cnes_domain.billing import BillingConcurrencyPolicy
+from cnes_domain.control_plane.environment_gate import PermitHolder
 from cnes_domain.orchestration.dispatch_admission import EnvironmentAdmission
+from cnes_domain.orchestration.mode_canary import ModeCanaryBinding
 from cnes_domain.ports.environment_gate import UNGATED_ADMISSION
 from cnes_domain.profiles import parse_profile
 from cnes_infra.aws import AwsRuntimeConfigurationError
+from cnes_infra.aws.mode_canary import ModeCanaryContext
 from cnes_infra.aws.processor_settings import AwsRecoverySettings, AwsUnitSettings
 from cnes_infra.billing import BillingSettings
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
@@ -31,6 +34,7 @@ from data_processor.aws_composition import (
     build_aws_unit_runtime,
 )
 from data_processor.composition import build_local_processor_runtime
+from data_processor.mode_canary import CanaryControlPlane, ModeCanaryExecutor
 from data_processor.orchestration.coordinator import (
     PipelineCoordinator,
     noop_execution_started,
@@ -397,3 +401,96 @@ async def test_main_normaliza_perfil_aws_maiusculo_no_roteamento(
         assert await app.main() == 0
 
     run.assert_called_once_with()
+
+
+def _canary_binding() -> ModeCanaryBinding:
+    return ModeCanaryBinding(
+        tenant_id="prod-canary-0123456789abcdef0123456789abcdef",
+        run_ids=("unit-aaaaaaaaaaaaaaaa",), owner_sha256="a" * 64, record_sha256="b" * 64,
+        phase="recovery", context_kind="promotion",
+    )
+
+
+def test_processor_aws_producao_instala_binding_sintetico_no_coordinator_e_na_admissao() -> None:
+    binding = _canary_binding()
+
+    runtime = build_aws_recovery_runtime(
+        AwsRecoverySettings.from_mapping(PRODUCTION_VALUES),
+        _session(PRODUCTION_FIXTURE),
+        lambda: datetime(2026, 10, 12, tzinfo=UTC),
+        AwsExecutionPolicy(
+            BillingSettings.from_mapping(PRODUCTION_VALUES), noop_execution_started, binding,
+        ),
+    )
+
+    coordinator = runtime.recovery._coordinator
+    admission = coordinator._execution.admission
+    assert coordinator._mode_canary is binding
+    assert isinstance(admission, EnvironmentAdmission)
+    assert isinstance(admission._mode_canary, ModeCanaryContext)
+    assert admission._mode_canary._binding is binding
+
+
+def test_processor_aws_sem_binding_nao_instala_contexto_sintetico() -> None:
+    runtime = build_aws_recovery_runtime(
+        AwsRecoverySettings.from_mapping(PRODUCTION_VALUES),
+        _session(PRODUCTION_FIXTURE),
+        lambda: datetime(2026, 10, 12, tzinfo=UTC),
+        AwsExecutionPolicy(BillingSettings.from_mapping(PRODUCTION_VALUES), noop_execution_started),
+    )
+
+    coordinator = runtime.recovery._coordinator
+    assert coordinator._mode_canary is None
+    assert cast("EnvironmentAdmission", coordinator._execution.admission)._mode_canary is None
+
+
+def test_recovery_canary_compoe_facade_executor_e_contexto_no_mesmo_assembly() -> None:
+    binding = _canary_binding()
+
+    runtime = build_aws_recovery_runtime(
+        AwsRecoverySettings.from_mapping(PRODUCTION_VALUES),
+        _session(PRODUCTION_FIXTURE),
+        lambda: datetime(2026, 10, 12, tzinfo=UTC),
+        AwsExecutionPolicy(
+            BillingSettings.from_mapping(PRODUCTION_VALUES), noop_execution_started, binding,
+        ),
+    )
+
+    dependencies = runtime.recovery._coordinator._dependencies
+    assert isinstance(dependencies.control_plane, CanaryControlPlane)
+    assert isinstance(dependencies.executor, ModeCanaryExecutor)
+    assert runtime.recovery._control_plane is dependencies.control_plane
+    assert isinstance(runtime.mode_canary, ModeCanaryContext)
+    admission = cast("EnvironmentAdmission", runtime.recovery._coordinator._execution.admission)
+    assert isinstance(admission._gate, DynamoDBControlPlane)
+
+
+def test_unit_sintetica_carrega_binding_do_dispatch_e_aplica_falha_de_leitura(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    binding = _canary_binding()
+    loaded: list[Any] = []
+    monkeypatch.setattr(
+        "data_processor.aws_composition.load_unit_binding",
+        lambda client, table, holder: loaded.append((table, holder)) or binding,
+    )
+    monkeypatch.setattr(
+        "data_processor.aws_composition.fault_object_store", lambda context, store: "faulty",
+    )
+    holder = PermitHolder(binding.tenant_id, binding.run_ids[0], "0123456789abcdef")
+
+    runtime = build_aws_unit_runtime(
+        AwsUnitSettings.from_mapping(PRODUCTION_VALUES),
+        _session(PRODUCTION_FIXTURE),
+        lambda: datetime(2026, 10, 12, tzinfo=UTC),
+        AwsExecutionPolicy(
+            BillingSettings.from_mapping(PRODUCTION_VALUES), noop_execution_started,
+            unit_dispatch=holder,
+        ),
+    )
+
+    assert loaded == [(PRODUCTION_VALUES["AWS_CONTROL_PLANE_TABLE"], holder)]
+    assert isinstance(runtime.mode_canary, ModeCanaryContext)
+    worker = runtime.unit_handler._worker
+    assert isinstance(worker._dependencies.control_plane, CanaryControlPlane)
+    assert cast("Any", worker._dependencies.processor)._source_store == "faulty"

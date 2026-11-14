@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import replace
 from datetime import timedelta
 from typing import TYPE_CHECKING, Final, cast
 
@@ -30,6 +31,10 @@ from cnes_domain.control_plane.execution_quota import (
     ConsumeExecutionAttempt,
     execution_period,
 )
+from cnes_domain.orchestration.mode_canary import (
+    SyntheticContextRequired,
+    is_mode_canary_namespace,
+)
 from cnes_domain.ports.environment_gate import (
     DeferralReason,
     DispatchDeferred,
@@ -44,6 +49,7 @@ if TYPE_CHECKING:
 
     from cnes_domain.control_plane.entities import RunDispatch, RunUnit
     from cnes_domain.control_plane.environment_gate import PermitAcquisition, UnitPermit
+    from cnes_domain.orchestration.mode_canary import ModeCanaryAdmissionProvider
     from cnes_domain.ports.control_plane import ControlPlanePort
     from cnes_domain.ports.environment_gate import (
         DispatchAdmissionPort,
@@ -120,6 +126,8 @@ class EnvironmentAdmission:
         environment: str,
         lease_seconds: int,
         control_plane: ControlPlanePort | None = None,
+        *,
+        mode_canary: ModeCanaryAdmissionProvider | None = None,
     ) -> None:
         """Raises: ValueError: Ambiente inválido ou lease menor que 1 segundo."""
         self._gate = gate
@@ -127,6 +135,7 @@ class EnvironmentAdmission:
         self._environment = require_environment(environment)
         self._lease_seconds = _require_lease(lease_seconds)
         self._control_plane: ControlPlanePort | None = control_plane
+        self._mode_canary = mode_canary
 
     def admit(self, holder: PermitHolder, now: datetime) -> UnitAdmission | DispatchDeferred:
         """Adquire o permit e só então conta a tentativa do mês; outro holder cede pelo probe.
@@ -137,11 +146,33 @@ class EnvironmentAdmission:
         Raises: Erro do gate ou do probe, sem liberar nada.
         """
         command = AcquireUnitPermit(self._environment, holder, now, self._lease_seconds)
+        command = replace(command, canary_promotion_id=self._promotion_id(holder, now))
         acquisition = self._gate.acquire_unit_permit(command)
         held = acquisition.status is AcquisitionStatus.HELD
         if held and self._reconcile(cast("UnitPermit", acquisition.permit), now):
             acquisition = self._gate.acquire_unit_permit(command)
         return self._admission(holder, acquisition, now)
+
+    def _promotion_id(self, holder: PermitHolder, now: datetime) -> str | None:
+        if not is_mode_canary_namespace(holder.tenant_id):
+            return None
+        if self._mode_canary is None:
+            raise SyntheticContextRequired("reason=synthetic_context_required field=tenant_id")
+        return self._mode_canary.binding_for(holder, now).promotion_id
+
+    def _may_mutate(self, permit: UnitPermit, now: datetime) -> bool:
+        holder = permit.holder
+        if not is_mode_canary_namespace(holder.tenant_id):
+            return True
+        try:
+            self._promotion_id(holder, now)
+        except SyntheticContextRequired:
+            logger.info(
+                "synthetic_permit_untouched environment=%s dispatch_id=%s",
+                self._environment, holder.dispatch_id,
+            )
+            return False
+        return True
 
     def confirm(self, admission: UnitAdmission, execution_ref: str, now: datetime) -> None:
         """Vincula a execução iniciada ao permit admitido e renova o lease.
@@ -262,6 +293,8 @@ class EnvironmentAdmission:
         return observation.presence is ExecutionPresence.ABSENT
 
     def _reconcile(self, permit: UnitPermit, now: datetime) -> bool:
+        if not self._may_mutate(permit, now):
+            return False
         observation = self._probe.probe(permit.holder.dispatch_id)
         if observation.presence is ExecutionPresence.TERMINAL:
             return self._settle_terminal(permit, observation, now)

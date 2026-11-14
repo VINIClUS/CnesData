@@ -8,12 +8,15 @@ import logging
 import os
 import signal
 import sys
+import threading
 from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
 from typing import TYPE_CHECKING
 
 from boto3.session import Session
 
+from cnes_domain.control_plane.environment_gate import PermitHolder
+from cnes_domain.orchestration.mode_canary import is_mode_canary_namespace
 from cnes_domain.outbox_dispatcher import dispatch_once
 from cnes_infra.aws.processor_settings import (
     AwsAuditDispatchSettings,
@@ -26,6 +29,7 @@ from cnes_infra.executor.step_functions import IncompatibleStateMachine
 from cnes_infra.observability import configure_json_stdout
 from cnes_infra.telemetry import init_telemetry
 from data_processor.aws_composition import (
+    AwsAuditRuntime,
     AwsExecutionPolicy,
     build_aws_audit_runtime,
     build_aws_recovery_runtime,
@@ -39,6 +43,7 @@ from data_processor.aws_entrypoint import (
     select_aws_invocation,
 )
 from data_processor.deadline import DeadlinePolicy, processor_deadline
+from data_processor.mode_canary import enforce_mode_canary
 from data_processor.orchestration.coordinator import noop_execution_started
 
 if TYPE_CHECKING:
@@ -187,6 +192,8 @@ def _run_aws_profile() -> int:
         policy = AwsExecutionPolicy(
             BillingSettings.from_mapping(os.environ),
             noop_execution_started,
+            invocation.mode_canary,
+            _unit_dispatch(invocation),
         )
         seconds = settings.processor_lease_seconds
         if invocation.mode is AwsMode.RUN_UNIT:
@@ -203,6 +210,13 @@ def _run_aws_profile() -> int:
     )
 
 
+def _unit_dispatch(invocation: AwsInvocation) -> PermitHolder | None:
+    envelope = invocation.envelope
+    if envelope is None or not is_mode_canary_namespace(envelope.tenant_id):
+        return None
+    return PermitHolder(envelope.tenant_id, envelope.run_id, envelope.dispatch_id)
+
+
 def _run_validated_aws(
     invocation: AwsInvocation,
     settings: AwsUnitSettings | AwsRecoverySettings | AwsAuditDispatchSettings,
@@ -215,6 +229,10 @@ def _run_validated_aws(
             init_telemetry("data-processor")
             session = Session()
             runtime = _build_aws_runtime(settings, session, policy)
+            if not isinstance(runtime, AwsAuditRuntime):
+                enforce_mode_canary(
+                    runtime.mode_canary, invocation.mode, _utc_now, threading.Event().wait,
+                )
             return run_aws_entrypoint(invocation, runtime)
         except Exception as error:
             exit_code = _aws_failure_exit_code(error)

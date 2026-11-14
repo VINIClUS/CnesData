@@ -10,6 +10,7 @@ from cnes_domain.control_plane.entities import OutboxEvent
 from cnes_domain.control_plane.enums import RunState
 from cnes_domain.orchestration.dispatch_admission import settle_run_dispatches
 from cnes_domain.orchestration.fan_in import decide_fan_in
+from cnes_domain.orchestration.mode_canary import require_context
 from cnes_domain.orchestration.planner import RunPlan
 from cnes_domain.ports.environment_gate import UNGATED_ADMISSION, DeferralReason, DispatchDeferred
 from cnes_domain.ports.processing import CancelRunExecution, ExecutionPermit
@@ -26,6 +27,7 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from cnes_domain.control_plane.entities import Run, RunDispatch, RunUnit
+    from cnes_domain.orchestration.mode_canary import ModeCanaryBinding
     from cnes_domain.ports.control_plane import ControlPlanePort
     from cnes_domain.ports.processing import (
         ExecutionPolicyConfig,
@@ -184,16 +186,22 @@ def _processing_result(outcome: str | DispatchDeferred | None) -> CoordinatorRes
 
 class PipelineCoordinator:
     def __init__(
-        self, dependencies: CoordinatorDependencies, execution: ExecutionPolicyConfig
+        self,
+        dependencies: CoordinatorDependencies,
+        execution: ExecutionPolicyConfig,
+        mode_canary: ModeCanaryBinding | None = None,
     ) -> None:
         self._dependencies = dependencies
         self._execution = execution
+        self._mode_canary = mode_canary
     def resume(self, tenant_id: str, run_id: str, *, settle: bool = True) -> CoordinatorResult:
         """Args: settle: False no after_persist, que roda dentro da própria execução.
 
         Returns: Estado do Run; com settle, o Run que termina liquida o permit dos dispatches.
         Raises: ValueError: Run inexistente ou em estado não suportado.
+            SyntheticContextRequired: Namespace reservado fora do binding instalado.
         """
+        require_context(self._mode_canary, tenant_id, run_id)
         run = self._dependencies.control_plane.get_run(tenant_id, run_id)
         if run is None:
             raise ValueError("run_not_found")

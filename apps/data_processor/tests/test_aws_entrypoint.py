@@ -177,3 +177,54 @@ def test_modo_unit_sem_envelope_falha_sem_executar(runtime: Any) -> None:
         run_aws_entrypoint(AwsInvocation(AwsMode.RUN_UNIT, None), runtime)
 
     runtime.unit_handler.handle.assert_not_called()
+
+
+_LOCATOR = (
+    '{"context_kind":"promotion","owner_sha256":"' + "a" * 64 + '","phase":"recovery",'
+    '"record_sha256":"' + "b" * 64 + '","run_ids":["recovery-a-0123456789abcdef"],'
+    '"tenant_id":"prod-canary-0123456789abcdef0123456789abcdef"}'
+)
+_OBSERVE = (
+    '{"event_ids":["e1"],"owner_sha256":"' + "a" * 64 + '","record_sha256":"' + "b" * 64 + '"}'
+)
+
+
+def test_recover_once_aceita_locator_do_binding_sem_autorizar_por_si() -> None:
+    invocation = select_aws_invocation({"PROD_CANARY_BINDING": _LOCATOR}, ["recover-once"])
+
+    assert invocation.mode is AwsMode.RECOVER_ONCE
+    binding = cast("Any", invocation.mode_canary)
+    assert binding.run_ids == ("recovery-a-0123456789abcdef",)
+    assert binding.phase == "recovery"
+    assert select_aws_invocation({}, ["recover-once"]).mode_canary is None
+
+
+@pytest.mark.parametrize(
+    ("values", "argv", "message"),
+    [
+        ({"PROD_CANARY_BINDING": "{"}, ["recover-once"], "invalid=PROD_CANARY_BINDING"),
+        ({"PROD_CANARY_BINDING": _LOCATOR.replace('"recovery"', '"unit"')}, ["recover-once"],
+         "invalid=PROD_CANARY_BINDING"),
+        ({"PROD_CANARY_BINDING": _LOCATOR, **ENVELOPE}, [], "mode_canary=forbidden"),
+        ({"PROD_CANARY_BINDING": _LOCATOR}, ["dispatch-outbox-once"], "mode_canary=forbidden"),
+        ({"PROD_CANARY_AUDIT_OBSERVE": _OBSERVE}, ["recover-once"], "audit_observe=forbidden"),
+        ({"PROD_CANARY_AUDIT_OBSERVE": _OBSERVE, **ENVELOPE}, [], "audit_observe=forbidden"),
+        ({"PROD_CANARY_AUDIT_OBSERVE": "[]"}, ["dispatch-outbox-once"],
+         "invalid=PROD_CANARY_AUDIT_OBSERVE"),
+    ],
+)
+def test_overrides_canary_fora_do_modo_ou_invalidos_falham_fechado(
+    values: dict[str, str], argv: list[str], message: str,
+) -> None:
+    with pytest.raises(EntrypointConfigurationError, match=message):
+        select_aws_invocation(values, argv)
+
+
+def test_audit_aceita_observacao_sem_mudar_o_modo() -> None:
+    invocation = select_aws_invocation(
+        {"PROD_CANARY_AUDIT_OBSERVE": _OBSERVE}, ["dispatch-outbox-once"],
+    )
+
+    assert invocation.mode is AwsMode.DISPATCH_OUTBOX_ONCE
+    assert cast("Any", invocation.audit_observe).event_ids == ("e1",)
+    assert invocation.mode_canary is None
