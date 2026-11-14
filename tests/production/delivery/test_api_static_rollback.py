@@ -7,7 +7,6 @@ from datetime import timedelta
 
 import pytest
 
-from scripts.promotion.build_host_archive import CALLER_REF, CALLER_WORKFLOW
 from scripts.promotion.publish_dashboard import (
     PublicationError,
     StaticChannel,
@@ -44,8 +43,8 @@ ROOT = ("index.html", "theme-init.js")
 CALLER = {
     "repository": "VINIClUS/CnesData",
     "source_sha": "a" * 40,
-    "ref": CALLER_REF,
-    "workflow_path": CALLER_WORKFLOW,
+    "ref": "refs/heads/develop",
+    "workflow_path": ".github/workflows/promote-production.yml",
     "workflow_sha": "a" * 40,
     "run_id": 123,
     "run_attempt": 1,

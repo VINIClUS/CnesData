@@ -16,10 +16,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
 REPOSITORY = "VINIClUS/CnesData"
-CALLER_WORKFLOW = ".github/workflows/promote-production.yml"
-# Single caller-ref point; the owner amendment of the workflow track moves it to main.
-CALLER_REF = "refs/heads/develop"
-PRODUCER_WORKFLOWS = frozenset({CALLER_WORKFLOW})
+PRODUCER_WORKFLOWS = frozenset({".github/workflows/promote-production.yml"})
 ACTIONS = frozenset({"validate", "deploy", "rollback-previous"})
 MEMBERS = ("release-manifest.json", "compose.yml", "config.json")
 LIMITS = {"release-manifest.json": 65536, "compose.yml": 1024**2, "config.json": 16 * 1024**2}
