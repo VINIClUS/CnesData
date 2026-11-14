@@ -72,6 +72,7 @@ def test_conflito_com_o_ambiente_e_recusado_sem_alterar_nada(tmp_path: Path) -> 
         (b'{"A": 1}', "invalid_value key=A"),
         (b'{"A": null}', "invalid_value key=A"),
         (b'{"A": "a\\u0000b"}', "invalid_value key=A"),
+        (b'{"A": "ok", "B": "\\ud800"}', "invalid_value key=B"),
         (b'{"A": "x", "A": "y"}', "duplicate_key key=A"),
         (b'{"A": "' + b"x" * 65536 + b'"}', "too_large"),
     ],
