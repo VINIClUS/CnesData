@@ -8,6 +8,8 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
+
+from cnes_infra.aws.mode_canary import canonical_text
 from scripts.promotion.mode_canary import (
     RESULT_FIELDS,
     ModeCanaryDenied,
@@ -17,8 +19,6 @@ from scripts.promotion.mode_canary import (
     run_task_request,
     validate_run_task_request,
 )
-
-from cnes_infra.aws.mode_canary import canonical_text
 from scripts.promotion.mode_canary_contract import ContractError
 
 _CANARY = "0123456789abcdef" * 2

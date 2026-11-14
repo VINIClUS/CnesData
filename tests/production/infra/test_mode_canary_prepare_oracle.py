@@ -5,12 +5,6 @@ import json
 from copy import deepcopy
 
 import pytest
-from scripts.promotion.prepare_mode_canary import (
-    PrepareEvidence,
-    admit_prepare,
-    prepare_receipt,
-    validate_mode_canary_prepare,
-)
 
 from scripts.promotion.mode_canary_contract import (
     ContractError,
@@ -18,6 +12,12 @@ from scripts.promotion.mode_canary_contract import (
     session_names,
 )
 from scripts.promotion.phase_a import verify_delta
+from scripts.promotion.prepare_mode_canary import (
+    PrepareEvidence,
+    admit_prepare,
+    prepare_receipt,
+    validate_mode_canary_prepare,
+)
 from tests.production.infra._mode_canary_native import ALIASES, CONTA, PREFIXO, _entrada, _nome
 
 _RECURSOS = {"table_arn": f"arn:aws:dynamodb:us-east-2:{CONTA}:table/cnesdata-prod"}
