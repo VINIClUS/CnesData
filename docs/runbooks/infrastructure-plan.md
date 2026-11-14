@@ -196,6 +196,8 @@ Cada check exige aprovação explícita do dono, retenção mínima, evidência 
 inventário final vazio. Formato comum de evidência: status, códigos de erro, contagens e
 booleanos; conta, ARNs, IDs, domínios e tokens trocados por `<conta>`, `<arn>`, `<id>`. Nunca
 registrar access key, secret, session token, senha, JWT, URL assinada nem o conteúdo de state.
+Cada check abaixo é um item da matriz de produção do gate final em
+[production-promotion.md](production-promotion.md).
 
 ### Executados pela #398 (não reexecutar)
 

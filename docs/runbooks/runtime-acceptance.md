@@ -129,3 +129,6 @@ A issue #377 permanece aberta pela dependência formal da #398, que exige os ens
 reais de OAuth/PKCE, audiência no access token, refresh e cleanup AWS. O gate integrado
 não comprova readiness AWS, emissão de certificado ou deploy; #381 e #280
 também continuam limitações do estado operacional.
+
+O gate final de operações (#477) usa este gate como item PRE-01 da matriz de pré-produção em
+[production-promotion.md](production-promotion.md).
