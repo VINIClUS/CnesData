@@ -66,7 +66,8 @@ class Inventory:
         return hashlib.sha256(data.encode()).hexdigest()
 
 
-def _pages(call: Callable[..., Node], key: str, request: Node) -> tuple[list[Any], bool]:
+def paginate(call: Callable[..., Node], key: str, request: Node) -> tuple[list[Any], bool]:
+    """Returns: Itens de todas as páginas e se a paginação terminou dentro do limite."""
     items: list[Any] = []
     token = None
     for _ in range(PAGE_LIMIT):
@@ -87,24 +88,25 @@ def _revision_digest(ecs: Any, arn: str) -> str | None:
 
 
 def read_inventory(clients: Mapping[str, Any]) -> Inventory:
-    """Returns: Inventário paginado; página sem fim ou revisão fora do contrato o torna incompleto."""
-    details, complete = _pages(clients["ecr"].describe_images, "imageDetails",
+    """Returns: Inventário paginado; página sem fim ou revisão inválida o torna incompleto."""
+    details, complete = paginate(clients["ecr"].describe_images, "imageDetails",
                                {"repositoryName": REPOSITORY})
     images = tuple(sorted((item["imageDigest"], item["imagePushedAt"],
                            tuple(sorted(item.get("imageTags") or ()))) for item in details))
     revisions: list[tuple[str, str]] = []
     for family in FAMILIES:
-        arns, listed = _pages(clients["ecs"].list_task_definitions, "taskDefinitionArns",
+        arns, listed = paginate(clients["ecs"].list_task_definitions, "taskDefinitionArns",
                               {"familyPrefix": family, "status": "ACTIVE"})
         complete = complete and listed
         for arn in arns:
             digest = _revision_digest(clients["ecs"], arn)
-            complete = complete and digest is not None and _family(arn) == family
+            complete = complete and digest is not None and revision_family(arn) == family
             revisions.append((arn, digest or ""))
     return Inventory(images, tuple(sorted(revisions)), complete)
 
 
-def _family(arn: str) -> str | None:
+def revision_family(arn: str) -> str | None:
+    """Returns: Família do processor no ARN exato da revisão, ou None."""
     match = _REVISION.fullmatch(arn)
     return match.group(1) if match else None
 
@@ -134,7 +136,7 @@ def _snapshot(inventory: Inventory, refs: PruneReferences
 def _floors(refs: PruneReferences) -> dict[str, int]:
     floors: dict[str, int] = {}
     for arn in refs.current | refs.prior:
-        family = _family(arn)
+        family = revision_family(arn)
         if family is not None:
             floors[family] = min(floors.get(family, _number(arn)), _number(arn))
     return floors
@@ -151,7 +153,7 @@ def _eligible(inventory: Inventory, refs: PruneReferences,
     for digest in prune:
         arns = users.get(digest, [])
         if all(arn not in refs.protected
-               and _number(arn) < floors.get(str(_family(arn)), 0) for arn in arns):
+               and _number(arn) < floors.get(str(revision_family(arn)), 0) for arn in arns):
             digests.append(digest)
             revisions.extend(arns)
     return digests, sorted(revisions)
