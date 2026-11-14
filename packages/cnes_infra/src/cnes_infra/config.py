@@ -101,9 +101,17 @@ def _valor_config(chave: str, valor: object) -> str:
         raise OSError(f"config_json=invalid_key key={chave}")
     if chave in _CHAVES_DE_AUTORIDADE or chave.startswith(_PREFIXOS_DE_AUTORIDADE):
         raise OSError(f"config_json=credential_authority key={chave}")
-    if not isinstance(valor, str) or "\x00" in valor:
+    if not isinstance(valor, str) or "\x00" in valor or not _codificavel(valor):
         raise OSError(f"config_json=invalid_value key={chave}")
     return valor
+
+
+def _codificavel(valor: str) -> bool:
+    try:
+        valor.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 def _exigir_arquivo_de_credencial(ambiente: Mapping[str, str]) -> None:
