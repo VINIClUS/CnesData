@@ -13,6 +13,7 @@ from typing import Any
 from release.build_candidate import VERIFY_JOBS
 
 logger = logging.getLogger(__name__)
+ACTIONS_APP_ID = 15368
 FAILED = frozenset({"failure", "cancelled", "timed_out", "action_required", "stale",
                     "startup_failure"})
 _SHA = re.compile(r"[0-9a-f]{40}")
@@ -71,10 +72,11 @@ def _require_checks(listing: dict[str, Any], sha: str) -> None:
     for name, run in latest.items():
         if run.get("head_sha") != sha or run.get("conclusion") in FAILED:
             raise PreambleError(f"check=not_green name={name}")
-        if name in VERIFY_JOBS and (run.get("status"), run.get("conclusion")) != (
-            "completed",
-            "success",
-        ):
+        if name in VERIFY_JOBS and (
+            run.get("status"),
+            run.get("conclusion"),
+            run.get("app", {}).get("id"),
+        ) != ("completed", "success", ACTIONS_APP_ID):
             raise PreambleError(f"check=not_green name={name}")
 
 
