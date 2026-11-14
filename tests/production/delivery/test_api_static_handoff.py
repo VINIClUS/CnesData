@@ -6,7 +6,9 @@ import copy
 import hashlib
 import io
 import json
+import logging
 import zipfile
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -17,8 +19,12 @@ from scripts.promotion._api_static_handoff import (
     HOST_GATE_SHA,
     HandoffEvidence,
     authenticated_outcome,
+    main,
 )
 from tests.production.delivery.test_api_static_rollback import CALLER, READY, decision, handoff
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 RUN, ATTEMPT = CALLER["run_id"], CALLER["run_attempt"]
 NAME = f"cnesdata-host-handoff-{RUN}-{ATTEMPT}"
@@ -131,3 +137,41 @@ def test_produtor_fora_do_pin_ou_artefato_ausente_fica_unknown() -> None:
     empty = HandoffEvidence(jobs=base.jobs, artifacts={"total_count": 0, "artifacts": []},
                             archive=b"", outputs=base.outputs)
     assert _outcome(empty).status == "unknown"
+
+
+def _arguments(tmp_path: Path, value: HandoffEvidence) -> list[str]:
+    arguments = ["--closed-ready-sha256", READY]
+    for name, content in (("jobs", value.jobs), ("artifacts", value.artifacts),
+                          ("outputs", value.outputs), ("caller", CALLER)):
+        path = tmp_path / f"{name}.json"
+        path.write_text(json.dumps(content), encoding="utf-8")
+        arguments += [f"--{name}", str(path)]
+    archive = tmp_path / "handoff.zip"
+    archive.write_bytes(value.archive)
+    return [*arguments, "--archive", str(archive)]
+
+
+@pytest.mark.parametrize(
+    ("status", "code", "line"),
+    [
+        ("accepted", 0, "host_outcome=accepted next=publish-static host_action=none fence=CLOSED"),
+        ("rolled_back", 1,
+         "host_outcome=rolled_back next=fenced-failure host_action=none fence=CLOSED"),
+        ("recovery_required", 1, "host_outcome=recovery_required next=rollback-api-static "
+                                 "host_action=rollback-previous fence=CLOSED"),
+    ],
+)
+def test_cli_so_libera_o_estatico_com_host_accepted(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, status: str, code: int, line: str
+) -> None:
+    with caplog.at_level(logging.INFO):
+        assert main(_arguments(tmp_path, evidence(status))) == code
+    assert line in caplog.messages
+
+
+def test_cli_sem_artefato_ou_com_outputs_divergentes_fica_unknown(tmp_path: Path) -> None:
+    arguments = _arguments(tmp_path, evidence("accepted"))
+    (tmp_path / "handoff.zip").unlink()
+    assert main(arguments) == 1
+    arguments = _arguments(tmp_path, _mutated("outputs.status", "accepted"))
+    assert main(arguments) == 1
