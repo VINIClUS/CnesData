@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
+import re
 import tarfile
 from datetime import timedelta
+from pathlib import Path
 
 import pytest
 
@@ -15,6 +18,7 @@ from scripts.promotion.publish_dashboard import (
     StaticTarget,
     UploadDeadlineError,
     UploadWindow,
+    binding_release_id,
     publish_release,
     read_candidate,
     stored_versions,
@@ -331,3 +335,25 @@ def test_inventario_sem_prazo_recusa_antes_de_listar_e_vencido_fica_incerto() ->
     port.latency[INDEX_JS] = timedelta(seconds=60)
     with pytest.raises(UploadDeadlineError):
         take_inventory(StaticChannel(port, TARGET), raw, candidate, _scan(port))
+
+
+STATIC_IAM = (Path(__file__).resolve().parents[3]
+              / "infra/opentofu/modules/runtime-iam/static-promotion.tf")
+
+
+def _binding_release_regex() -> str:
+    text = STATIC_IAM.read_text(encoding="utf-8")
+    found = re.findall(r'regex\("([^"]+)", var\.static_promotion\.binding\.release_id\)', text)
+    assert len(found) == 1, "release_id_regex_ausente"
+    return found[0]
+
+
+def test_release_id_do_binding_deriva_do_candidato_dentro_da_regex_498() -> None:
+    candidate = "candidate-" + "a" * 40 + "-123456789-1"
+    value = binding_release_id(candidate)
+    assert value == "r" + hashlib.sha256(candidate.encode("utf-8")).hexdigest()[:31]
+    assert re.search(_binding_release_regex(), value)
+    assert binding_release_id(candidate[:-1] + "2") != value
+    for invalid in ("candidate-" + "A" * 40 + "-1-1", "r" + "0" * 31, "candidate-" + "a" * 40):
+        with pytest.raises(PublicationError, match="candidate_id"):
+            binding_release_id(invalid)
