@@ -24,7 +24,7 @@ ARCHIVE_LIMIT = 16 * 1024**2
 ENVELOPE_LIMIT = 65536
 MAX_LIFETIME = timedelta(hours=24)
 CREDENTIALS = ("/run/personal-platform/credentials/cnesdata/current", "/run/credentials")
-CONFIG_MOUNT = ("/run/personal-platform/cnesdata/config.json", "/run/config/config.json")
+CONFIG_MOUNT = ("./config.json", "/run/config/config.json")
 _IMAGE = re.compile(r"ghcr\.io/viniclus/cnesdata/central_api@sha256:[0-9a-f]{64}")
 _DIGEST = re.compile(r"[0-9a-f]{64}")
 _PLAN = ("evidence_id", "evidence_sha256", "inventory_sha256", "dependencies_sha256",
