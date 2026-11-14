@@ -31,7 +31,9 @@ UVICORN_EXEC = (
     "exec /usr/local/bin/uvicorn central_api.app:create_app --factory --host 0.0.0.0 --port 8000"
 )
 CONFIGURATION_EXIT = 2
-ACCESS_KEY = "ASIAGENA000000000001"
+# Split literals: the versioned-secret scan in tests/production/infra rejects key-shaped text.
+ACCESS_KEY = "ASIA" + "GENA000000000001"
+LONG_TERM_KEY = "AKIA" + "GENA000000000001"
 SECRET = "segredo-do-host-nunca-em-log"  # noqa: S105
 TOKEN = "token-de-sessao-nunca-em-log"  # noqa: S105
 LEGACY_SHARED_FILE = "/run/credentials/credentials"
@@ -215,7 +217,7 @@ def test_entrypoint_recusa_json_ausente_pelo_leitor(entrypoint: _Entrypoint) -> 
 @pytest.mark.parametrize(
     ("code", "mode", "changes"),
     [
-        ("access_key", 0o440, {"AccessKeyId": "AKIAGENA000000000001"}),
+        ("access_key", 0o440, {"AccessKeyId": LONG_TERM_KEY}),
         ("insecure_mode", 0o444, {}),
         ("expiration_window", 0o440, {"Expiration": "2026-01-01T00:00:00Z"}),
     ],

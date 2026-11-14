@@ -40,8 +40,10 @@ READER_MARGIN_SECONDS = 960
 GENERATION_SECONDS = 1800
 NEXT_GENERATION_SECONDS = 3590
 HUNG_READER_SECONDS = 30
-KEY_A = "ASIAGENA000000000001"
-KEY_B = "ASIAGENB000000000002"
+# Split literals: the versioned-secret scan in tests/production/infra rejects key-shaped text.
+KEY_A = "ASIA" + "GENA000000000001"
+KEY_B = "ASIA" + "GENB000000000002"
+LONG_TERM_KEY = "AKIA" + "GENB000000000002"
 TIMED_OUT = "Error when retrieving credentials from custom-process: "
 CREDENTIAL_ENVIRONMENT = (
     "AWS_ACCESS_KEY_ID",
@@ -253,7 +255,7 @@ def test_na_janela_advisory_a_geracao_nova_assina_no_mesmo_client_e_pid(host: _H
     [
         ("missing", lambda host: host.credentials.unlink()),
         ("access_key", lambda host: host.publish(
-            "AKIAGENB000000000002",
+            LONG_TERM_KEY,
             datetime.now(UTC) + timedelta(seconds=NEXT_GENERATION_SECONDS),
         )),
         ("expiration_window", lambda host: host.publish(

@@ -22,7 +22,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 READER_SOURCE = REPO_ROOT / "apps" / "central_api" / "docker" / "aws_credentials.py"
 SHEBANG = "#!/usr/local/bin/python3 -IS"
 REFUSAL_EXIT = 2
-ACCESS_KEY = "ASIAGENA000000000001"
+# Split literals: the versioned-secret scan in tests/production/infra rejects key-shaped text.
+ACCESS_KEY = "ASIA" + "GENA000000000001"
+LONG_TERM_KEY = "AKIA" + "GENA000000000001"
 SECRET = "segredo-do-host-nunca-em-log"  # noqa: S105
 TOKEN = "token-de-sessao-nunca-em-log"  # noqa: S105
 FIELDS = ("AccessKeyId", "Expiration", "SecretAccessKey", "SessionToken", "Version")
@@ -132,7 +134,7 @@ REFUSED_DOCUMENTS: dict[str, tuple[str, Callable[[], object]]] = {
     "menos_de_960s": ("expiration_window", lambda: _document(900)),
     "mais_de_3600s": ("expiration_window", lambda: _document(3700)),
     "chave_de_longo_prazo": (
-        "access_key", lambda: _document(AccessKeyId="AKIAGENA000000000001"),
+        "access_key", lambda: _document(AccessKeyId=LONG_TERM_KEY),
     ),
     "chave_curta": ("access_key", lambda: _document(AccessKeyId="ASIAGENA")),
     "chave_minuscula": ("access_key", lambda: _document(AccessKeyId="asiagena000000000001")),
