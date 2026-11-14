@@ -1,3 +1,4 @@
+import json
 import re
 import shutil
 from hashlib import sha256
@@ -6,17 +7,23 @@ from pathlib import Path
 import pytest
 
 from tests.production.infra._static_web_controls import CONTROLS
+from tests.production.infra._static_web_free import (
+    CACHING_OPTIMIZED,
+    SECURITY_HEADERS,
+    run_headers_function,
+)
 
 ROOT = Path(__file__).resolve().parents[3] / "infra/opentofu/modules/static-web"
-FILES = ("main.tf", "variables.tf", "outputs.tf", "function.js")
-RESOURCE_NAMES = (
-    "s3_bucket s3_bucket_public_access_block s3_bucket_ownership_controls s3_bucket_versioning "
-    "s3_bucket_server_side_encryption_configuration s3_bucket_policy "
-    "s3_bucket_lifecycle_configuration cloudfront_origin_access_control cloudfront_function "
-    "cloudfront_cache_policy cloudfront_response_headers_policy wafv2_web_acl "
-    "cloudfront_distribution"
+FILES = ("main.tf", "variables.tf", "outputs.tf", "function.js", "headers.js")
+RESOURCES = (
+    ("s3_bucket", "this"), ("s3_bucket_public_access_block", "this"),
+    ("s3_bucket_ownership_controls", "this"), ("s3_bucket_versioning", "this"),
+    ("s3_bucket_server_side_encryption_configuration", "this"), ("s3_bucket_policy", "this"),
+    ("s3_bucket_lifecycle_configuration", "this"), ("cloudfront_origin_access_control", "this"),
+    ("cloudfront_function", "spa"), ("cloudfront_function", "headers"),
+    ("wafv2_web_acl", "this"), ("cloudfront_distribution", "this"),
 )
-KINDS = RESOURCE_NAMES.split()
+KINDS = [kind for kind, _ in RESOURCES]
 INPUT_NAMES = (
     "bucket_name certificate_arn cognito serving_origin csp_mode "
     "certificate_domain_validated waf_ruleset"
@@ -60,6 +67,32 @@ CSP = (
     "\"object-src 'none'; base-uri 'self'; frame-ancestors 'none'\","
     "])"
 )
+CSP_HEADER = (
+    '(var.csp_mode == "enforce" ? "content-security-policy" : '
+    '"content-security-policy-report-only")'
+)
+RESPONSE_HEADERS = (
+    "merge({"
+    + " ".join(f'"{name}" = "{value}"' for name, value in SECURITY_HEADERS.items())
+    + " (local.csp_header) = local.csp },"
+    ' var.certificate_domain_validated ? { "strict-transport-security" = "max-age=31536000" }'
+    " : {},)"
+)
+HEADERS_CODE = (
+    'templatefile("${path.module}/headers.js", { headers = jsonencode(local.response_headers) })'
+)
+FREE_INELIGIBLE = re.compile(
+    r"forwarded_values|min_ttl|default_ttl|max_ttl|realtime_log_config_arn|"
+    r"response_headers_policy_id|origin_request_policy_id|field_level_encryption_id|"
+    r"logging_config|continuous_deployment_policy_id|key_value_store|trusted_"
+)
+MULTILINE = {
+    ("csp", 2): r'join\("", \[\n.*?^  \]\)',
+    ("csp_header", 2): r"\(\n.*?^  \)",
+    ("response_headers", 2): r"merge\(\n.*?^  \)",
+    ("code", 2): r"templatefile\(.*?^  \}\)",
+    ("condition", 4): r"\(\n.*?^    \)",
+}
 VALIDATIONS = {
     "bucket_name": r'can(regex("^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$",var.bucket_name))',
     "certificate_arn": r'(can(regex(join("",["^arn:aws:acm:us-east-1:[0-9]{12}:certificate/",'
@@ -104,9 +137,8 @@ def _section(source: str, header: str, indent: int = 0) -> str:
 
 
 def _field(body: str, name: str, expected: str, indent: int = 2) -> None:
-    span = r'join\("", \[\n.*?^  \]\)' if name == "csp" else r"\(\n.*?^    \)"
-    multiline = (name, indent) in (("csp", 2), ("condition", 4))
-    if not multiline or not expected.startswith(("(", "join(")):
+    span = MULTILINE.get((name, indent), r"[^\n]+")
+    if not expected.startswith(("(", "join(", "merge(", "templatefile(")):
         span = r"[^\n]+"
     prefix = rf"^{' ' * indent}{re.escape(name)}[ \t]*=[ \t]*"
     assert len(re.findall(prefix, body, re.MULTILINE)) == 1, f"campo={name} atribuicoes"
@@ -121,8 +153,8 @@ def _same(actual: str, expected: str, field: str = "") -> None:
         assert actual.count(literal) == expected.count(literal), f"campo={field} literal={literal}"
 
 
-def _resource(sources: dict[str, str], kind: str) -> str:
-    label = "spa" if kind == "cloudfront_function" else "this"
+def _resource(sources: dict[str, str], kind: str, label: str = "") -> str:
+    label = label or ("spa" if kind == "cloudfront_function" else "this")
     return _section(sources["main.tf"], f'resource "aws_{kind}" "{label}"')
 
 
@@ -137,9 +169,7 @@ def _closed(source: str, headers: tuple[str, ...], indent: int = 0) -> None:
 
 
 def assert_ownership(sources: dict[str, str]) -> None:
-    headers = tuple(
-        f'resource "aws_{k}" "{"spa" if k == "cloudfront_function" else "this"}"' for k in KINDS
-    )
+    headers = tuple(f'resource "aws_{kind}" "{label}"' for kind, label in RESOURCES)
     _closed(sources["main.tf"], ("terraform", "locals", *headers))
     terraform = _section(sources["main.tf"], "terraform")
     _same(
@@ -147,8 +177,8 @@ def assert_ownership(sources: dict[str, str]) -> None:
         'required_providers { aws = { source="hashicorp/aws" '
         'version="~> 6.33" configuration_aliases=[aws.global_edge] } }',
     )
-    for kind in KINDS:
-        body = _resource(sources, kind)
+    for kind, label in RESOURCES:
+        body = _resource(sources, kind, label)
         if kind == "wafv2_web_acl":
             _field(body, "provider", "aws.global_edge")
         else:
@@ -208,27 +238,35 @@ def assert_distribution(sources: dict[str, str]) -> None:
     behavior = _section(body, "default_cache_behavior", 2)
     for key, value in (
         ("target_origin_id", '"static-web-s3"'),
-        ("cache_policy_id", "aws_cloudfront_cache_policy.this.id"),
-        ("response_headers_policy_id", "aws_cloudfront_response_headers_policy.this.id"),
+        ("cache_policy_id", "local.caching_optimized_policy_id"),
         ("viewer_protocol_policy", '"redirect-to-https"'),
         ("allowed_methods", '["GET","HEAD"]'),
         ("cached_methods", '["GET","HEAD"]'),
         ("compress", "true"),
     ):
         _field(behavior, key, value, 4)
-    _same(
-        _section(behavior, "function_association", 4),
-        'event_type="viewer-request" function_arn=aws_cloudfront_function.spa.arn',
-    )
+    assert not FREE_INELIGIBLE.search(body), "free_plan_ineligible"
+    associations = _sections(behavior, "function_association", 4)
+    events = (("viewer-request", "spa"), ("viewer-response", "headers"))
+    assert len(associations) == len(events), f"function_association={len(associations)}"
+    for association, (event, label) in zip(associations, events, strict=True):
+        _same(association, f'event_type="{event}" function_arn=aws_cloudfront_function.{label}.arn')
     _same(
         _section(body, "viewer_certificate", 2),
         "acm_certificate_arn=var.certificate_arn "
         'ssl_support_method="sni-only" minimum_protocol_version="TLSv1.2_2021"',
     )
-    function = _resource(sources, "cloudfront_function")
-    _field(function, "runtime", '"cloudfront-js-2.0"')
-    _field(function, "publish", "true")
-    _field(function, "code", 'file("${path.module}/function.js")')
+    spa = _resource(sources, "cloudfront_function")
+    _field(spa, "code", 'file("${path.module}/function.js")')
+    headers = _resource(sources, "cloudfront_function", "headers")
+    _field(headers, "name", '"cnesdata-prod-static-web-headers"')
+    _field(headers, "code", HEADERS_CODE)
+    for function in (spa, headers):
+        _field(function, "runtime", '"cloudfront-js-2.0"')
+        _field(function, "publish", "true")
+        assert not FREE_INELIGIBLE.search(function), "free_plan_ineligible"
+    template = re.findall(r"\$\{[^}]*\}|%\{|`", sources["headers.js"])
+    assert template == ["${headers}"], f"template_headers={template}"
 
 
 def _waf_rule(group: str, priority: int) -> str:
@@ -262,44 +300,6 @@ def assert_waf(sources: dict[str, str]) -> None:
     )
 
 
-def _headers(sources: dict[str, str]) -> None:
-    body = _resource(sources, "cloudfront_response_headers_policy")
-    security = _section(body, "security_headers_config", 2)
-    headers = (
-        "content_type_options|frame_options|referrer_policy|"
-        'dynamic "strict_transport_security"|dynamic "content_security_policy"'
-    )
-    _closed(security, tuple(headers.split("|")), 4)
-    for block, value in (
-        ("content_type_options", "override=true"),
-        ("frame_options", 'frame_option="DENY" override=true'),
-        ("referrer_policy", 'referrer_policy="strict-origin-when-cross-origin" override=true'),
-    ):
-        _same(_section(security, block, 4), value)
-    hsts = _section(security, 'dynamic "strict_transport_security"', 4)
-    _field(hsts, "for_each", "var.certificate_domain_validated ? [1] : []", 6)
-    _same(
-        _section(hsts, "content", 6),
-        "access_control_max_age_sec=31536000 include_subdomains=false preload=false override=true",
-    )
-    csp = _section(security, 'dynamic "content_security_policy"', 4)
-    _field(csp, "for_each", 'var.csp_mode == "enforce" ? [1] : []', 6)
-    _same(_section(csp, "content", 6), "content_security_policy=local.csp override=true")
-    custom = _section(body, "custom_headers_config", 2)
-    _closed(custom, ("items", 'dynamic "items"'), 4)
-    _same(
-        _section(custom, "items", 4),
-        'header="Permissions-Policy" '
-        'value="camera=(), microphone=(), geolocation=()" override=true',
-    )
-    report = _section(custom, 'dynamic "items"', 4)
-    _field(report, "for_each", 'var.csp_mode == "report_only" ? [1] : []', 6)
-    _same(
-        _section(report, "content", 6),
-        'header="Content-Security-Policy-Report-Only" value=local.csp override=true',
-    )
-
-
 def assert_headers_cache_lifecycle(sources: dict[str, str]) -> None:
     local = _section(sources["main.tf"], "locals")
     for key, value in (
@@ -309,19 +309,12 @@ def assert_headers_cache_lifecycle(sources: dict[str, str]) -> None:
         ("hosted_login_origin", 'trimsuffix(var.cognito.hosted_login_origin, "/")'),
         ("serving_origin", 'trimsuffix(var.serving_origin, "/")'),
         ("csp", CSP),
+        ("caching_optimized_policy_id", f'"{CACHING_OPTIMIZED}"'),
+        ("csp_header", CSP_HEADER),
+        ("response_headers", RESPONSE_HEADERS),
     ):
         _field(local, key, value)
     assert "issuer_origin" not in local, "issuer_origin_morto"
-    _headers(sources)
-    cache = _resource(sources, "cloudfront_cache_policy")
-    for key, value in (("min_ttl", "0"), ("default_ttl", "0"), ("max_ttl", "31536000")):
-        _field(cache, key, value)
-    _same(
-        _section(cache, "parameters_in_cache_key_and_forwarded_to_origin", 2),
-        'cookies_config{cookie_behavior="none"} headers_config{header_behavior="none"} '
-        'query_strings_config{query_string_behavior="none"} '
-        "enable_accept_encoding_gzip=true enable_accept_encoding_brotli=true",
-    )
     errors = _sections(_resource(sources, "cloudfront_distribution"), "custom_error_response", 2)
     assert len(errors) == 2, "erros_quantidade"
     for error, code in zip(errors, (403, 404), strict=True):
@@ -374,6 +367,15 @@ def test_headers_cache_e_lifecycle_respeitam_ruling() -> None:
     assert_headers_cache_lifecycle(load_sources(ROOT))
 
 
+def test_funcao_de_headers_sobrescreve_a_origem_com_o_mapa_do_modulo() -> None:
+    template = load_sources(ROOT)["headers.js"]
+    mapped = SECURITY_HEADERS | {"content-security-policy-report-only": "default-src 'self'"}
+    code = template.replace("${headers}", json.dumps(mapped))
+
+    assert code != template
+    assert run_headers_function(code) == mapped
+
+
 def test_inputs_e_outputs_mantem_contrato_minimo() -> None:
     assert_io(load_sources(ROOT))
 
@@ -416,7 +418,7 @@ def _mutation(body: str, control: Control) -> str:
         "C09": r'Resource\s*=\s*"\$\{aws_s3_bucket.this.arn\}/\*"',
     }
     key = "C09" if name.startswith("C09") else old
-    if old in ("provider", "block_public_policy", "min_ttl"):
+    if old in ("provider", "block_public_policy"):
         patterns[key] = rf"(?m)^  {old}\s*=\s*.+$"
         new = f"  {old} = {new}"
     if key in patterns:
@@ -434,7 +436,8 @@ def _corrupt(sources: dict[str, str], control: Control) -> dict[str, str]:
     _, file, kind, old, new, _ = control
     if old == "append":
         return sources | {file: sources[file] + "\n" + new}
-    label = "spa" if kind == "cloudfront_function" else "this"
+    kind, _, label = kind.partition(":")
+    label = label or ("spa" if kind == "cloudfront_function" else "this")
     header = f'resource "aws_{kind}" "{label}"'
     if file != "main.tf":
         header = f'{"variable" if file == "variables.tf" else "output"} "{kind}"'

@@ -20,10 +20,12 @@ STATIC_TYPES = {
     "aws_s3_bucket", "aws_s3_bucket_public_access_block", "aws_s3_bucket_ownership_controls",
     "aws_s3_bucket_versioning", "aws_s3_bucket_server_side_encryption_configuration",
     "aws_s3_bucket_policy", "aws_s3_bucket_lifecycle_configuration",
-    "aws_cloudfront_origin_access_control", "aws_cloudfront_function",
-    "aws_cloudfront_cache_policy",
-    "aws_cloudfront_response_headers_policy", "aws_wafv2_web_acl", "aws_cloudfront_distribution",
+    "aws_cloudfront_origin_access_control", "aws_cloudfront_function", "aws_wafv2_web_acl",
+    "aws_cloudfront_distribution",
 }
+STATIC_ADDRESSES = {
+    f"module.static_web.{kind}.this" for kind in STATIC_TYPES - {"aws_cloudfront_function"}
+} | {f"module.static_web.aws_cloudfront_function.{label}" for label in ("spa", "headers")}
 MODULE_TYPES = {
     "static_web": STATIC_TYPES,
     "control_plane": {"aws_dynamodb_table", "terraform_data"},

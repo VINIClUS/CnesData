@@ -149,6 +149,26 @@ EXPOSED = {
         ("image_without_digest", "aws_ecs_task_definition", "digest_curto"),
     ),
 }
+FREE_PLAN_INELIGIBLE = {
+    "aws_cloudfront_cache_policy": ("custom",),
+    "aws_cloudfront_response_headers_policy": ("custom",),
+    "aws_cloudfront_origin_request_policy": ("custom",),
+    "aws_cloudfront_key_value_store": ("edge",),
+    "aws_cloudfront_continuous_deployment_policy": ("staging",),
+    "aws_cloudfront_field_level_encryption_config": ("fle",),
+    "aws_wafv2_rule_group": ("own",),
+    "aws_cloudfront_distribution": (
+        "politica_propria", "headers_proprios", "origem_propria", "legado", "realtime",
+        "criptografia", "logs", "comportamentos", "ordenado_proprio",
+    ),
+    "aws_wafv2_web_acl": (
+        "grupo_proprio", "parceiro", "bot_control", "atp", "acfp", "seis_regras", "rule_json",
+    ),
+}
+EXPOSED["cloudfront_fora_do_free.json"] = tuple(
+    ("free_plan_ineligible", kind, label)
+    for kind, labels in FREE_PLAN_INELIGIBLE.items() for label in labels
+)
 REJECTIONS |= {
     name: [f"forbidden_resource reason={reason} type={kind} address={kind}.{label}"
            for reason, kind, label in entries]

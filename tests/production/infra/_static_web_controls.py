@@ -5,15 +5,23 @@ BPA = "s3_bucket_public_access_block"
 OAC = "cloudfront_origin_access_control"
 POLICY = "s3_bucket_policy"
 DIST = "cloudfront_distribution"
-HEADERS = "cloudfront_response_headers_policy"
+HEADERS_FUNCTION = "cloudfront_function:headers"
 GC = "s3_bucket_lifecycle_configuration"
 DIST_ARN = "aws_cloudfront_distribution.this.arn"
 WILD_ARN = '"arn:aws:cloudfront::123456789012:distribution/*"'
 FOREIGN_ARN = '"arn:aws:cloudfront::123456789012:distribution/FOREIGN"'
 ACM_SAMPLE = '"arn:aws:acm:us-east-1:123456789012:certificate/00000000-0000-0000-0000-000000000001"'
 ADD_RESOURCE = 'resource "aws_s3_bucket_acl" "extra" {\n}\n'
-CSP_REPORT = 'var.csp_mode == "report_only"'
-HSTS_GATE = "var.certificate_domain_validated ? [1] : []"
+CSP_ENFORCE = '? "content-security-policy" :'
+CSP_COLLAPSED = '? "content-security-policy-report-only" :'
+HSTS_GATE = "var.certificate_domain_validated ?"
+CACHING_OPTIMIZED = '"658327ea-f89d-4fab-a63d-7e88639e58f6"'
+CACHING_DISABLED = '"4135ea2d-6df8-44a3-9df3-4b5a84be39ad"'
+REDIRECT = '"redirect-to-https"'
+VIEWER_RESPONSE = '"viewer-response"'
+ORIGIN_RESPONSE = '"origin-response"'
+HEADERS_POLICY = '\n    response_headers_policy_id = "x"'
+KVS = "\n  key_value_store_associations = []"
 GC_ENABLED = '"static-web-gc"\n    status = "Enabled"'
 GC_DISABLED = '"static-web-gc"\n    status = "Disabled"'
 ABORT_ENABLED = '"static-web-abort-multipart"\n    status = "Enabled"'
@@ -36,9 +44,9 @@ CONTROLS = (
     ("C14_terceiro_grupo_waf", MAIN, "wafv2_web_acl", "rule", "", 3),
     ("C15_waf_regional", MAIN, "wafv2_web_acl", '"CLOUDFRONT"', '"REGIONAL"', 3),
     ("C16_csp_sem_hosted_login", MAIN, "locals", "${local.hosted_login_origin} ", "", 4),
-    ("C17_modos_csp_colapsados", MAIN, HEADERS, CSP_REPORT, 'var.csp_mode == "enforce"', 4),
-    ("C18_hsts_incondicional", MAIN, HEADERS, HSTS_GATE, "[1]", 4),
-    ("C19_ttl_minimo_positivo", MAIN, "cloudfront_cache_policy", "min_ttl", "1", 4),
+    ("C17_modos_csp_colapsados", MAIN, "locals", CSP_ENFORCE, CSP_COLLAPSED, 4),
+    ("C18_hsts_incondicional", MAIN, "locals", HSTS_GATE, "true ?", 4),
+    ("C19_cache_policy_nao_otimizada", MAIN, "locals", CACHING_OPTIMIZED, CACHING_DISABLED, 4),
     ("C20_erro_mascarado", MAIN, DIST, "error_code", "", 4),
     ("C21_lifecycle_desativado", MAIN, GC, GC_ENABLED, GC_DISABLED, 4),
     ("C22_expiracao_current", MAIN, GC, "expiration", "", 4),
@@ -71,4 +79,11 @@ CONTROLS = (
         'rollback_window_days = 7\n  issuer_origin = "https://x"',
         4,
     ),
+    ("C38_headers_fora_do_viewer_response", MAIN, DIST, VIEWER_RESPONSE, ORIGIN_RESPONSE, 2),
+    ("C39_cache_policy_propria", MAIN, DIST, "local.caching_optimized_policy_id", '"custom"', 2),
+    ("C40_ttl_legado", MAIN, DIST, REDIRECT, REDIRECT + "\n    min_ttl = 0", 2),
+    ("C41_policy_de_headers", MAIN, DIST, REDIRECT, REDIRECT + HEADERS_POLICY, 2),
+    ("C42_kvs_na_funcao", MAIN, HEADERS_FUNCTION, "publish = true", "publish = true" + KVS, 2),
+    ("C43_header_nosniff_trocado", MAIN, "locals", '"nosniff"', '"sniff"', 4),
+    ("C44_template_com_diretiva", "headers.js", "", "append", "%{ if true }%{ endif }", 2),
 )
