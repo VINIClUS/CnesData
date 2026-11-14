@@ -151,6 +151,15 @@ def test_reentrada_com_ticket_existente_apos_o_prazo_recusa(ledger: _Ledger) -> 
     assert ledger.control() == before
 
 
+def test_seal_recusa_relogio_sem_fuso_utc(ledger: _Ledger) -> None:
+    ledger.seed()
+
+    with pytest.raises(SyntheticContextRequired, match="reason=clock_not_utc"):
+        ledger.context().seal(datetime(2026, 11, 12, 12, 10))  # noqa: DTZ001
+
+    assert ledger.control()["admission_state"] == "ACTIVE"
+
+
 def test_contador_esgotado_recusa_antes_de_qualquer_ticket(ledger: _Ledger) -> None:
     ledger.seed(admitted_counts={"unit_tasks": 7, "recovery_resumes": 0, "recovery_hangs": 0})
 
