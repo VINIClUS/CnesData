@@ -107,6 +107,7 @@ lease (reaper removido em MIG-012).
 |---|---|---|
 | `DB_URL` | sim | Postgres URL (`postgresql+psycopg://...`) |
 | `/run/config/config.json` | não (host gate) | Objeto JSON de strings aplicado ao env antes do `.env` (`cnes_infra.config.carregar_config_json`); recusa conflito com o env e chaves de credencial/endpoint; exige `AWS_SHARED_CREDENTIALS_FILE` regular e legível |
+| `AWS_SHARED_CREDENTIALS_FILE` | sim (target `production`) | `/run/credentials/credentials`, igual na imagem e no compose do host gate: só o `[default]` temporário (`ASIA` + `aws_session_token`) que o host grava (Roles Anywhere no host, rotação com restart). O `production-entrypoint` sai com 2 e `key=value` para `AWS_PROFILE`/`AWS_CONFIG_FILE`/chave estática ou arquivo ausente, ilegível, legível por todos ou fora desse perfil; `PROFILE=aws` e `AWS_PRODUCTION_POLICY=true` vêm da imagem, e o `config.json` não pode divergir deles |
 | `S3_*` (`S3_ENDPOINT_URL`, `S3_PUBLIC_ENDPOINT_URL`, `S3_REGION`, `S3_BUCKET`, `S3_ADDRESSING_STYLE`) | não | Sem leitor em `central_api` desde MIG-012 (presign legado removido); seguem definidas em `cnes_infra.config` |
 | `API_HOST` | opcional | Default `0.0.0.0` |
 | `API_PORT` | opcional | Default `8000` |
