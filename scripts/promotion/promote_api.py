@@ -69,6 +69,8 @@ INPUTS = {
 }
 OBSERVATIONS = {"inventory": "inventory", "publish-static": "publication",
                 "rollback-api-static": "rollback"}
+STAGES = {"inventory": "application-prepare", "publish-static": "static",
+          "rollback-api-static": "recovery"}
 _DIGEST = re.compile(r"[0-9a-f]{64}")
 
 
@@ -162,12 +164,14 @@ def _publish(request: Mapping[str, Any], inputs: Mapping[str, bytes],
 def _rollback(request: Mapping[str, Any], inputs: Mapping[str, bytes],
               context: AdapterContext) -> bytes:
     plan = read_plan(inputs["static-plan"], inputs["inventory"])
-    host, _ = _host_receipt(inputs["host-recovery-receipt"], request, "host_recovery_receipt")
+    host, ready = _host_receipt(inputs["host-recovery-receipt"], request, "host_recovery_receipt")
     decision = read_object(inputs["recovery-decision"], "recovery_decision")
     if host.step is not HostStep.RECOVERY or host.decision != decision:
         raise PublicationError(f"host_recovery_receipt=decision next={host.step.value}")
     deadline = min(recovery_window(decision, _clock).deadline, _deadline(request["stage"]))
-    publication = read_publication(inputs["publication"], inputs["static-plan"])
+    publication, published_ready = read_publication(inputs["publication"], inputs["static-plan"])
+    if published_ready != ready:
+        raise PublicationError("host_recovery_receipt=closed_ready")
     receipt = restore_entrypoints(StaticChannel(context, static_target(plan)),
                                   rollback_targets(read_record(inputs["inventory"])),
                                   publication, UploadWindow(_clock, deadline))
@@ -195,6 +199,11 @@ def _require_request(operation: str, request: Mapping[str, Any]) -> None:
         REPOSITORY, REPOSITORY, request["source_sha"]
     ):
         raise ValueError("request=source")
+    stage = request["stage"]
+    if stage["stage"] != STAGES[operation] or (stage["close"] is None) != (
+        operation == "inventory"
+    ):
+        raise ValueError("request=stage")
 
 
 def _read(context: AdapterContext, name: str, reference: Any) -> bytes:
@@ -212,7 +221,10 @@ def _candidate(request: Mapping[str, Any], inputs: Mapping[str, bytes]) -> dict[
     ):
         raise PublicationError("candidate=source")
     release = candidate.get("release_id")
-    binding_release_id(release if isinstance(release, str) else "")
+    release = release if isinstance(release, str) else ""
+    binding_release_id(release)
+    if not release.startswith(f"candidate-{request['source_sha']}-"):
+        raise PublicationError("candidate=release")
     if candidate.get("dashboard_sha256") != sha(inputs["dashboard-artifact"]):
         raise PublicationError("candidate=dashboard")
     return candidate
@@ -224,8 +236,8 @@ def _host_receipt(raw: bytes, request: Mapping[str, Any], name: str) -> tuple[Ho
     if (value.get("producer_sha") != HOST_GATE_SHA or not isinstance(closed_ready, str)
             or _DIGEST.fullmatch(closed_ready) is None):
         raise PublicationError(f"{name}=binding")
-    # The adapter receives no closed-ready input; the Keeper (#55 slice 2) binds this digest
-    # to the closed-ready observation, so here it is only checked and carried in the record.
+    # Only the 64-hex shape is enforced here: the adapter receives no closed-ready input, so the
+    # Keeper (#55 slice 2) must bind this digest to the closed-ready observation.
     outcome = host_outcome(raw, caller=_caller(request), closed_ready_sha256=closed_ready)
     return after_host(outcome), closed_ready
 

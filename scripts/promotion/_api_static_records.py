@@ -25,6 +25,10 @@ INVENTORY_SCHEMA = "cnesdata.static-inventory/v1"
 PLAN_SCHEMA = "cnesdata.static-plan/v1"
 PUBLICATION_SCHEMA = "cnesdata.static-publication/v1"
 ROLLBACK_SCHEMA = "cnesdata.static-rollback/v1"
+PUBLICATION_FIELDS = frozenset({
+    "schema", "plan_sha256", "closed_ready_sha256", "uploaded", "already_published",
+    "invalidation_id",
+})
 # retire/retire_latest depend on the clock and are reported, never executed, in this slice.
 PLAN_DRIFT_FIELDS = (
     "candidate_sha256", "dashboard_sha256", "baseline", "outcome", "upload_order",
@@ -157,18 +161,21 @@ def publication_record(plan: bytes, receipt: PublicationReceipt, closed_ready: s
     })
 
 
-def read_publication(raw: bytes, plan: bytes) -> PublicationReceipt:
+def read_publication(raw: bytes, plan: bytes) -> tuple[PublicationReceipt, str]:
     """Returns:
-    Recibo da publicação registrada para este mesmo plano.
+    Recibo da publicação registrada para este mesmo plano e o closed_ready dela.
     Raises:
-    PublicationError: publicação de outro plano ou fora do schema.
+    PublicationError: publicação fora do schema fechado ou de outro plano.
     """
     record = read_object(raw, "publication")
-    if record.get("schema") != PUBLICATION_SCHEMA or record.get("plan_sha256") != sha(plan):
+    if set(record) != PUBLICATION_FIELDS or record["schema"] != PUBLICATION_SCHEMA:
+        raise PublicationError("publication=fields")
+    if record["plan_sha256"] != sha(plan):
         raise PublicationError("publication=binding")
     uploaded = tuple((str(key), str(version)) for key, version in record["uploaded"])
-    return PublicationReceipt(uploaded, tuple(record["already_published"]),
-                              record["invalidation_id"])
+    receipt = PublicationReceipt(uploaded, tuple(record["already_published"]),
+                                 record["invalidation_id"])
+    return receipt, str(record["closed_ready_sha256"])
 
 
 def _refs(refs: Iterable[VersionRef]) -> list[dict[str, str]]:
