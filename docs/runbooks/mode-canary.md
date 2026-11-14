@@ -23,8 +23,11 @@ Execução real depende do wiring de #473/#474 e do produtor shared (infra-ansib
 2. `application-prepare` com `mode=mode-canary`: `admit_prepare` fecha o envelope de 12
    campos e `validate_mode_canary_prepare` aceita só os oito endereços
    `module.runtime_iam.aws_iam_role{,_policy}.mode_*[0]`. Initial: create/no-op;
-   established: update/no-op. Todo o resto no-op. `prepare_receipt` exige dois readbacks
-   IAM concordantes, espaçados de 10 s ou mais, dentro do prazo original.
+   established: update/no-op. Todo o resto no-op. Trust e policy precisam ser os bytes
+   `jsonencode` derivados do input admitido (espelho de `runtime-iam/mode-canary.tf`), e os
+   hashes do output são conferidos contra esses bytes. Grant de RunTask (curinga, caixa ou
+   `NotAction`) só no Launch exato de `mode_dispatch`/`mode_audit_launch`. `prepare_receipt`
+   exige dois readbacks IAM concordantes, espaçados de 10 s ou mais, dentro do prazo original.
 3. `mode_dispatch` grava o control ACTIVE (`initialize_control`) antes do seed.
 4. Seed com `mode_seed`: `build_mode_seed` produz o artifact `mode-seed` antes das
    chamadas; `execute_mode_seed` usa só PutItem/GetItem e PutObject/GetObject condicionais.
@@ -37,8 +40,9 @@ Execução real depende do wiring de #473/#474 e do produtor shared (infra-ansib
    `PROD_CANARY_BINDING` no ambiente e `clientToken` determinístico. Ticket admitido antes;
    resposta perdida vira UNKNOWN e a reentrada repete o mesmo token.
 7. Audit após C-audit: RunTask com `mode_audit_launch` e só `PROD_CANARY_AUDIT_OBSERVE`.
-   A task loga `mode_canary_audit_event` (hash do corpo, chaves, retenção COMPLIANCE pedida)
-   e `mode_canary_audit_cursor` (digests do cursor, CAS, wrap, contadores, ids ausentes)
+   A task loga `mode_canary_audit_event` (hash do corpo, chaves e a retenção configurada em
+   `configured_retention_mode`/`configured_retain_until`, sem ler o Object Lock real) e
+   `mode_canary_audit_cursor` (digests do cursor, CAS, wrap, contadores, ids ausentes)
    só para tenants reservados, também nas invocações periódicas sem override.
 8. Seal ACTIVE→SEALED antes de buscar quiescência; release só com ledger sem pending/unknown.
 
