@@ -276,7 +276,7 @@ def test_falha_do_leitor_segue_na_advisory_e_fecha_na_mandatoria(
 
     assert host.signed == [KEY_A]
     assert "advisory refresh period" in caplog.text
-    assert str(error.value) == f"{TIMED_OUT}credentials_json={code} path={host.credentials}"
+    assert str(error.value) == f"{TIMED_OUT}credentials_json={code} path={host.credentials}\n"
 
 
 def test_leitor_travado_e_morto_pelo_timeout_da_imagem(host: _Host) -> None:
