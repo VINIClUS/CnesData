@@ -14,8 +14,6 @@ from release.build_candidate import VERIFY_JOBS
 
 logger = logging.getLogger(__name__)
 ACTIONS_APP_ID = 15368
-FAILED = frozenset({"failure", "cancelled", "timed_out", "action_required", "stale",
-                    "startup_failure"})
 _SHA = re.compile(r"[0-9a-f]{40}")
 _FREEZE = re.compile(r"arn:aws:iam::\d{12}:policy/cnesdata-budget-freeze")
 
@@ -26,14 +24,25 @@ class PreambleError(RuntimeError):
 
 def check_preamble(evidence: dict[str, Any]) -> None:
     """Raises:
-    PreambleError: SHA fora de develop, check obrigatório não verde ou freeze presente.
+    PreambleError: SHA fora de develop ou check obrigatório não verde no SHA.
     """
     sha = evidence.get("source_sha")
     if not isinstance(sha, str) or _SHA.fullmatch(sha) is None:
         raise PreambleError("source_sha=invalid")
     _require_develop(evidence["compare"], sha)
     _require_checks(evidence["check_runs"], sha)
-    _require_unfrozen(evidence["attached_policies"], evidence["freeze_policy_arn"])
+
+
+def check_unfrozen(listing: dict[str, Any], freeze: str) -> None:
+    """Raises:
+    PreambleError: ARN do freeze desconhecido, listagem truncada ou freeze anexado.
+    """
+    if not isinstance(freeze, str) or _FREEZE.fullmatch(freeze) is None:
+        raise PreambleError("freeze=policy_unknown")
+    if listing.get("IsTruncated") is not False:
+        raise PreambleError("freeze=listing_truncated")
+    if any(item.get("PolicyArn") == freeze for item in listing.get("AttachedPolicies", [])):
+        raise PreambleError("freeze=present")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -61,7 +70,7 @@ def _require_develop(compare: dict[str, Any], sha: str) -> None:
 
 def _require_checks(listing: dict[str, Any], sha: str) -> None:
     runs = listing.get("check_runs", [])
-    if listing.get("total_count") != len(runs) or len(runs) > 100:
+    if listing.get("total_count") != len(runs):
         raise PreambleError("check=pagination")
     latest: dict[str, dict[str, Any]] = {}
     for run in sorted(runs, key=lambda item: item["id"]):
@@ -69,24 +78,15 @@ def _require_checks(listing: dict[str, Any], sha: str) -> None:
     missing = VERIFY_JOBS - latest.keys()
     if missing:
         raise PreambleError(f"check=missing names={sorted(missing)}")
-    for name, run in latest.items():
-        if run.get("head_sha") != sha or run.get("conclusion") in FAILED:
-            raise PreambleError(f"check=not_green name={name}")
-        if name in VERIFY_JOBS and (
+    for name in sorted(VERIFY_JOBS):
+        run = latest[name]
+        if (
+            run.get("head_sha"),
             run.get("status"),
             run.get("conclusion"),
             run.get("app", {}).get("id"),
-        ) != ("completed", "success", ACTIONS_APP_ID):
+        ) != (sha, "completed", "success", ACTIONS_APP_ID):
             raise PreambleError(f"check=not_green name={name}")
-
-
-def _require_unfrozen(listing: dict[str, Any], freeze: str) -> None:
-    if not isinstance(freeze, str) or _FREEZE.fullmatch(freeze) is None:
-        raise PreambleError("freeze=policy_unknown")
-    if listing.get("IsTruncated") is not False:
-        raise PreambleError("freeze=listing_truncated")
-    if any(item.get("PolicyArn") == freeze for item in listing.get("AttachedPolicies", [])):
-        raise PreambleError("freeze=present")
 
 
 if __name__ == "__main__":
