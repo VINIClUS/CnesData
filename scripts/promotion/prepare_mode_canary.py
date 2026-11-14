@@ -7,6 +7,7 @@ import json
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from fnmatch import fnmatchcase
 from itertools import pairwise
 from typing import Any, Final, cast
 
@@ -30,7 +31,33 @@ ADDRESSES: Final = tuple(
 )
 _LIFECYCLE: Final = {"initial": frozenset({"create", "no-op"}),
                      "established": frozenset({"update", "no-op"})}
-_RUN_TASK: Final = frozenset({"mode_dispatch", "mode_audit_launch"})
+_VERSION: Final = "2012-10-17"
+_SHAPES: Final = {
+    "revisions": {"audit", "recovery", "unit"}, "task_role_arns": {"audit", "recovery", "unit"},
+    "network": {"public_subnet_ids", "security_group_id"}, "schedule_arns": {"audit", "recovery"},
+    "alarm_arns": {"audit_outbox_backlog", "audit_repeated_failure", "recovery_repeated_failure"},
+    "scope": {"audit_object_keys", "output_object_keys", "raw_object_keys", "run_ids", "tenant_id"},
+}
+_RESOURCE_FIELDS: Final = frozenset({
+    "table_arn", "index_arn", "data_bucket_arn", "audit_bucket_arn", "cluster_arn", "machine_arn",
+    "execution_role_arn", "log_group_arn", *_SHAPES,
+})
+_KEY_CHARS: Final = re.compile(r"[0-9a-z-]+")
+_DDB: Final = {
+    "Seed": ("GetItem", "PutItem"),
+    "Dispatch": ("GetItem", "Query", "PutItem", "UpdateItem", "ConditionCheckItem"),
+    "Fence": ("GetItem", "ConditionCheckItem"), "Semaphore": ("GetItem", "UpdateItem"),
+    "Attempts": ("UpdateItem",), "Observe": ("GetItem", "Query"), "Cursor": ("GetItem",),
+}
+_FIXED_KEYS: Final = {"Fence": "ENV#prod#FENCE", "Semaphore": "ENV#prod#SEMAPHORE",
+                      "Attempts": "ENV#prod#ATTEMPTS", "Cursor": "OUTBOX#CURSOR"}
+_S3: Final = {
+    "Raw": (("s3:PutObject", "s3:GetObject"), "data_bucket_arn", "raw_object_keys"),
+    "Outputs": (("s3:GetObject",), "data_bucket_arn", "output_object_keys"),
+    "Audit": (("s3:GetObject", "s3:GetObjectRetention"), "audit_bucket_arn", "audit_object_keys"),
+}
+_CLOSED_POLICY: Final = {"Version": _VERSION,
+                         "Statement": [{"Effect": "Deny", "Action": "*", "Resource": "*"}]}
 _AUTHORIZATION: Final = ("name", "role", "policy", "assume_role_policy", "max_session_duration")
 _INPUT_FIELDS: Final = frozenset({
     "schema_version", "context_kind", "application_principal_arn", "owner", "context_manifest",
@@ -76,6 +103,18 @@ def _closed(context_kind: str, alias: str) -> bool:
     return context_kind == "readiness" and alias == "mode_audit_launch"
 
 
+def _check_resources(value: Any) -> None:
+    _require(type(value) is dict and set(cast("Node", value)) == _RESOURCE_FIELDS, "resources")
+    resources = cast("Node", value)
+    for key, shape in _SHAPES.items():
+        item = resources[key]
+        _require(type(item) is dict and set(cast("Node", item)) == shape, f"resources.{key}")
+    scope = cast("Node", resources["scope"])
+    names = [scope["tenant_id"], *cast("list[Any]", scope["run_ids"])]
+    _require(all(type(name) is str and _KEY_CHARS.fullmatch(name) for name in names),
+             "resources.scope")
+
+
 def check_mode_canary_input(value: Any) -> ContextManifest:
     """Returns: Manifest de admissão do input `mode_canary` fechado.
 
@@ -92,6 +131,7 @@ def check_mode_canary_input(value: Any) -> ContextManifest:
              "application_principal_arn")
     _require(_sha(canonical_text(fields["resources"])) == manifest.fields["resources_sha256"],
              "resources")
+    _check_resources(fields["resources"])
     _require(fields["delegation_sessions"] == session_names(manifest), "delegation_sessions")
     enabled = _moment(fields["enabled_until"], "enabled_until")
     _require(enabled > _moment(manifest.fields["admitted_at"], "admitted_at"), "enabled_until")
@@ -123,38 +163,150 @@ def _statements(text: Any, field: str) -> list[Node]:
     return cast("list[Node]", document["Statement"])
 
 
-def _check_trust(role: Node, fields: Node, alias: str) -> None:
-    statements = _statements(role["assume_role_policy"], f"trust.{alias}")
-    _require(len(statements) == 1, f"trust.{alias}")
-    rule = statements[0]
-    _require(rule.get("Principal") == {"AWS": fields["application_principal_arn"]},
-             f"trust.{alias}")
-    if _closed(fields["context_kind"], alias):
-        _require(rule.get("Effect") == "Deny" and "Condition" not in rule, f"trust.{alias}")
-        return
-    condition = cast("Node", rule.get("Condition") or {})
-    sessions = condition.get("StringEquals", {}).get("sts:RoleSessionName")
-    _require(rule.get("Effect") == "Allow", f"trust.{alias}")
-    _require(sessions == fields["delegation_sessions"][alias], f"trust.{alias}")
-    expiry = condition.get("DateLessThan", {}).get("aws:CurrentTime")
-    _require(expiry == fields["enabled_until"], f"trust.{alias}")
+def _jsonencode(document: Node) -> str:
+    text = json.dumps(document, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    for char in "<>&\u2028\u2029":
+        text = text.replace(char, f"\\u{ord(char):04x}")
+    return text
 
 
-def _check_policy(policy: Node, kind: str, alias: str) -> None:
-    statements = _statements(policy["policy"], f"policy.{alias}")
-    if _closed(kind, alias):
-        _require(statements == [{"Action": "*", "Effect": "Deny", "Resource": "*"}],
-                 f"policy.{alias}")
-        return
-    for rule in statements:
-        actions = rule.get("Action")
-        listed = actions if type(actions) is list else [actions]
-        run_task = any(str(item).lower() in {"ecs:runtask", "ecs:*", "*"} for item in listed)
-        _require(rule.get("Effect") != "Allow" or not run_task or alias in _RUN_TASK,
-                 f"policy.{alias}")
+def _allow(sid: str | None, actions: list[str], resource: Any, condition: Node) -> Node:
+    rule = {"Effect": "Allow", "Action": actions, "Resource": resource, "Condition": condition}
+    return rule if sid is None else {"Sid": sid} | rule
 
 
-def _delegation(changes: dict[str, Node], fields: Node, alias: str) -> Node:
+def _partitions(scope: Node) -> list[str]:
+    tenant = "TENANT#" + scope["tenant_id"].encode().hex()
+    return [tenant, *(f"{tenant}#RUN#{run.encode().hex()}" for run in scope["run_ids"])]
+
+
+def _dynamodb(name: str, resources: Node, expiry: Node) -> Node:
+    fixed = _FIXED_KEYS.get(name)
+    keys = [fixed] if fixed else _partitions(resources["scope"])
+    condition = expiry | {"ForAllValues:StringEquals": {"dynamodb:LeadingKeys": keys},
+                          "Null": {"dynamodb:LeadingKeys": "false"}}
+    actions = [f"dynamodb:{action}" for action in _DDB[name]]
+    return _allow(name, actions, resources["table_arn"], condition)
+
+
+def _objects_rule(name: str, resources: Node, expiry: Node) -> Node:
+    actions, bucket, keys = _S3[name]
+    targets = [f"{resources[bucket]}/{key}" for key in resources["scope"][keys]]
+    return _allow(name, list(actions), targets, expiry)
+
+
+def _ecs(resources: Node, mode: str, expiry: Node) -> list[Node]:
+    cluster = expiry | {"ArnEquals": {"ecs:cluster": resources["cluster_arn"]}}
+    passed = expiry | {"StringEquals": {"iam:PassedToService": "ecs-tasks.amazonaws.com"}}
+    roles = [resources["task_role_arns"][mode], resources["execution_role_arn"]]
+    return [_allow("Launch", ["ecs:RunTask"], resources["revisions"][mode], cluster),
+            _allow("Roles", ["iam:PassRole"], roles, passed)]
+
+
+def _tasks(resources: Node, actions: list[str], expiry: Node) -> Node:
+    cluster = expiry | {"ArnEquals": {"ecs:cluster": resources["cluster_arn"]}}
+    tasks = resources["cluster_arn"].replace(":cluster/", ":task/") + "/*"
+    return _allow("Tasks", actions, tasks, cluster)
+
+
+def _machine(machine: str, dispatch: bool, expiry: Node) -> list[Node]:
+    describe, executions = ["states:DescribeStateMachine"], ["states:DescribeExecution"]
+    if dispatch:
+        describe, executions = [*describe, "states:StartExecution"], [
+            *executions, "states:StopExecution"]
+    target = machine.replace(":stateMachine:", ":execution:") + ":*"
+    return [_allow("Machine", describe, machine, expiry),
+            _allow("Executions", executions, target, expiry)]
+
+
+def _observer_reads(resources: Node, readiness: bool, expiry: Node) -> list[Node]:
+    log_group = resources["log_group_arn"]
+    reads = [
+        (["ecs:DescribeTaskDefinition"], ["*"]),
+        (["scheduler:GetSchedule"], [resources["schedule_arns"][k]
+                                     for k in sorted(resources["schedule_arns"])]),
+        (["cloudwatch:DescribeAlarms"], [resources["alarm_arns"][k]
+                                         for k in sorted(resources["alarm_arns"])]),
+        (["logs:GetLogEvents"], [f"{log_group}:log-stream:{mode}/processor/*"
+                                 for mode in ("unit", "recovery", "audit")]),
+    ]
+    rules = [_allow(None, actions, targets, expiry) for actions, targets in reads]
+    if readiness:
+        cluster = expiry | {"ArnEquals": {"ecs:cluster": resources["cluster_arn"]}}
+        rules += [_allow(None, ["ecs:ListTasks"], "*", cluster),
+                  _allow(None, ["cloudwatch:GetMetricData"], "*", expiry)]
+    return rules
+
+
+def _grants(fields: Node) -> dict[str, list[Node]]:
+    resources = cast("Node", fields["resources"])
+    expiry = {"DateLessThan": {"aws:CurrentTime": fields["enabled_until"]}}
+    ddb = {name: _dynamodb(name, resources, expiry) for name in _DDB}
+    s3 = {name: _objects_rule(name, resources, expiry) for name in _S3}
+    machine, describe = resources["machine_arn"], ["ecs:DescribeTasks"]
+    return {
+        "mode_seed": [ddb["Seed"], s3["Raw"]],
+        "mode_dispatch": [
+            ddb["Dispatch"], ddb["Fence"], ddb["Semaphore"], ddb["Attempts"],
+            *_ecs(resources, "recovery", expiry),
+            _tasks(resources, [*describe, "ecs:StopTask"], expiry),
+            *_machine(machine, True, expiry),
+        ],
+        "mode_audit_launch": [*_ecs(resources, "audit", expiry),
+                              _tasks(resources, describe, expiry)],
+        "mode_observe": [
+            ddb["Observe"], ddb["Cursor"], s3["Outputs"], s3["Audit"],
+            _tasks(resources, describe, expiry), *_machine(machine, False, expiry),
+            *_observer_reads(resources, fields["context_kind"] == "readiness", expiry),
+        ],
+    }
+
+
+def _trust(fields: Node, alias: str) -> Node:
+    closed = _closed(fields["context_kind"], alias)
+    rule: Node = {"Effect": "Deny" if closed else "Allow", "Action": "sts:AssumeRole",
+                  "Principal": {"AWS": fields["application_principal_arn"]}}
+    if not closed:
+        rule["Condition"] = {
+            "DateLessThan": {"aws:CurrentTime": fields["enabled_until"]},
+            "StringEquals": {"sts:RoleSessionName": fields["delegation_sessions"][alias]},
+        }
+    return {"Version": _VERSION, "Statement": [rule]}
+
+
+def _documents(fields: Node) -> dict[str, tuple[Node, Node]]:
+    grants = _grants(fields)
+    return {alias: (_trust(fields, alias),
+                    _CLOSED_POLICY if _closed(fields["context_kind"], alias)
+                    else {"Version": _VERSION, "Statement": grants[alias]})
+            for alias in ALIASES}
+
+
+def _listed(value: Any) -> list[Any]:
+    return cast("list[Any]", value) if type(value) is list else [value]
+
+
+def _grants_run_task(rule: Any) -> bool:
+    if type(rule) is not dict:
+        return True
+    fields = {str(key).lower(): value for key, value in cast("Node", rule).items()}
+    if str(fields.get("effect", "")).lower() != "allow":
+        return False
+    if "notaction" in fields:
+        return True
+    return any(fnmatchcase("ecs:runtask", str(item).lower())
+               for item in _listed(fields.get("action")))
+
+
+def _check_run_task(text: Any, policy: Node, alias: str) -> None:
+    granted = [rule for rule in _statements(text, f"policy.{alias}") if _grants_run_task(rule)]
+    expected = [rule for rule in policy["Statement"] if _grants_run_task(rule)]
+    _require(granted == expected, f"run_task.{alias}")
+
+
+def _delegation(
+    changes: dict[str, Node], fields: Node, alias: str, documents: tuple[Node, Node],
+) -> Node:
     role_address, policy_address = (f"{PREFIX}.{kind}.{alias}[0]"
                                     for kind in ("aws_iam_role", "aws_iam_role_policy"))
     role = cast("Node", changes[role_address]["change"]["after"])
@@ -165,14 +317,16 @@ def _delegation(changes: dict[str, Node], fields: Node, alias: str) -> Node:
     _require(policy["name"] == f"{name}-runtime", f"policy_name.{alias}")
     account = cast("re.Match[str]", _PRINCIPAL.fullmatch(fields["application_principal_arn"]))
     _require(role.get("arn") == f"arn:aws:iam::{account[1]}:role/{name}", f"arn.{alias}")
-    _check_trust(role, fields, alias)
-    _check_policy(policy, fields["context_kind"], alias)
+    _check_run_task(policy["policy"], documents[1], alias)
+    trust, text = (_jsonencode(document) for document in documents)
+    _require(role["assume_role_policy"] == trust, f"trust.{alias}")
+    _require(policy["policy"] == text, f"policy.{alias}")
     closed = _closed(fields["context_kind"], alias)
     return {
         "role_arn": role["arn"], "role_name": name, "role_address": role_address,
         "policy_address": policy_address, "policy_name": policy["name"],
         "session_names": [] if closed else fields["delegation_sessions"][alias],
-        "trust_sha256": _sha(role["assume_role_policy"]), "policy_sha256": _sha(policy["policy"]),
+        "trust_sha256": _sha(trust), "policy_sha256": _sha(text),
     }
 
 
@@ -198,7 +352,7 @@ def validate_mode_canary_prepare(plan: Node, mode_canary: Node, lifecycle: str) 
     """Returns: Prova do plano: ações dos oito endereços, objetos e capabilities.
 
     Raises: ContractError: Endereço extra mutante, ação fora do ciclo, unknown, RunTask fora das
-        duas exceções, trust/policy/output divergentes do input.
+        duas exceções, trust/policy fora dos bytes derivados do input, output divergente.
     """
     _require(lifecycle in _LIFECYCLE, "lifecycle")
     manifest = check_mode_canary_input(mode_canary)
@@ -208,7 +362,9 @@ def validate_mode_canary_prepare(plan: Node, mode_canary: Node, lifecycle: str) 
                for address in ADDRESSES}
     for address, item in changes.items():
         _require(address in actions or item["change"]["actions"] == ["no-op"], address)
-    delegations = {alias: _delegation(changes, mode_canary, alias) for alias in ALIASES}
+    documents = _documents(mode_canary)
+    delegations = {alias: _delegation(changes, mode_canary, alias, documents[alias])
+                   for alias in ALIASES}
     envelope = plan["planned_values"]["outputs"].get(OUTPUT) or {}
     _require(envelope.get("sensitive") is True, OUTPUT)
     expected = _expected_output(manifest, mode_canary, delegations)

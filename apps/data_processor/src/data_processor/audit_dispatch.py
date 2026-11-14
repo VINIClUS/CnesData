@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+from contextlib import suppress
 from datetime import timedelta
 from typing import TYPE_CHECKING, cast
 
@@ -70,7 +71,8 @@ class _Observation:
             retain = (created + timedelta(days=self.retention_days)).isoformat()
         logger.info(
             "mode_canary_audit_event event_id=%s tenant_id=%s event_sha256=%s identity_key=%s "
-            "object_key=%s retention_mode=COMPLIANCE retain_until=%s appended=%s delivered=%s",
+            "object_key=%s configured_retention_mode=COMPLIANCE configured_retain_until=%s "
+            "appended=%s delivered=%s",
             event.event_id, event.tenant_id, _digest(body),
             f"audit/.event-id/{event.event_id}.json",
             f"audit/{event.tenant_id}/{created:%Y}/{created:%m}/{created:%d}/{event.event_id}.json",
@@ -146,7 +148,8 @@ def run_audit_dispatch_once(
             plane, _ObservedSink(runtime.sink, observation), runtime.clock(), limit=100,
         )
     except BaseException:
-        observation.emit(None)
+        with suppress(Exception):
+            observation.emit(None)
         raise
     observation.emit(result)
     return int(result.failed > 0)

@@ -345,13 +345,13 @@ class ModeCanaryContext:
         effect_id = _effect_id(self._binding.record_sha256, effect.kind, effect.request_sha256)
         for _ in range(_ATTEMPTS):
             control_text, control = self._control(record)
+            deadline = min(record.expires_at, record.canary_deadline, control.deadline)
+            if now >= deadline:
+                raise _refuse("context_expired")
             existing = self._ticket(effect_id)
             if existing is not None:
                 self._check_reentry(existing, effect)
                 return
-            deadline = min(record.expires_at, record.canary_deadline, control.deadline)
-            if now >= deadline:
-                raise _refuse("context_expired")
             ticket = canonical_text(self._new_ticket(effect_id, effect, control, (now, deadline)))
             if self._commit(control_text, ticket, effect, effect_id):
                 return
