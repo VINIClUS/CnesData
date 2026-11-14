@@ -418,6 +418,9 @@ def test_rollback_restaura_as_tres_rotas_e_grants_juntos(phase_c):
     run = _rollback_tofu(phase_c, rb, plan)
     phase_c.mp.setattr("scripts.promotion.verify_routes.subprocess.run", run)
     serial, native, close = phase_c.boundary.serial, phase_c.native, phase_c.close
+    stale = {**close, "common": {**close["common"], "activation_sha256": "0" * 64}}
+    with pytest.raises(ValueError, match="rollback=activation_binding"):
+        rollback.execute_reviewed_rollback(rb, native, _rollback_approval(phase_c), stale)
     foreign = _rollback_approval(phase_c, phase="x")
     with pytest.raises(ValueError, match="rollback=exact_independent_audit_required"):
         rollback.execute_reviewed_rollback(rb, native, foreign, close)
