@@ -148,23 +148,43 @@ def verify_archive(raw: bytes, manifest: Mapping[str, Any]) -> dict[str, bytes]:
     Raises:
     ArchiveError: tamanho, membro, extensão, padding ou digest divergente.
     """
+    result = _unpack(raw)
+    if result["release-manifest.json"] != canonical(manifest):
+        raise ArchiveError("manifest=embedded")
+    if (
+        hashlib.sha256(result["compose.yml"]).hexdigest() != manifest.get("compose_sha256")
+        or hashlib.sha256(result["config.json"]).hexdigest() != manifest.get("config_sha256")
+    ):
+        raise ArchiveError("manifest=digest")
+    return result
+
+
+def archive_manifest(raw: bytes) -> dict[str, Any]:
+    """Returns:
+    release_manifest embutido, aceito só se o archive inteiro confere com ele.
+    Raises:
+    ArchiveError: archive inválido, manifest não canônico ou digest divergente.
+    """
+    try:
+        manifest = json.loads(_unpack(raw)["release-manifest.json"])
+    except (UnicodeDecodeError, ValueError) as error:
+        raise ArchiveError("manifest=json") from error
+    if not isinstance(manifest, dict):
+        raise ArchiveError("manifest=object")
+    verify_archive(raw, manifest)
+    return manifest
+
+
+def _unpack(raw: bytes) -> dict[str, bytes]:
     if len(raw) > ARCHIVE_LIMIT:
         raise ArchiveError("archive=size")
     try:
         unpacked = gzip.decompress(raw)
         if len(unpacked) > ARCHIVE_LIMIT:
             raise ArchiveError("archive=expansion")
-        result = _members(unpacked)
+        return _members(unpacked)
     except (OSError, EOFError, tarfile.TarError) as error:
         raise ArchiveError("archive=invalid") from error
-    if result["release-manifest.json"] != canonical(manifest):
-        raise ArchiveError("manifest=embedded")
-    if (
-        hashlib.sha256(result["compose.yml"]).hexdigest() != manifest["compose_sha256"]
-        or hashlib.sha256(result["config.json"]).hexdigest() != manifest["config_sha256"]
-    ):
-        raise ArchiveError("manifest=digest")
-    return result
 
 
 def build_envelope(ci_evidence: Mapping[str, Any], manifest: Mapping[str, Any], now: datetime) -> bytes:
