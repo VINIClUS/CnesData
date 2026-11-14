@@ -85,6 +85,7 @@ class RegistryBoundary:
             "image_tag_mutability": "IMMUTABLE",
         }
         self.copied = []
+        self.tags = {}
 
     def describe_repository(self):
         return copy.deepcopy(self.repository)
@@ -101,11 +102,16 @@ class RegistryBoundary:
     def copy_blob(self, digest, path):
         self.copied.append((digest, path.read_bytes()))
 
-    def put_manifest(self, digest, data):
+    def put_manifest(self, digest, data, tag):
         self.copied.append((digest, data))
+        self.tags[tag] = digest
 
-    def describe_image(self, digest):
-        return {"digest": digest, "manifest": self.manifest}
+    def describe_image(self, reference):
+        digest = self.tags.get(reference, reference)
+        if not digest.startswith("sha256:"):
+            return None
+        held = sorted(tag for tag, image in self.tags.items() if image == digest)
+        return {"digest": digest, "manifest": self.manifest, "tags": held}
 
     def download_destination_blob(self, digest, target):
         target.write_bytes(dict(self.copied)[digest])
