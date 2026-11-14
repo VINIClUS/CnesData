@@ -1,4 +1,4 @@
-"""Leitor credential_process da imagem de produção: JSON do host validado, falha fechada key=value."""
+"""Leitor credential_process da imagem de produção: JSON do host validado, falha fechada."""
 
 from __future__ import annotations
 
@@ -23,8 +23,8 @@ READER_SOURCE = REPO_ROOT / "apps" / "central_api" / "docker" / "aws_credentials
 SHEBANG = "#!/usr/local/bin/python3 -IS"
 REFUSAL_EXIT = 2
 ACCESS_KEY = "ASIAGENA000000000001"
-SECRET = "segredo-do-host-nunca-em-log"
-TOKEN = "token-de-sessao-nunca-em-log"
+SECRET = "segredo-do-host-nunca-em-log"  # noqa: S105
+TOKEN = "token-de-sessao-nunca-em-log"  # noqa: S105
 FIELDS = ("AccessKeyId", "Expiration", "SecretAccessKey", "SessionToken", "Version")
 SIZE_LIMIT = 8192
 MARGIN_SECONDS = 960
