@@ -22,7 +22,11 @@ READER_SUBPROCESS_TESTS = (
 IGNORE_PREFIX = "sonar.issue.ignore.multicriteria"
 PATH_TRAVERSAL_RULE = "pythonsecurity:S8707"
 EXCLUSION_OPTIONS = ("--ignore", "--ignore-glob", "--deselect")
-VALUE_OPTIONS = (*EXCLUSION_OPTIONS, "-k", "-m")
+SHORT_OPTIONS = ("-k", "-m")
+VALUE_OPTIONS = (*EXCLUSION_OPTIONS, *SHORT_OPTIONS)
+NON_EXECUTING = frozenset(
+    {"--co", "--collect-only", "--setup-only", "--setup-plan", "--fixtures", "--markers"},
+)
 EXCLUDED_MARKER = re.compile(r"\bnot\s+(\w+)")
 
 
@@ -71,6 +75,8 @@ def _arguments(command: list[str]) -> tuple[list[str], list[tuple[str, str]]]:
             pending = argument
         elif flag in VALUE_OPTIONS:
             options.append((flag, value))
+        elif argument[:2] in SHORT_OPTIONS:
+            options.append((argument[:2], argument[2:]))
         else:
             positionals.append(argument)
     return positionals, options
@@ -106,6 +112,8 @@ def test_leitor_continua_no_escopo_de_analise_do_sonar() -> None:
 
     assert any(READER.startswith(f"{source}/") for source in _list(entries["sonar.sources"]))
     assert not [p for p in _list(entries["sonar.exclusions"]) if _matches(p, READER)]
+    assert not [p for p in _list(entries["sonar.test.inclusions"]) if _matches(p, READER)]
+    assert not [t for t in _list(entries["sonar.tests"]) if READER.startswith(f"{t}/")]
 
 
 def test_job_obrigatorio_roda_os_testes_de_subprocesso_do_leitor() -> None:
@@ -114,6 +122,7 @@ def test_job_obrigatorio_roda_os_testes_de_subprocesso_do_leitor() -> None:
     gates = {key: v for key, v in (job | step).items() if key in {"if", "continue-on-error"}}
 
     assert "tests/production" in positionals
+    assert NON_EXECUTING.isdisjoint(positionals)
     assert "runtime-python" in aggregate["needs"]
     assert gates == {}
     assert [flag for flag, _ in options if flag == "-k"] == []
