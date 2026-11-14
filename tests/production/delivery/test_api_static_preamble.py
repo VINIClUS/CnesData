@@ -6,9 +6,9 @@ import json
 from typing import TYPE_CHECKING
 
 import pytest
-from scripts.promotion._api_static_preamble import PreambleError, check_preamble, main
 
 from release.build_candidate import VERIFY_JOBS
+from scripts.promotion._api_static_preamble import PreambleError, check_preamble, main
 
 if TYPE_CHECKING:
     from pathlib import Path
