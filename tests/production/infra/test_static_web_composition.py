@@ -342,7 +342,7 @@ def test_composicao_permanece_em_validacao_sem_hsts(static_web_composition: Comp
         composition, "module.static_web.aws_s3_bucket_lifecycle_configuration.this"
     )
     rules = {rule["id"]: rule for rule in lifecycle["rule"]}
-    assert rules["static-web-gc"]["status"] == "Disabled"
+    assert rules["static-web-gc"]["status"] == "Enabled"
     abort = rules["static-web-abort-multipart"]
     assert abort["status"] == "Enabled"
     assert abort["abort_incomplete_multipart_upload"][0]["days_after_initiation"] == 1
