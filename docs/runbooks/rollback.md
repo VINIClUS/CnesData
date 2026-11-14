@@ -49,7 +49,8 @@ dono, com as rotas anteriores lidas forte e o state limpo.
 - Uma execução Standard mantém a definição com que começou. `drain_old_work` lista as
   execuções RUNNING iniciadas antes da troca de rota e as tasks ECS RUNNING de revisões
   antigas do processor.
-- Drenado exige duas leituras limpas seguidas antes do prazo. Prazo vencido devolve as
+- Drenado exige duas leituras limpas seguidas. Uma nova leitura só começa antes do prazo, então
+  a segunda cai no máximo um intervalo de poll (5 s) depois dele. Prazo vencido devolve as
   revisões em voo, e revisões, digests e grants antigos ficam.
 - Cancelamento só com `CancelApproval`: aprovador, motivo e cada execução como ARN exato,
   tenant e run. Nunca curinga. O cancelamento usa `StepFunctionsExecutor.cancel` e entra na

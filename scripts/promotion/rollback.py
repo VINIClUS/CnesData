@@ -144,7 +144,8 @@ def review_rollback_plan(plan: Mapping[str, Any], context: RollbackContext) -> N
     _variables(plan, context)
     _assert_task_revisions_unchanged(plan)
     changes = _changes(plan)
-    expected = {MACHINE, *(SCHEDULE.format(m) for m in MODES), *(RUN_POLICY.format(m) for m in MODES)}
+    expected = {MACHINE, *(SCHEDULE.format(m) for m in MODES),
+                *(RUN_POLICY.format(m) for m in MODES)}
     _require(set(changes) == expected
              and all(change.get("actions") == ["update"] for change in changes.values()),
              "rollback=delta")
