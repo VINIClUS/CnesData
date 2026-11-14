@@ -14,13 +14,14 @@ from scripts.promotion.build_host_archive import CALLER_REF
 WORKFLOW = Path(__file__).resolve().parents[3] / ".github/workflows/promote-production.yml"
 
 
-def _workflow() -> dict[str, Any]:
+def _workflow() -> dict[Any, Any]:
     return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
 
 
 def test_workflow_so_tem_workflow_dispatch_e_actions_fixadas() -> None:
     workflow = _workflow()
-    assert set(workflow.get("on", workflow.get(True))) == {"workflow_dispatch"}
+    triggers = workflow["on"] if "on" in workflow else workflow[True]
+    assert set(triggers) == {"workflow_dispatch"}
     assert workflow["permissions"] == {}
     jobs = workflow["jobs"]
     assert list(jobs) == ["preamble", "closed-ready", "host-gate", "host-outcome"]
