@@ -135,7 +135,7 @@ def _events(caplog: pytest.LogCaptureFixture) -> list[str]:
     return [record.getMessage() for record in caplog.records if record.name == LOGGER]
 
 
-def _request(authorization: str | bytes | None) -> AWSPreparedRequest:
+def _request(authorization: object) -> AWSPreparedRequest:
     headers = HTTPHeaders()
     if authorization is not None:
         headers["Authorization"] = cast("str", authorization)
@@ -327,7 +327,7 @@ def test_observer_loga_a_chave_que_assina_cada_servico_uma_vez(
     fp_a, fp_b = key_fingerprint(KEY_A), key_fingerprint(KEY_B)
 
     results = [
-        adoption.record_signature(_request(_sigv4(key, service)))
+        adoption.record_signature(_request(_sigv4(key, service).encode("ascii")))
         for key, service in [
             (KEY_A, "states"), (KEY_A, "states"), (KEY_A, "dynamodb"),
             (KEY_B, "states"), (KEY_B, "dynamodb"), (KEY_B, "dynamodb"),
@@ -343,14 +343,26 @@ def test_observer_loga_a_chave_que_assina_cada_servico_uma_vez(
     ]
 
 
+def test_observer_aceita_o_header_em_texto(
+    adoption: CredentialAdoption, caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.INFO, LOGGER)
+
+    adoption.record_signature(_request(_sigv4(KEY_A, "s3")))
+
+    assert _events(caplog) == [
+        f"aws_credentials_signed key_fp={key_fingerprint(KEY_A)} service=s3 pid={os.getpid()}",
+    ]
+
+
 @pytest.mark.parametrize(
     "authorization",
-    [None, "Bearer abc", "AWS4-HMAC-SHA256 Credential=ASIA/short", b"AWS4-HMAC-SHA256"],
-    ids=["sem-header", "outro-esquema", "escopo-invalido", "bytes"],
+    [None, "Bearer abc", "AWS4-HMAC-SHA256 Credential=ASIA/short", b"Bearer abc", 7],
+    ids=["sem-header", "outro-esquema", "escopo-invalido", "bytes-outro-esquema", "nao-texto"],
 )
 def test_observer_ignora_request_sem_assinatura_sigv4(
     adoption: CredentialAdoption, caplog: pytest.LogCaptureFixture,
-    authorization: str | bytes | None,
+    authorization: object,
 ) -> None:
     caplog.set_level(logging.INFO, LOGGER)
 
