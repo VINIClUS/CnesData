@@ -37,7 +37,9 @@ S3 para trás, nem edita state ou o control plane à mão.
 4. `execute_reviewed_rollback` revisa a cópia 0400 do plan. Um só plan troca a máquina, os dois
    Schedulers e os dois grants `ecs:RunTask`. Plan parcial, nova revisão ECS, mudança no grant
    da state machine ou rota diferente da anterior recusam o plan inteiro.
-5. Logo antes e depois do apply, o fence precisa estar fechado na mesma promoção, sem permit.
+5. O documento de close-drain precisa ser da activation atual (`activation_sha256`); outro
+   recusa antes de ler o plan. Logo antes e depois do apply, o fence precisa estar fechado na
+   mesma promoção, sem permit.
    Depois do apply: state limpo, checkpoint que avançou e as três rotas anteriores lidas forte.
 6. Apply com falha exige plan novo e nova auditoria.
 
