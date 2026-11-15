@@ -5,15 +5,17 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import boto3
 import httpx
 from botocore.exceptions import BotoCoreError, ClientError
 
 from release.build_candidate import GitHub
-from release.verify_candidate import canonical
+from release.verify_candidate import canonical, require
 from scripts.promotion.ecr_registry import connect
 from scripts.promotion.phase_a import prepare_inputs
 from scripts.promotion.promote_ecr import promote_candidate
@@ -23,6 +25,7 @@ if TYPE_CHECKING:
 
 type Node = dict[str, Any]
 REPOSITORY = "VINIClUS/CnesData"
+REGION = "us-east-2"
 FAILURES = (ValueError, KeyError, TypeError, OSError, httpx.HTTPError, BotoCoreError, ClientError)
 logger = logging.getLogger(__name__)
 
@@ -77,18 +80,40 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+def _new_session() -> Any:
+    return boto3.Session(region_name=REGION)
+
+
+@dataclass(frozen=True)
+class Seams:
+    """Fronteiras externas substituíveis nos testes."""
+
+    api_factory: Callable[[str], Any] = GitHub
+    session_factory: Callable[[], Any] = _new_session
+    registry_factory: Callable[[Any], Any] = connect
+    clock: Callable[[], datetime] = _now
+
+
+def _authenticated_session(arguments: argparse.Namespace, seams: Seams) -> Any:
+    session = seams.session_factory()
+    account = session.client("sts").get_caller_identity()["Account"]
+    require(account == arguments.account_id, "sts=account_mismatch")
+    return session
+
+
 def main(
     argv: Sequence[str] | None = None,
     *,
-    api_factory: Callable[[str], Any] = GitHub,
-    registry_factory: Callable[[], Any] = connect,
-    clock: Callable[[], datetime] = _now,
+    seams: Seams | None = None,
 ) -> int:
     """Returns: 0 com o arquivo gravado; 2 em qualquer recusa, sem arquivo de saída."""
     arguments = _parser().parse_args(argv)
+    seams = seams or Seams()
     try:
         if arguments.command == "promote-ecr":
-            _promote(arguments, api_factory(REPOSITORY), registry_factory(), clock())
+            session = _authenticated_session(arguments, seams)
+            api = seams.api_factory(REPOSITORY)
+            _promote(arguments, api, seams.registry_factory(session), seams.clock())
         else:
             _phase_inputs(arguments)
     except FAILURES as error:

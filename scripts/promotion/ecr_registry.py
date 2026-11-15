@@ -8,7 +8,6 @@ import re
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
-import boto3
 import httpx
 from botocore.exceptions import ClientError
 
@@ -210,10 +209,10 @@ class EcrRegistry:
             _save(response, target)
 
 
-def connect() -> EcrRegistry:
-    """Returns: registry com o token GHCR do ambiente; Raises: ValueError sem token."""
+def connect(session: Any) -> EcrRegistry:
+    """Args: sessão boto3 já autenticada; Raises: ValueError sem token GHCR no ambiente."""
     pat = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     if not pat:
         raise ValueError("github=token_missing")
     http = httpx.Client(timeout=60, follow_redirects=False, trust_env=False)
-    return EcrRegistry(boto3.client("ecr", region_name=REGION), http, pat)
+    return EcrRegistry(session.client("ecr"), http, pat)
