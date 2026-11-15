@@ -51,7 +51,6 @@ def test_dispara_so_por_workflow_dispatch_com_inputs_fechados():
         "reference",
         "creator",
         "baseline",
-        "account_id",
         "source_sha",
         "canary_trusted_principal_arn",
     }
@@ -68,6 +67,8 @@ def test_permissoes_do_job_sao_exatamente_leitura_oidc_e_packages_read():
         "contents": "read",
         "id-token": "write",
         "packages": "read",
+        "actions": "read",
+        "checks": "read",
     }
 
 
@@ -140,7 +141,6 @@ def test_cada_input_alimenta_a_variavel_de_ambiente_do_mesmo_nome():
         "REFERENCE": "reference",
         "CREATOR": "creator",
         "BASELINE": "baseline",
-        "ACCOUNT_ID": "account_id",
         "SOURCE_SHA": "source_sha",
         "CANARY_PRINCIPAL": "canary_trusted_principal_arn",
     }
@@ -174,3 +174,23 @@ def test_argumentos_das_clis_ligam_cada_arquivo_e_variavel_ao_parametro_certo():
         ("BASELINE", "baseline"),
     ):
         assert f'printf \'%s\' "${variable}" > "$RUNNER_TEMP/phase-a/{name}.json"' in commands
+
+
+def test_account_id_vem_so_de_vars_do_ambiente_e_nunca_de_input_ou_texto():
+    text = _text()
+    assert "inputs.account_id" not in text
+    assert not re.search(r"(?<![0-9a-zA-Z])[0-9]{12}(?![0-9a-zA-Z])", text)
+    seen = [step["env"]["ACCOUNT_ID"] for step in _steps() if "ACCOUNT_ID" in step.get("env", {})]
+    assert len(seen) == 3
+    assert set(seen) == {"${{ vars.PRODUCTION_AWS_ACCOUNT_ID }}"}
+    assert "vars." not in _runs()
+
+
+def test_regex_de_12_digitos_precede_todo_uso_do_account_id():
+    commands = _runs()
+    check = '[[ "$ACCOUNT_ID" =~ ^[0-9]{12}$ ]]'
+    assert check in commands
+    assert commands.index(check) < commands.index('"$ACCOUNT_ID"', commands.index(check) + 1)
+    first = next(step for step in _steps() if "ACCOUNT_ID" in step.get("env", {}))
+    assert check in first["run"]
+    assert first["run"].index(check) < first["run"].rindex("$RUNNER_TEMP")
