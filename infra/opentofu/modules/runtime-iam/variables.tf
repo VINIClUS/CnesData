@@ -395,3 +395,23 @@ variable "canary_release" {
     error_message = "canary_release_bucket=expected_own_canary_bucket"
   }
 }
+
+variable "ecr_promotion" {
+  description = "Closed GitHub OIDC trust contract of the ECR promotion role, or null to create none."
+  type        = any
+  default     = null
+  nullable    = true
+
+  validation {
+    condition = var.ecr_promotion == null ? true : try(alltrue([
+      toset(keys(var.ecr_promotion)) == toset(["repository", "environment", "workflow_path", "ref"]),
+      var.ecr_promotion.repository == "VINIClUS/CnesData",
+      var.ecr_promotion.environment == "production",
+      var.ecr_promotion.workflow_path == ".github/workflows/phase-a-prepare.yml",
+      var.ecr_promotion.ref == "refs/heads/main",
+      var.name_prefix == "cnesdata-prod",
+      var.repository_arn == "arn:aws:ecr:us-east-2:${var.account_id}:repository/cnesdata-prod-processor",
+    ]), false)
+    error_message = "ecr_promotion=invalid_contract"
+  }
+}

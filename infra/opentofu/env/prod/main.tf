@@ -81,6 +81,7 @@ module "runtime_iam" {
   source = "../../modules/runtime-iam"
 
   demo_seed        = var.demo_seed
+  ecr_promotion    = var.ecr_promotion
   mode_canary      = var.mode_canary
   static_promotion = var.static_promotion
   static_web = {
@@ -202,6 +203,7 @@ locals {
       module.schedulers.freeze_target_role_names,
       try(var.static_promotion.mode == "operational", false) ?
       ["${local.name_prefix}-static-normal"] : [],
+      var.ecr_promotion == null ? [] : ["${local.name_prefix}-ecr-promotion"],
       var.mode_canary == null ? [] : [
         "${local.name_prefix}-mode-seed", "${local.name_prefix}-mode-dispatch",
       ],
