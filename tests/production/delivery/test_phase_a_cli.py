@@ -133,3 +133,44 @@ def test_actionlint_valida_o_workflow():
         stdin=subprocess.DEVNULL,
     )
     assert done.returncode == 0, done.stdout
+
+
+def test_cada_input_alimenta_a_variavel_de_ambiente_do_mesmo_nome():
+    expected = {
+        "REFERENCE": "reference",
+        "CREATOR": "creator",
+        "BASELINE": "baseline",
+        "ACCOUNT_ID": "account_id",
+        "SOURCE_SHA": "source_sha",
+        "CANARY_PRINCIPAL": "canary_trusted_principal_arn",
+    }
+    seen = {
+        name: value
+        for step in _steps()
+        for name, value in step.get("env", {}).items()
+        if name in expected
+    }
+    assert seen == {name: "${{ inputs." + key + " }}" for name, key in expected.items()}
+
+
+def test_argumentos_das_clis_ligam_cada_arquivo_e_variavel_ao_parametro_certo():
+    commands = _runs()
+    for argument in (
+        '--reference "$out/reference.json"',
+        '--creator "$out/creator.json"',
+        '--account-id "$ACCOUNT_ID"',
+        '--region "$AWS_REGION"',
+        '--output "$out/promotion.json"',
+        '--promotion "$out/promotion.json"',
+        '--baseline "$out/baseline.json"',
+        '--source-sha "$SOURCE_SHA"',
+        '--canary-trusted-principal-arn "$CANARY_PRINCIPAL"',
+        '--output "$out/phase-inputs.json"',
+    ):
+        assert argument in commands
+    for variable, name in (
+        ("REFERENCE", "reference"),
+        ("CREATOR", "creator"),
+        ("BASELINE", "baseline"),
+    ):
+        assert f'printf \'%s\' "${variable}" > "$RUNNER_TEMP/phase-a/{name}.json"' in commands
