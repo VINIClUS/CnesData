@@ -327,7 +327,7 @@ def _traced(staged, events, session):
     return _cli().Seams(
         api_factory=lambda repository: Traced(staged.github, events),
         session_factory=lambda: session,
-        registry_factory=lambda s: EcrRegistry(s.client("ecr"), http, "pat-sintetico"),
+        registry_factory=lambda s: EcrRegistry(s.client("ecr"), http, fx.GHCR_PAT),
         clock=lambda: NOW,
     )
 
