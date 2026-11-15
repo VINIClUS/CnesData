@@ -54,6 +54,7 @@ def staged(github, tmp_path):
     return SimpleNamespace(
         registry=registry,
         github=github,
+        repositories=[],
         reference=reference,
         dir=tmp_path,
         receipt=tmp_path / "promotion.json",
@@ -63,7 +64,7 @@ def staged(github, tmp_path):
 
 def _promote(staged, creator=None, registry=None):
     seams = {
-        "api_factory": lambda repository: staged.github,
+        "api_factory": lambda repository: staged.repositories.append(repository) or staged.github,
         "registry_factory": lambda: registry or staged.registry,
         "clock": lambda: NOW,
     }
@@ -129,6 +130,7 @@ def test_promote_ecr_grava_bytes_canonicos_e_copia_para_o_registry(staged):
     data = staged.receipt.read_bytes()
     assert data == canonical(json.loads(data))
     assert staged.registry.copied
+    assert staged.repositories == ["VINIClUS/CnesData"]
     assert list(staged.registry.tags) == [json.loads(data)["candidate"]["release_id"]]
 
 
@@ -155,6 +157,7 @@ def test_promote_ecr_nao_expoe_o_token_no_recibo_nem_no_log(staged, monkeypatch,
         OSError("rede"),
         KeyError("campo"),
     ],
+    ids=lambda error: type(error).__name__,
 )
 def test_promote_ecr_falha_fechada_com_codigo_2_e_sem_recibo(staged, caplog, error):
     def broken():
@@ -180,7 +183,7 @@ def test_promote_ecr_falha_fechada_com_codigo_2_e_sem_recibo(staged, caplog, err
             clock=lambda: NOW,
         )
     assert status == 2
-    assert "promote_ecr=failed" in caplog.text
+    assert f"promote_ecr=failed reason={type(error).__name__}" in caplog.text
     assert not staged.receipt.exists()
 
 
@@ -228,7 +231,9 @@ def test_phase_inputs_sem_recibo_falha_fechada(staged):
     assert not staged.inputs.exists()
 
 
-@pytest.mark.parametrize("argv", [[], ["outro"], ["promote-ecr"], ["phase-inputs", "--x", "1"]])
+@pytest.mark.parametrize(
+    "argv", [[], ["outro"], ["promote-ecr"], ["phase-inputs"], ["phase-inputs", "--x", "1"]]
+)
 def test_argumentos_invalidos_saem_com_codigo_2_do_argparse(argv):
     with pytest.raises(SystemExit) as stopped:
         _cli().main(argv)
@@ -247,3 +252,18 @@ def test_modulo_executa_por_python_m_com_os_dois_subcomandos():
     assert done.returncode == 0
     assert "promote-ecr" in done.stdout
     assert "phase-inputs" in done.stdout
+
+
+def test_modulo_propaga_o_codigo_de_saida_da_recusa(tmp_path):
+    arguments = ["promotion", "baseline", "account-id", "region", "source-sha"]
+    arguments += ["canary-trusted-principal-arn", "output"]
+    argv = [item for name in arguments for item in (f"--{name}", str(tmp_path / name))]
+    done = subprocess.run(  # noqa: S603 -- Executes the checked-in CLI with fixed arguments.
+        [sys.executable, "-m", "scripts.promotion.phase_a_cli", "phase-inputs", *argv],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        stdin=subprocess.DEVNULL,
+    )
+    assert done.returncode == 2
