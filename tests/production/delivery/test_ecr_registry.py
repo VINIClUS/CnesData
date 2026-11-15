@@ -210,7 +210,7 @@ def test_put_manifest_propaga_conflito_de_tag_imutavel(ecr):
         _adapter(client).put_manifest(_digest(_manifest()), _manifest(), "release")
 
 
-def _layer(tmp_path, data, availability="UNAVAILABLE", stubber=None):
+def _layer(stubber, tmp_path, data, availability="UNAVAILABLE"):
     path = tmp_path / "layer"
     path.write_bytes(data)
     digest = _digest(data)
@@ -225,14 +225,14 @@ def _layer(tmp_path, data, availability="UNAVAILABLE", stubber=None):
 
 def test_copy_blob_nao_envia_quando_a_camada_ja_esta_disponivel(ecr, tmp_path):
     client, stubber = ecr
-    digest, path = _layer(tmp_path, b"abcdefghij", "AVAILABLE", stubber)
+    digest, path = _layer(stubber, tmp_path, b"abcdefghij", "AVAILABLE")
     _adapter(client).copy_blob(digest, path)
 
 
 def test_copy_blob_envia_em_partes_do_tamanho_devolvido_e_completa(ecr, tmp_path):
     client, stubber = ecr
     data = b"abcdefghij"
-    digest, path = _layer(tmp_path, data, stubber=stubber)
+    digest, path = _layer(stubber, tmp_path, data)
     stubber.add_response(
         "initiate_layer_upload",
         {"uploadId": "up-1", "partSize": 4},
@@ -279,7 +279,7 @@ OTHER = ("complete_layer_upload", {"uploadId": "up-1", "layerDigest": _digest(b"
 )
 def test_copy_blob_recusa_falhas_do_upload(ecr, tmp_path, steps, error, reason):
     client, stubber = ecr
-    digest, path = _layer(tmp_path, b"abcd", stubber=stubber)
+    digest, path = _layer(stubber, tmp_path, b"abcd")
     _script(stubber, steps)
     with pytest.raises(error, match=reason):
         _adapter(client).copy_blob(digest, path)
