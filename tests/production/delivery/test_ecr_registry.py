@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from importlib import import_module
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -449,16 +450,16 @@ def test_connect_exige_token_no_ambiente(monkeypatch):
     for name in ("GH_TOKEN", "GITHUB_TOKEN"):
         monkeypatch.delenv(name, raising=False)
     with pytest.raises(ValueError, match="github=token_missing"):
-        _module().connect()
+        _module().connect(SimpleNamespace(client=lambda name: pytest.fail(name)))
 
 
-def test_connect_monta_adaptador_us_east_2_sem_expor_o_token(monkeypatch):
+def test_connect_monta_o_cliente_ecr_da_mesma_sessao_sem_expor_o_token(monkeypatch):
     monkeypatch.setenv("GH_TOKEN", GHCR_PAT)
     monkeypatch.setenv("GITHUB_TOKEN", "outro")
-    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "synthetic")
-    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "synthetic")
-    adapter = _module().connect()
-    assert isinstance(adapter, _module().EcrRegistry)
+    asked = []
+    session = SimpleNamespace(client=lambda name: asked.append(name) or ecr_client())
+    adapter = _module().connect(session)
+    assert asked == ["ecr"]
     assert GHCR_PAT not in repr(adapter)
     assert adapter._pat == GHCR_PAT
     assert adapter._http.follow_redirects is False
