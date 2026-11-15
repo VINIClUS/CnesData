@@ -330,6 +330,55 @@ run "particao_do_freeze" {
   }
 }
 
+run "ecr_promotion_fora_da_particao_por_padrao" {
+  command = plan
+
+  assert {
+    condition = !contains(
+      concat(output.freeze_target_role_arns, output.freeze_excluded_role_arns),
+      "arn:aws:iam::123456789012:role/cnesdata-prod-ecr-promotion",
+    )
+    error_message = "ecr_promotion_default=role_must_not_exist"
+  }
+}
+
+run "ecr_promotion_ativa_e_alvo_do_freeze" {
+  command = plan
+
+  variables {
+    ecr_promotion = {
+      repository    = "VINIClUS/CnesData"
+      environment   = "production"
+      workflow_path = ".github/workflows/phase-a-prepare.yml"
+      ref           = "refs/heads/main"
+    }
+  }
+
+  assert {
+    condition = contains(
+      output.freeze_target_role_arns,
+      "arn:aws:iam::123456789012:role/cnesdata-prod-ecr-promotion",
+    )
+    error_message = "ecr_promotion=must_be_freeze_target"
+  }
+
+  assert {
+    condition = !contains(
+      output.freeze_excluded_role_arns,
+      "arn:aws:iam::123456789012:role/cnesdata-prod-ecr-promotion",
+    )
+    error_message = "ecr_promotion=must_not_be_freeze_excluded"
+  }
+
+  assert {
+    condition = length(setintersection(
+      toset(output.freeze_target_role_arns),
+      toset(output.freeze_excluded_role_arns),
+    )) == 0
+    error_message = "freeze target and excluded roles must be disjoint"
+  }
+}
+
 run "shared_outputs_com_conta_invalida" {
   command = plan
 

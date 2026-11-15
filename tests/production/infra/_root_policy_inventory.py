@@ -23,13 +23,21 @@ def _entradas_estaticas(plano: Node) -> Inventory:
     entrada = plano["variables"].get("static_promotion", {}).get("value")
     if entrada is None:
         return {}
-    aliases = ("observer", "normal", "recovery") if entrada["mode"] == "operational" else (
-        "observer",
+    aliases = (
+        ("observer", "normal", "recovery") if entrada["mode"] == "operational" else ("observer",)
     )
     return {
         f"{RUNTIME_PREFIX}.static_{alias}[0]": (f"{nome}-runtime", nome)
-        for alias in aliases for nome in [f"{PRODUCT_NAMESPACE}-static-{alias}"]
+        for alias in aliases
+        for nome in [f"{PRODUCT_NAMESPACE}-static-{alias}"]
     }
+
+
+def _entradas_ecr(plano: Node) -> Inventory:
+    if plano["variables"].get("ecr_promotion", {}).get("value") is None:
+        return {}
+    nome = f"{PRODUCT_NAMESPACE}-ecr-promotion"
+    return {f"{RUNTIME_PREFIX}.ecr_promotion[0]": (f"{nome}-runtime", nome)}
 
 
 def _entradas_modo(plano: Node) -> Inventory:
@@ -80,6 +88,7 @@ def runtime_iam_entries(plan: Node) -> Inventory:
         **_entradas_canary(plan),
         **_entradas_modo(plan),
         **_entradas_estaticas(plan),
+        **_entradas_ecr(plan),
     }
 
 
