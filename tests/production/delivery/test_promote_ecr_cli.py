@@ -325,8 +325,8 @@ def _traced(staged, events, session):
 
     http = httpx.Client(transport=httpx.MockTransport(handler), trust_env=False)
     return _cli().Seams(
-        api_factory=lambda repository: Traced(staged.github, events),
-        session_factory=lambda: session,
+        api_factory=lambda repository: events.append("api") or Traced(staged.github, events),
+        session_factory=lambda: events.append("session") or session,
         registry_factory=lambda s: EcrRegistry(s.client("ecr"), http, fx.GHCR_PAT),
         clock=lambda: NOW,
     )
@@ -343,8 +343,8 @@ def test_get_caller_identity_e_a_primeira_chamada_externa_e_a_unica_de_sts(stage
     events = []
     session = Session(events)
     assert _promote_with(staged, _traced(staged, events, session)) == 0
-    assert events[0] == "sts"
-    assert events.count("sts") == 1
+    assert events[:3] == ["session", "sts", "api"]
+    assert events.count("session") == events.count("sts") == 1
     assert {"github", "ghcr"} <= set(events)
     assert staged.receipt.exists()
     assert session.clients.count("ecr") == 1
@@ -364,7 +364,7 @@ def test_conta_divergente_ou_sts_falho_recusa_antes_de_github_e_ghcr(staged, cap
     session = Session(events, account="999999999999" if error is None else ACCOUNT, error=error)
     with caplog.at_level(logging.ERROR):
         assert _promote_with(staged, _traced(staged, events, session)) == 2
-    assert events == ["sts"]
+    assert events == ["session", "sts"]
     assert not staged.receipt.exists()
     assert staged.registry.copied == []
     if error is None:
@@ -378,7 +378,7 @@ def test_resposta_do_sts_sem_account_falha_fechada(staged):
         get_caller_identity=lambda: events.append("sts") or {}
     )
     assert _promote_with(staged, _traced(staged, events, session)) == 2
-    assert events == ["sts"]
+    assert events == ["session", "sts"]
 
 
 def test_sessao_padrao_fixa_us_east_2_e_o_registry_padrao_e_o_connect(monkeypatch):
