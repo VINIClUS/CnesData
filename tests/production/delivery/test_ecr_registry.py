@@ -12,24 +12,18 @@ from botocore.exceptions import ClientError
 from botocore.stub import Stubber
 
 from scripts.promotion.promote_ecr import promote_image, verify_promoted_image
+from tests.production.delivery import _phase_a_fixtures as fx
 from tests.production.delivery._phase_a_fixtures import (
-    CDN,
-    ECR,
-    GHCR_NAME,
     GHCR_PAT,
     REPOSITORY,
-    FakeEcr,
-    FakeGhcr,
     RegistryBoundary,
     _digest,
-    _promotion,
     ecr_client,
 )
 
 DOCKER = "application/vnd.docker.distribution.manifest.v2+json"
 OCI = "application/vnd.oci.image.manifest.v1+json"
 MEDIA = [DOCKER, OCI]
-UNAVAILABLE = {"layers": [{"layerDigest": "x", "layerAvailability": "UNAVAILABLE"}]}
 
 
 def _module():
@@ -85,7 +79,7 @@ def test_describe_repository_devolve_a_forma_que_promote_consome(ecr):
     repository = {
         "registryId": "123456789012",
         "repositoryName": REPOSITORY,
-        "repositoryUri": ECR,
+        "repositoryUri": fx.ECR,
         "imageTagMutability": "IMMUTABLE",
     }
     stubber.add_response(
@@ -112,79 +106,66 @@ def test_describe_image_por_digest_devolve_digest_manifest_e_tags_ordenadas(ecr)
     client, stubber = ecr
     digest = _digest(RegistryBoundary().manifest)
     manifest = _lookup(stubber, digest, ["z-tag", "a-tag"], {"imageDigest": digest})
-    assert _adapter(client).describe_image(digest) == {
-        "digest": digest,
-        "manifest": manifest,
-        "tags": ["a-tag", "z-tag"],
-    }
+    observed = _adapter(client).describe_image(digest)
+    assert observed == {"digest": digest, "manifest": manifest, "tags": ["a-tag", "z-tag"]}
 
 
-def test_describe_image_por_tag_consulta_pela_tag_e_devolve_o_digest(ecr):
+def test_describe_image_por_tag_sem_tags_no_detalhe_devolve_lista_vazia(ecr):
     client, stubber = ecr
     digest = _digest(RegistryBoundary().manifest)
-    _lookup(stubber, digest, ["release"], {"imageTag": "release"})
+    _lookup(stubber, digest, None, {"imageTag": "release"})
     observed = _adapter(client).describe_image("release")
-    assert observed["digest"] == digest
-    assert observed["tags"] == ["release"]
+    assert (observed["digest"], observed["tags"]) == (digest, [])
 
 
-def test_describe_image_sem_tags_devolve_lista_vazia(ecr):
+FOUND = ("describe_images", {"imageDetails": [{"imageDigest": "sha256:" + "a" * 64}]})
+BATCH = "batch_get_image"
+NOT_FOUND = {"images": [], "failures": [{"failureCode": "ImageNotFound"}]}
+KMS = {"images": [], "failures": [{"failureCode": "KmsError"}]}
+
+
+def _script(stubber, steps):
+    for operation, reply in steps:
+        if isinstance(reply, str):
+            stubber.add_client_error(operation, **_fail(reply))
+        else:
+            stubber.add_response(operation, reply)
+
+
+@pytest.mark.parametrize(
+    "steps",
+    [
+        [("describe_images", "ImageNotFoundException")],
+        [("describe_images", {"imageDetails": []})],
+        [FOUND, (BATCH, NOT_FOUND)],
+    ],
+)
+def test_describe_image_devolve_none_so_quando_a_imagem_nao_existe(ecr, steps):
     client, stubber = ecr
-    digest = _digest(RegistryBoundary().manifest)
-    _lookup(stubber, digest, None, {"imageDigest": digest})
-    assert _adapter(client).describe_image(digest)["tags"] == []
-
-
-@pytest.mark.parametrize("reference", ["release", _digest(b"x")])
-def test_describe_image_devolve_none_quando_a_imagem_nao_existe(ecr, reference):
-    client, stubber = ecr
-    stubber.add_client_error("describe_images", **_fail("ImageNotFoundException"))
-    assert _adapter(client).describe_image(reference) is None
-
-
-def test_describe_image_devolve_none_quando_a_lista_vem_vazia(ecr):
-    client, stubber = ecr
-    stubber.add_response("describe_images", {"imageDetails": []})
+    _script(stubber, steps)
     assert _adapter(client).describe_image("release") is None
-
-
-def _found(stubber, digest="sha256:" + "a" * 64):
-    stubber.add_response("describe_images", {"imageDetails": [{"imageDigest": digest}]})
-    return digest
-
-
-def test_describe_image_devolve_none_quando_batch_get_reporta_image_not_found(ecr):
-    client, stubber = ecr
-    digest = _found(stubber)
-    failures = [{"failureCode": "ImageNotFound"}]
-    stubber.add_response("batch_get_image", {"images": [], "failures": failures})
-    assert _adapter(client).describe_image(digest) is None
 
 
 @pytest.mark.parametrize("code", ["AccessDeniedException", "RepositoryNotFoundException"])
 def test_describe_image_propaga_qualquer_outro_erro_do_ecr(ecr, code):
     client, stubber = ecr
-    stubber.add_client_error("describe_images", **_fail(code))
+    _script(stubber, [("describe_images", code)])
     with pytest.raises(ClientError):
         _adapter(client).describe_image("release")
 
 
-def test_describe_image_propaga_falha_de_batch_get_que_nao_e_not_found(ecr):
+@pytest.mark.parametrize(
+    ("reply", "reason"),
+    [
+        (KMS, "ecr=batch_get_failure code=KmsError"),
+        ({"images": [], "failures": []}, "ecr=manifest_missing"),
+    ],
+)
+def test_describe_image_recusa_falha_de_batch_get_que_nao_e_not_found(ecr, reply, reason):
     client, stubber = ecr
-    digest = _found(stubber)
-    stubber.add_response(
-        "batch_get_image", {"images": [], "failures": [{"failureCode": "KmsError"}]}
-    )
-    with pytest.raises(ValueError, match="ecr=batch_get_failure code=KmsError"):
-        _adapter(client).describe_image(digest)
-
-
-def test_describe_image_recusa_resposta_sem_manifest(ecr):
-    client, stubber = ecr
-    digest = _found(stubber)
-    stubber.add_response("batch_get_image", {"images": [], "failures": []})
-    with pytest.raises(ValueError, match="ecr=manifest_missing"):
-        _adapter(client).describe_image(digest)
+    _script(stubber, [FOUND, (BATCH, reply)])
+    with pytest.raises(ValueError, match=reason):
+        _adapter(client).describe_image("release")
 
 
 def _manifest(media=DOCKER):
@@ -213,6 +194,13 @@ def test_put_manifest_recusa_digest_divergente_na_resposta(ecr):
     stubber.add_response("put_image", {"image": {"imageId": {"imageDigest": _digest(b"outro")}}})
     with pytest.raises(ValueError, match="ecr=put_digest"):
         _adapter(client).put_manifest(_digest(_manifest()), _manifest(), "release")
+
+
+def test_put_manifest_recusa_media_type_desconhecido(ecr):
+    client = ecr[0]
+    manifest = _manifest("application/x-desconhecido")
+    with pytest.raises(ValueError, match="ecr=manifest_media"):
+        _adapter(client).put_manifest(_digest(manifest), manifest, "release")
 
 
 def test_put_manifest_propaga_conflito_de_tag_imutavel(ecr):
@@ -269,23 +257,31 @@ def test_copy_blob_envia_em_partes_do_tamanho_devolvido_e_completa(ecr, tmp_path
     _adapter(client).copy_blob(digest, path)
 
 
-def test_copy_blob_recusa_digest_divergente_ao_completar(ecr, tmp_path):
+def test_copy_blob_recusa_falha_na_checagem_de_disponibilidade(ecr, tmp_path):
     client, stubber = ecr
-    digest, path = _layer(tmp_path, b"abcd", stubber=stubber)
-    stubber.add_response("initiate_layer_upload", {"uploadId": "up-1", "partSize": 8})
-    stubber.add_response("upload_layer_part", {"uploadId": "up-1", "lastByteReceived": 3})
-    other = {"uploadId": "up-1", "layerDigest": _digest(b"outro")}
-    stubber.add_response("complete_layer_upload", other)
-    with pytest.raises(ValueError, match="ecr=layer_digest"):
-        _adapter(client).copy_blob(digest, path)
+    failure = {"layerDigest": "x", "failureCode": "InvalidLayerDigest"}
+    stubber.add_response("batch_check_layer_availability", {"layers": [], "failures": [failure]})
+    with pytest.raises(ValueError, match="ecr=layer_check"):
+        _adapter(client).copy_blob(_digest(b"a"), tmp_path)
 
 
-def test_copy_blob_propaga_falha_do_upload(ecr, tmp_path):
+INIT = ("initiate_layer_upload", {"uploadId": "up-1", "partSize": 8})
+PART = ("upload_layer_part", {"uploadId": "up-1", "lastByteReceived": 3})
+OTHER = ("complete_layer_upload", {"uploadId": "up-1", "layerDigest": _digest(b"outro")})
+
+
+@pytest.mark.parametrize(
+    ("steps", "error", "reason"),
+    [
+        ([INIT, PART, OTHER], ValueError, "ecr=layer_digest"),
+        ([INIT, ("upload_layer_part", "InvalidLayerPartException")], ClientError, "Invalid"),
+    ],
+)
+def test_copy_blob_recusa_falhas_do_upload(ecr, tmp_path, steps, error, reason):
     client, stubber = ecr
     digest, path = _layer(tmp_path, b"abcd", stubber=stubber)
-    stubber.add_response("initiate_layer_upload", {"uploadId": "up-1", "partSize": 8})
-    stubber.add_client_error("upload_layer_part", **_fail("InvalidLayerPartException"))
-    with pytest.raises(ClientError):
+    _script(stubber, steps)
+    with pytest.raises(error, match=reason):
         _adapter(client).copy_blob(digest, path)
 
 
@@ -313,21 +309,32 @@ def test_download_destination_blob_le_a_url_assinada_sem_credencial(ecr, tmp_pat
     assert str(seen[0].url) == url
 
 
-def test_download_destination_blob_recusa_url_que_nao_e_https(ecr, tmp_path):
+@pytest.mark.parametrize(
+    ("url", "reason"),
+    [("http://s3.example/signed", "http=scheme"), ("https://s3.example/signed", "http=status")],
+)
+def test_download_destination_blob_recusa_url_insegura_e_status_diferente_de_200(
+    ecr, tmp_path, url, reason
+):
     client, stubber = ecr
-    _signed(stubber, _digest(b"x"), "http://s3.example/signed")
-    with pytest.raises(ValueError, match="http=scheme"):
-        _adapter(client).download_destination_blob(_digest(b"x"), tmp_path / "out")
+    _signed(stubber, _digest(b"x"), url)
+    adapter = _adapter(client, lambda request: httpx.Response(403))
+    with pytest.raises(ValueError, match=reason):
+        adapter.download_destination_blob(_digest(b"x"), tmp_path / "out")
 
 
 @pytest.fixture
 def source():
     registry = RegistryBoundary()
-    return registry, FakeGhcr(registry)
+    return registry, fx.FakeGhcr(registry)
 
 
 def _image(registry):
-    return f"ghcr.io/{GHCR_NAME}@{_digest(registry.manifest)}"
+    return f"ghcr.io/{fx.GHCR_NAME}@{_digest(registry.manifest)}"
+
+
+def _blob(handler, registry, data, target):
+    _adapter(handler=handler).download_blob(_image(registry), _digest(data), target)
 
 
 def test_read_manifest_troca_o_token_e_pede_os_dois_media_types(source):
@@ -339,20 +346,16 @@ def test_read_manifest_troca_o_token_e_pede_os_dois_media_types(source):
 
 def test_download_blob_segue_o_redirect_sem_enviar_credencial(source, tmp_path):
     registry, ghcr = source
-    _adapter(handler=ghcr).download_blob(
-        _image(registry), _digest(registry.layer), tmp_path / "blob"
-    )
+    _blob(ghcr, registry, registry.layer, tmp_path / "blob")
     assert (tmp_path / "blob").read_bytes() == registry.layer
-    assert str(ghcr.requests[-1].url).startswith(CDN)
+    assert str(ghcr.requests[-1].url).startswith(fx.CDN)
     assert "authorization" not in ghcr.requests[-1].headers
 
 
 def test_download_blob_aceita_resposta_direta_do_ghcr(source, tmp_path):
     registry, ghcr = source
     ghcr.redirect = False
-    _adapter(handler=ghcr).download_blob(
-        _image(registry), _digest(registry.config), tmp_path / "blob"
-    )
+    _blob(ghcr, registry, registry.config, tmp_path / "blob")
     assert (tmp_path / "blob").read_bytes() == registry.config
 
 
@@ -365,9 +368,7 @@ def test_download_blob_recusa_redirect_para_http(source, tmp_path):
         return ghcr(request)
 
     with pytest.raises(ValueError, match="http=scheme"):
-        _adapter(handler=insecure).download_blob(
-            _image(registry), _digest(registry.layer), tmp_path / "blob"
-        )
+        _blob(insecure, registry, registry.layer, tmp_path / "blob")
 
 
 @pytest.mark.parametrize(
@@ -377,6 +378,7 @@ def test_download_blob_recusa_redirect_para_http(source, tmp_path):
         "ghcr.io/outro/cnesdata/data_processor@sha256:" + "a" * 64,
         "ghcr.io/viniclus/cnesdata/data_processor:latest",
         "ghcr.io/viniclus/cnesdata/data_processor@sha256:xyz",
+        "ghcr.io/viniclus/cnesdata/web_dashboard@sha256:" + "a" * 64,
     ],
 )
 def test_recusa_imagem_de_origem_fora_do_ghcr_do_projeto_sem_requisicao(image, tmp_path):
@@ -410,17 +412,20 @@ def test_status_inesperado_do_ghcr_falha_sem_vazar_o_token(source, status, caplo
     assert not any(item in str(info.value) or item in caplog.text for item in leaked)
 
 
-def test_falha_na_troca_de_token_nao_vaza_credencial(source):
-    handler = _ghcr_replies(403, 200)
-    with pytest.raises(ValueError, match="ghcr=token_status") as info:
+@pytest.mark.parametrize(
+    ("status", "body", "reason"), [(403, None, "token_status"), (200, {}, "token_missing")]
+)
+def test_troca_de_token_invalida_e_recusada_sem_vazar_credencial(source, status, body, reason):
+    handler = _ghcr_replies(status, 200, body)
+    with pytest.raises(ValueError, match=f"ghcr={reason}") as info:
         _adapter(handler=handler).read_manifest(_image(source[0]))
     assert GHCR_PAT not in str(info.value)
 
 
-def test_resposta_de_token_sem_campo_token_e_recusada(source):
-    handler = _ghcr_replies(200, 200, body={})
-    with pytest.raises(ValueError, match="ghcr=token_missing"):
-        _adapter(handler=handler).read_manifest(_image(source[0]))
+def test_blob_com_status_inesperado_nao_grava_o_corpo(source, tmp_path):
+    with pytest.raises(ValueError, match="ghcr=status"):
+        _blob(_ghcr_replies(200, 404), source[0], source[0].layer, tmp_path / "blob")
+    assert not (tmp_path / "blob").exists()
 
 
 def test_manifest_acima_do_limite_e_recusado(source):
@@ -437,9 +442,7 @@ def test_blob_acima_do_limite_e_recusado(source, tmp_path, monkeypatch):
     registry, ghcr = source
     monkeypatch.setattr(_module(), "MAX_BLOB_BYTES", 4)
     with pytest.raises(ValueError, match="http=size"):
-        _adapter(handler=ghcr).download_blob(
-            _image(registry), _digest(registry.layer), tmp_path / "blob"
-        )
+        _blob(ghcr, registry, registry.layer, tmp_path / "blob")
 
 
 def test_connect_exige_token_no_ambiente(monkeypatch):
@@ -450,18 +453,20 @@ def test_connect_exige_token_no_ambiente(monkeypatch):
 
 
 def test_connect_monta_adaptador_us_east_2_sem_expor_o_token(monkeypatch):
-    monkeypatch.delenv("GH_TOKEN", raising=False)
-    monkeypatch.setenv("GITHUB_TOKEN", GHCR_PAT)
+    monkeypatch.setenv("GH_TOKEN", GHCR_PAT)
+    monkeypatch.setenv("GITHUB_TOKEN", "outro")
     monkeypatch.setenv("AWS_ACCESS_KEY_ID", "synthetic")
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "synthetic")
     adapter = _module().connect()
     assert isinstance(adapter, _module().EcrRegistry)
     assert GHCR_PAT not in repr(adapter)
+    assert adapter._pat == GHCR_PAT
+    assert adapter._http.follow_redirects is False
 
 
 def _wired(source):
     registry, ghcr = source
-    fake = FakeEcr()
+    fake = fx.FakeEcr()
 
     def handler(request):
         if request.url.host == "s3.example":
@@ -471,29 +476,23 @@ def _wired(source):
     return registry, fake, _module().EcrRegistry(fake, _http(handler), GHCR_PAT)
 
 
-def test_promote_image_conclui_com_o_adaptador_real_sobre_fakes(source):
+def test_promote_image_conclui_e_repete_idempotente_com_o_adaptador_real(source):
     registry, fake, adapter = _wired(source)
-    context = _promotion(registry)
+    context = fx._promotion(registry)
     result = promote_image(context, adapter)
     digest = _digest(registry.manifest)
     assert result["image_digest"] == digest
-    assert result["ecr_image"] == ECR + "@" + digest
+    assert result["ecr_image"] == fx.ECR + "@" + digest
     assert fake.tags == {context["release_id"]: digest}
     assert set(fake.layers) == {_digest(registry.config), _digest(registry.layer)}
     verify_promoted_image(context, adapter)
-
-
-def test_promote_image_repetido_e_idempotente_com_o_adaptador_real(source):
-    registry, fake, adapter = _wired(source)
-    context = _promotion(registry)
-    first = promote_image(context, adapter)
-    assert promote_image(context, adapter) == first
+    assert promote_image(context, adapter) == result
     assert len(fake.images) == 1
 
 
 def test_promote_image_recusa_tag_ocupada_por_outro_digest_no_adaptador_real(source):
     registry, fake, adapter = _wired(source)
-    context = _promotion(registry)
+    context = fx._promotion(registry)
     fake.images["sha256:" + "e" * 64] = "{}"
     fake.tags[context["release_id"]] = "sha256:" + "e" * 64
     with pytest.raises(ValueError, match="ecr=tag_conflict"):
