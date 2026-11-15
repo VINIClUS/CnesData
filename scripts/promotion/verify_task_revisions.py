@@ -306,18 +306,6 @@ def retained_inputs(context: Node, revisions: Node) -> Node:
     return {"active_before": active, "retained_before": before, "retained_after": after}
 
 
-def _launch_defaults(definition: Node) -> Node:
-    volumes = [
-        {
-            key: value
-            for key, value in volume.items()
-            if key != "configuredAtLaunch" or value is not False
-        }
-        for volume in definition["volumes"]
-    ]
-    return definition | {"volumes": volumes}
-
-
 def verify_revisions(context: Node, revisions: Node, api: Any) -> Node:
     """Returns: revisões reais conferidas; API não oferece registro nesta fronteira."""
     retained = retained_inputs(context, revisions)
@@ -331,16 +319,9 @@ def verify_revisions(context: Node, revisions: Node, api: Any) -> Node:
             "revision=readback_identity",
         )
         require(set(expected[mode]) >= TASK_REQUIRED, "revision=incomplete_contract")
-        extra = set(observed) - set(expected[mode]) - TASK_METADATA
-        require(
-            extra <= {"enableFaultInjection"} and all(observed[key] is False for key in extra),
-            "revision=unknown_functional",
-        )
+        require(set(observed) <= set(expected[mode]) | TASK_METADATA, "revision=unknown_functional")
         definition = {key: observed[key] for key in expected[mode]}
-        require(
-            _launch_defaults(definition) == _launch_defaults(expected[mode]),
-            "revision=functional_drift",
-        )
+        require(definition == expected[mode], "revision=functional_drift")
         containers = definition["containerDefinitions"]
         require(
             len(containers) == 1 and containers[0]["image"] == context["ecr_image"],
