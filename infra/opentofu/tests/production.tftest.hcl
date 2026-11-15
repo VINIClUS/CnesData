@@ -345,6 +345,13 @@ run "ecr_promotion_fora_da_particao_por_padrao" {
 run "ecr_promotion_ativa_e_alvo_do_freeze" {
   command = plan
 
+  override_resource {
+    target = module.processor_registry.aws_ecr_repository.this
+    values = {
+      arn = "arn:aws:ecr:us-east-2:123456789012:repository/cnesdata-prod-processor"
+    }
+  }
+
   variables {
     ecr_promotion = {
       repository    = "VINIClUS/CnesData"
