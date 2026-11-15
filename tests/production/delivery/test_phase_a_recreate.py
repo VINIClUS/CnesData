@@ -1,4 +1,4 @@
-"""Recriação de task def no provider aws 6.54: unknown folha a folha e vazio igual a null."""
+"""Recriação de task def no shape do plan real do aws 6.54, redigido, com valores sintéticos."""
 
 from __future__ import annotations
 
@@ -24,7 +24,8 @@ GRAPH = {
     "unknown_policies": [],
     "known_policies": {},
 }
-UNKNOWN_COMPUTED = ("arn", "arn_without_revision", "id", "revision", "tags_all")
+UNKNOWN_COMPUTED = ("arn", "arn_without_revision", "id", "revision")
+TAGS_ALL = {"Environment": "prod", "ManagedBy": "opentofu", "Owner": "ops", "Project": "cnesdata"}
 
 
 def _containers(image: str, **extra: Any) -> str:
@@ -40,6 +41,7 @@ def _volume(name: str) -> Node:
         "fsx_windows_file_server_volume_configuration": [],
         "host_path": "",
         "name": name,
+        "s3files_volume_configuration": [],
     }
 
 
@@ -47,7 +49,7 @@ def _before(mode: str) -> Node:
     family = "cnesdata-prod-processor-" + mode
     arn = f"arn:aws:ecs:{REGION}:{ACCOUNT}:task-definition/{family}"
     return {
-        "arn": arn + ":2",
+        "arn": arn + ":1",
         "arn_without_revision": arn,
         "container_definitions": _containers(OLD),
         "cpu": "256",
@@ -56,7 +58,6 @@ def _before(mode: str) -> Node:
         "execution_role_arn": f"arn:aws:iam::{ACCOUNT}:role/cnesdata-prod-execution",
         "family": family,
         "id": family,
-        "inference_accelerator": [],
         "ipc_mode": "",
         "memory": "512",
         "network_mode": "awsvpc",
@@ -65,11 +66,11 @@ def _before(mode: str) -> Node:
         "proxy_configuration": [],
         "region": REGION,
         "requires_compatibilities": ["FARGATE"],
-        "revision": 2,
+        "revision": 1,
         "runtime_platform": [{"cpu_architecture": "X86_64", "operating_system_family": "LINUX"}],
         "skip_destroy": True,
         "tags": {},
-        "tags_all": {},
+        "tags_all": TAGS_ALL,
         "task_role_arn": f"arn:aws:iam::{ACCOUNT}:role/{family}",
         "track_latest": False,
         "volume": [_volume(name) for name in VOLUMES],
@@ -90,15 +91,16 @@ def _after_unknown() -> Node:
         "docker_volume_configuration": [],
         "efs_volume_configuration": [],
         "fsx_windows_file_server_volume_configuration": [],
+        "s3files_volume_configuration": [],
     }
     return dict.fromkeys(UNKNOWN_COMPUTED, True) | {
         "enable_fault_injection": True,
         "ephemeral_storage": [],
-        "inference_accelerator": [],
         "placement_constraints": [],
         "proxy_configuration": [],
         "requires_compatibilities": [False],
         "runtime_platform": [{}],
+        "tags_all": {},
         "volume": [{"configure_at_launch": True} | nested for _ in VOLUMES],
     }
 
@@ -115,6 +117,7 @@ def _task(mode: str, actions: tuple[str, ...] = ("delete", "create")) -> Node:
             "before": _before(mode),
             "after": _after(mode),
             "after_unknown": _after_unknown(),
+            "replace_paths": [["container_definitions"]],
         },
     }
 
