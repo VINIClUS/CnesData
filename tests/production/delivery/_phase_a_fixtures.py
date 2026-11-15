@@ -1,9 +1,14 @@
 """Fronteiras externas e payloads sintéticos usados no contrato Phase A."""
 
+import base64
 import copy
 import hashlib
 import json
 from datetime import UTC, datetime, timedelta
+
+import boto3
+import httpx
+from botocore.exceptions import ClientError
 
 NOW = datetime(2026, 11, 7, 21, tzinfo=UTC)
 
@@ -387,3 +392,108 @@ class FixtureClock:
 
     def utcnow(self):
         return NOW + timedelta(seconds=self.elapsed)
+
+
+GHCR_PAT = "ghs_synthetic_read_only_token"
+GHCR_NAME = "viniclus/cnesdata/data_processor"
+CDN = "https://pkg-containers.githubusercontent.com/blob/"
+
+
+SYNTHETIC = "synthetic"
+
+
+def ecr_client(region=REGION):
+    return boto3.client(
+        "ecr", region_name=region, aws_access_key_id=SYNTHETIC, aws_secret_access_key=SYNTHETIC
+    )
+
+
+def _client_error(code, operation):
+    return ClientError({"Error": {"Code": code, "Message": code}}, operation)
+
+
+class FakeEcr:
+    def __init__(self):
+        self.meta = ecr_client().meta
+        self.layers, self.uploads, self.images, self.tags = {}, {}, {}, {}
+
+    def describe_repositories(self, **kwargs):
+        repository = {
+            "registryId": ACCOUNT,
+            "repositoryName": REPOSITORY,
+            "repositoryUri": ECR,
+            "imageTagMutability": "IMMUTABLE",
+        }
+        return {"repositories": [repository]}
+
+    def batch_check_layer_availability(self, **kwargs):
+        digest = kwargs["layerDigests"][0]
+        state = "AVAILABLE" if digest in self.layers else "UNAVAILABLE"
+        return {"layers": [{"layerDigest": digest, "layerAvailability": state}], "failures": []}
+
+    def initiate_layer_upload(self, **kwargs):
+        self.uploads["u"] = b""
+        return {"uploadId": "u", "partSize": 7}
+
+    def upload_layer_part(self, **kwargs):
+        assert kwargs["partFirstByte"] == len(self.uploads["u"])
+        self.uploads["u"] += kwargs["layerPartBlob"]
+        return {"uploadId": "u", "lastByteReceived": kwargs["partLastByte"]}
+
+    def complete_layer_upload(self, **kwargs):
+        data = self.uploads.pop("u")
+        digest = _digest(data)
+        assert kwargs["layerDigests"] == [digest]
+        self.layers[digest] = data
+        return {"uploadId": "u", "layerDigest": digest}
+
+    def get_download_url_for_layer(self, **kwargs):
+        return {"downloadUrl": "https://s3.example/" + kwargs["layerDigest"]}
+
+    def put_image(self, **kwargs):
+        if kwargs["imageTag"] in self.tags:
+            raise _client_error("ImageTagAlreadyExistsException", "PutImage")
+        self.images[kwargs["imageDigest"]] = kwargs["imageManifest"]
+        self.tags[kwargs["imageTag"]] = kwargs["imageDigest"]
+        return {"image": {"imageId": {"imageDigest": kwargs["imageDigest"]}}}
+
+    def describe_images(self, **kwargs):
+        image = kwargs["imageIds"][0]
+        digest = image.get("imageDigest") or self.tags.get(image.get("imageTag"))
+        if digest not in self.images:
+            raise _client_error("ImageNotFoundException", "DescribeImages")
+        held = sorted(tag for tag, value in self.tags.items() if value == digest)
+        return {"imageDetails": [{"imageDigest": digest, "imageTags": held}]}
+
+    def batch_get_image(self, **kwargs):
+        digest = kwargs["imageIds"][0]["imageDigest"]
+        return {"images": [{"imageManifest": self.images[digest]}], "failures": []}
+
+
+class FakeGhcr:
+    def __init__(self, registry, redirect=True):
+        self.manifest, self.redirect, self.requests = registry.manifest, redirect, []
+        self.blobs = {
+            _digest(registry.config): registry.config,
+            _digest(registry.layer): registry.layer,
+        }
+
+    def __call__(self, request):
+        self.requests.append(request)
+        url = request.url
+        if url.host != "ghcr.io":
+            return httpx.Response(200, content=self.blobs[url.path.rsplit("/", 1)[1]])
+        if url.path == "/token":
+            expected = b"token:" + GHCR_PAT.encode()
+            assert (
+                request.headers["authorization"] == "Basic " + base64.b64encode(expected).decode()
+            )
+            assert url.params["scope"] == f"repository:{GHCR_NAME}:pull"
+            return httpx.Response(200, json={"token": "bearer-synthetic"})
+        assert request.headers["authorization"] == "Bearer bearer-synthetic"
+        if "/manifests/" in url.path:
+            return httpx.Response(200, content=self.manifest)
+        digest = url.path.rsplit("/", 1)[1]
+        if self.redirect:
+            return httpx.Response(307, headers={"location": CDN + digest})
+        return httpx.Response(200, content=self.blobs[digest])

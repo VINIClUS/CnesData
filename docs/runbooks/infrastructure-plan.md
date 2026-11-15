@@ -254,6 +254,8 @@ Procedimento e matriz de divergências em `docs/runbooks/floci-and-aws-capabilit
   `@sha256:` com o mesmo valor, e a tag mutável deve ser recusada pelo repositório.
 - Evidência: igualdade booleana de digests e `imageTagMutability=IMMUTABLE`, sem URI completa.
 - Limpeza: nada a limpar.
+- Role: `cnesdata-prod-ecr-promotion` (`modules/runtime-iam/ecr-promotion.tf`, ligada por
+  `ecr_promotion`) escreve só em `cnesdata-prod-processor`; o gate a avalia offline.
 
 #### `TriggeredRules` de regra sem target
 

@@ -40,6 +40,13 @@ variable "mode_canary" {
   }
 }
 
+variable "ecr_promotion" {
+  description = "Closed GitHub OIDC trust contract of the ECR promotion role, or null to create none."
+  type        = any
+  default     = null
+  nullable    = true
+}
+
 variable "demo_seed" {
   description = "Exact tenant and governed principal for optional demo seed IAM."
   type = object({
