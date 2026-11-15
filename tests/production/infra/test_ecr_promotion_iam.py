@@ -20,7 +20,7 @@ from tests.production.infra.test_canary_fence_iam import RUNTIME_BASE, _role_ove
 
 ACCOUNT = "123456789012"
 PREFIX = "cnesdata-prod"
-REPOSITORY = RUNTIME_BASE["repository_arn"]
+REPOSITORY = f"arn:aws:ecr:us-east-2:{ACCOUNT}:repository/{PREFIX}-processor"
 ROLE = "module.subject.aws_iam_role.ecr_promotion[0]"
 POLICY = "module.subject.aws_iam_role_policy.ecr_promotion[0]"
 PROVIDER = f"arn:aws:iam::{ACCOUNT}:oidc-provider/token.actions.githubusercontent.com"
@@ -103,14 +103,16 @@ NAMES = (
 def _runs() -> dict[str, Node]:
     other_region = REPOSITORY.replace("us-east-2", "us-east-1")
     other_repository = REPOSITORY.replace(f"{PREFIX}", "outro")
-    return {
+    runs: dict[str, Node] = {
         "padrao": {},
         "nulo": {"ecr_promotion": None},
         "ativo": {"ecr_promotion": ACTIVE},
         "prefixo_estranho": {"ecr_promotion": ACTIVE, "name_prefix": "outro"},
         "repositorio_de_outra_regiao": {"ecr_promotion": ACTIVE, "repository_arn": other_region},
         "repositorio_de_outro_nome": {"ecr_promotion": ACTIVE, "repository_arn": other_repository},
-    } | {f"invalido_{name}": {"ecr_promotion": value} for name, value in INVALID.items()}
+    }
+    runs |= {f"invalido_{name}": {"ecr_promotion": value} for name, value in INVALID.items()}
+    return {name: {"repository_arn": REPOSITORY} | changes for name, changes in runs.items()}
 
 
 @pytest.fixture(scope="module")
