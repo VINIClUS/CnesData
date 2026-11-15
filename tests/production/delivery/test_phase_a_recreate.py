@@ -18,6 +18,7 @@ VOLUMES = ("tmp", "cache", "work")
 OLD = ECR + "@sha256:" + "1" * 64
 NEW = ECR + "@sha256:" + "2" * 64
 CANARY_ROLE = "module.runtime_iam.aws_iam_role.canary_task[0]"
+ROLE = {"name": "cnesdata-prod-canary-task", "assume_role_policy": "{}"}
 GRAPH = {
     "source_files": [],
     "configuration_sha256": "0" * 64,
@@ -160,6 +161,15 @@ def _denied(plan: Node, reason: str) -> None:
         _verify(plan)
 
 
+def _role_plan(before: Node, after: Node, unknown: Node) -> Node:
+    change = {"actions": ["update"], "before": before, "after": after, "after_unknown": unknown}
+    return {
+        "resource_changes": [
+            {"address": CANARY_ROLE, "mode": "managed", "type": "aws_iam_role", "change": change}
+        ]
+    }
+
+
 def _known_launch_leaves(change: Node) -> None:
     change["after"]["enable_fault_injection"] = False
     for volume in change["after"]["volume"]:
@@ -294,23 +304,13 @@ def test_recusa_folha_unknown_em_task_def_so_update():
     [{"enable_fault_injection": True}, {"volume": [{"configure_at_launch": True}]}],
 )
 def test_recusa_folha_da_allowlist_fora_de_task_def(unknown):
-    role = {"name": "cnesdata-prod-canary-task", "assume_role_policy": "{}"}
-    plan = {
-        "resource_changes": [
-            {
-                "address": CANARY_ROLE,
-                "mode": "managed",
-                "type": "aws_iam_role",
-                "change": {
-                    "actions": ["update"],
-                    "before": role,
-                    "after": role,
-                    "after_unknown": unknown,
-                },
-            }
-        ]
-    }
-    _denied(plan, "unknown_functional")
+    _denied(_role_plan(ROLE, ROLE, unknown), "unknown_functional")
+
+
+@pytest.mark.parametrize("field", ["ipc_mode", "pid_mode"])
+def test_vazio_igual_null_so_vale_em_task_def(field):
+    plan = _role_plan(ROLE | {field: ""}, ROLE | {field: None}, {})
+    _denied(plan, "canary_functional_change")
 
 
 def test_recusa_recriacao_sem_skip_destroy_no_before():
@@ -340,3 +340,40 @@ def test_substituicao_exige_recriacao_com_skip_destroy_no_before():
     plan = {"resource_changes": [resource]}
     with pytest.raises(ValueError, match=r"^delta=unknown_functional$"):
         delta_after(resource, _context(plan), True, COMPUTED)
+
+
+def test_folha_fora_da_allowlist_nao_recebe_valor_before():
+    plan = _plan()
+    change = _change(plan)
+    _known_launch_leaves(change)
+    change["before"]["volume"].pop()
+    del change["after"]["volume"][2]["host_path"]
+    change["after_unknown"]["volume"][2]["host_path"] = True
+    _denied(plan, "unknown_functional")
+
+
+@pytest.mark.parametrize("whole", [True, False])
+def test_recusa_volume_inteiro_ou_elemento_unknown(whole):
+    plan = _plan()
+    change = _change(plan)
+    if whole:
+        del change["after"]["volume"]
+        change["after_unknown"]["volume"] = True
+    else:
+        change["after"]["volume"] = [None] * len(VOLUMES)
+        change["after_unknown"]["volume"] = [True] * len(VOLUMES)
+    _denied(plan, "unknown_functional")
+
+
+def test_recusa_configure_at_launch_unknown_fora_de_volume():
+    plan = _plan()
+    _change(plan)["after_unknown"]["runtime_platform"] = [{"configure_at_launch": True}]
+    _denied(plan, "unknown_functional")
+
+
+def test_substituicao_usa_o_valor_before_e_nao_um_false_fixo():
+    plan = _plan()
+    change = _change(plan, "audit")
+    change["before"]["enable_fault_injection"] = True
+    change["before"]["volume"][1]["configure_at_launch"] = True
+    _verify(plan)

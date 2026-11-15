@@ -128,11 +128,23 @@ def test_recusa_configured_at_launch_que_nao_e_false(value):
         _verify(TaskBoundary(mutate))
 
 
-@pytest.mark.parametrize("key", ["pidMode", "ephemeralStorage"])
-def test_recusa_chave_nova_desconhecida_no_describe(key):
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [("pidMode", "host"), ("ephemeralStorage", {"sizeInGiB": 200}), ("futureFlag", False)],
+)
+def test_recusa_chave_nova_desconhecida_no_describe(key, value):
     def mutate(mode: str, result: Node) -> None:
         if mode == "unit":
-            result[key] = "host" if key == "pidMode" else {"sizeInGiB": 200}
+            result[key] = value
 
     with pytest.raises(ValueError, match=r"^revision=unknown_functional$"):
+        _verify(TaskBoundary(mutate))
+
+
+def test_recusa_outra_chave_false_em_volume():
+    def mutate(mode: str, result: Node) -> None:
+        if mode == "recovery":
+            result["volumes"][2]["futureFlag"] = False
+
+    with pytest.raises(ValueError, match=r"^revision=functional_drift$"):
         _verify(TaskBoundary(mutate))
