@@ -15,10 +15,6 @@ name: phase-a-prepare
         description: JSON com os ARNs ativo e retidos da task definition anterior
         required: true
         type: string
-      account_id:
-        description: Conta AWS de produção com 12 dígitos
-        required: true
-        type: string
       source_sha:
         description: SHA completo do candidato promovido
         required: true
@@ -44,6 +40,8 @@ jobs:
       contents: read
       id-token: write
       packages: read
+      actions: read
+      checks: read
     env:
       AWS_REGION: us-east-2
       AWS_DEFAULT_REGION: us-east-2
@@ -65,7 +63,7 @@ jobs:
           REFERENCE: ${{ inputs.reference }}
           CREATOR: ${{ inputs.creator }}
           BASELINE: ${{ inputs.baseline }}
-          ACCOUNT_ID: ${{ inputs.account_id }}
+          ACCOUNT_ID: ${{ vars.PRODUCTION_AWS_ACCOUNT_ID }}
         run: |
           set -euo pipefail
           [[ "$ACCOUNT_ID" =~ ^[0-9]{12}$ ]]
@@ -75,7 +73,7 @@ jobs:
           printf '%s' "$BASELINE" > "$RUNNER_TEMP/phase-a/baseline.json"
       - name: Obter a credencial AWS pelo OIDC do job
         env:
-          ACCOUNT_ID: ${{ inputs.account_id }}
+          ACCOUNT_ID: ${{ vars.PRODUCTION_AWS_ACCOUNT_ID }}
         run: |
           set -euo pipefail
           token="$(curl -sSf -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
@@ -90,7 +88,7 @@ jobs:
       - name: Promover a imagem ao ECR e montar os inputs da Phase A
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          ACCOUNT_ID: ${{ inputs.account_id }}
+          ACCOUNT_ID: ${{ vars.PRODUCTION_AWS_ACCOUNT_ID }}
           SOURCE_SHA: ${{ inputs.source_sha }}
           CANARY_PRINCIPAL: ${{ inputs.canary_trusted_principal_arn }}
         run: |
