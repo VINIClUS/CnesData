@@ -32,6 +32,10 @@ existentes e contra a Task 12 do plano de entrega e operações de 2026-08-31, e
 
 1. Candidato e plan/apply exatos (#467, #468): [infrastructure-plan.md](infrastructure-plan.md).
 2. Phase A, activation assinada e canary (#469 a #471): [mode-canary.md](mode-canary.md).
+   - Recriação de task def com `skip_destroy`: só `enable_fault_injection` e
+     `volume[*].configure_at_launch` podem vir unknown e recebem o valor before; vazio vale null
+     só em `ipc_mode`, `pid_mode` e `tags`; o describe aceita `enableFaultInjection` e
+     `configuredAtLaunch` só como `false`.
 3. Fence, drain e Phase B (#472), depois API e estático (#473):
    [infrastructure-plan.md](infrastructure-plan.md#publicador-estático-473).
 4. Phase C, recovery e depois audit, com reabertura (#474): [recovery-drill.md](recovery-drill.md).
