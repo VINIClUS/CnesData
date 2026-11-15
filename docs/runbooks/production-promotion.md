@@ -320,8 +320,10 @@ corpo sintético, e-mail ou ID de tenant, run ou usuário.
   - Estágio: Produção da #469.
 - **SMK-21** Adaptador real do registry com tag imutável
   - Origem: #475, comentário 6881970002 (pré-requisito do ensaio N+1 de rollback).
-  - Verificação: `scripts/promotion/promote_ecr.py`,
-    `tests/production/delivery/test_promote_ecr_tag.py`
+  - Verificação: `scripts/promotion/promote_ecr.py`, `scripts/promotion/ecr_registry.py`,
+    `tests/production/delivery/test_promote_ecr_tag.py`,
+    `tests/production/delivery/test_ecr_registry.py`,
+    `tests/production/delivery/test_promote_ecr_cli.py`
   - Evidência: `put_manifest` com tag, `describe_image` por digest ou tag e readback da tag.
   - Estágio: Produção da #475.
 - **SMK-22** Plan e apply exatos do produto
