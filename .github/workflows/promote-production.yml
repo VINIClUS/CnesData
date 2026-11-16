@@ -85,7 +85,7 @@ jobs:
       contents: read
       checks: read
       id-token: write
-    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-host-deploy-gate.yml@1a2a78898211317885b216c16f7a9ec585f98173
+    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-host-deploy-gate.yml@938fc8962b982054bddadeaf7a4de40de9b36a71
     with:
       plan_evidence_id: ${{ inputs.plan_evidence_id }}
       plan_evidence_digest: ${{ inputs.plan_evidence_digest }}
