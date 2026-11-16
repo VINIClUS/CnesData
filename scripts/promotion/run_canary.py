@@ -309,6 +309,8 @@ def _task_binding(contract: Node, task: Node, clock: Any) -> None:
     )
     overrides = copy.deepcopy(task["overrides"])
     require(type(overrides) is dict, "canary=run_overrides")
+    if overrides.get("inferenceAcceleratorOverrides") == []:
+        del overrides["inferenceAcceleratorOverrides"]
     containers = overrides.get("containerOverrides", [])
     require(
         type(containers) is list and len(containers) == 1 and type(containers[0]) is dict,
