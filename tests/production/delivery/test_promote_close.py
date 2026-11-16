@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -37,6 +38,7 @@ if TYPE_CHECKING:
 SHA = "a" * 40
 ACCOUNT = "123456789012"
 MACHINE_ARN = f"arn:aws:states:us-east-2:{ACCOUNT}:stateMachine:cnesdata-prod"
+EXECUTION = MACHINE_ARN.replace(":stateMachine:", ":execution:")
 TASKS = f"arn:aws:ecs:us-east-2:{ACCOUNT}:task-definition/cnesdata-prod-processor-"
 VECTOR = Path(__file__).with_name("close_drain_call_vector.json")
 INFRA_CLOSE_DRAIN_ROW = {"inputs": "activation expirations", "stage": {"application-prepare"},
@@ -45,9 +47,8 @@ INFRA_CLOSE_DRAIN_FIELDS = (
     "version kind common fence close_confirmed_at drain_observed_at frozen_membership_sha256 "
     "members proofs permit input_expirations fixed_deadline decision"
 )
-INFRA_CLOSE_EXPIRATION_KINDS = frozenset(
-    {"envelope", "artifact", "platform", "cost", "credential", "activation", "plan"}
-)
+INFRA_CLOSE_EXPIRATION_KINDS = frozenset({"envelope", "artifact", "platform", "cost",
+                                          "credential", "activation", "plan"})
 OWNER = {"repository": "VINIClUS/CnesData", "source_sha": SHA, "run_id": 123, "run_attempt": 1,
          "release_sha256": "5" * 64, "generation": 7, "session_sha256": "6" * 64,
          "owner_sha256": "7" * 64}
@@ -156,12 +157,10 @@ def _recovering_clock(adapter: DynamoDBControlPlane, probe: Probe) -> Clock:
     native = StepFunctionsExecutionProbe(cast("Any", probe), MACHINE_ARN)
     admission = EnvironmentAdmission(adapter, native, "prod", 300, adapter)
     executor = StepFunctionsExecutor(cast("Any", probe), MACHINE_ARN)
-    dependencies = CoordinatorDependencies(
-        adapter, executor, cast("Any", None), lambda: NOW + timedelta(seconds=1)
-    )
-    execution = ExecutionPolicyConfig(
-        1, 300, ExecutionCallbacks(allow_execution, noop_execution_started), admission
-    )
+    dependencies = CoordinatorDependencies(adapter, executor, cast("Any", None),
+                                           lambda: NOW + timedelta(seconds=1))
+    execution = ExecutionPolicyConfig(1, 300, ExecutionCallbacks(allow_execution,
+                                                                 noop_execution_started), admission)
     coordinator = PipelineCoordinator(dependencies, execution)
     return Clock(lambda: coordinator.recover())
 
@@ -194,9 +193,8 @@ def _relogio(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _run(context: Context, request: dict[str, Any] | None = None) -> dict[str, Any]:
-    return promote_api.execute_shared_operation(
-        "close-drain", request or _request(context.inputs), context
-    )
+    return promote_api.execute_shared_operation("close-drain", request or _request(context.inputs),
+                                                context)
 
 
 def test_tabela_do_close_drain_e_copia_literal_da_correcao_do_infra() -> None:
@@ -237,18 +235,13 @@ def test_close_drain_fecha_drena_e_observa_documento_canonico(
     assert [item["kind"] for item in record["input_expirations"]] == ["credential", "envelope"]
     assert {role for role, *_ in context.calls} == {"fence_operator"}
     assert context.guards == len(context.calls)
-    assert result == {"abi_version": 2, "operation": "close-drain",
-                      "owner_sha256": OWNER["owner_sha256"], "generation": 7,
-                      "checkpoint_sha256": PREPARE["checkpoint_sha256"],
-                      "observations": [{"kind": "close-drain", "sha256": sha(observation),
-                                        "size": len(observation)}],
-                      "call_receipts_sha256": "e" * 64, "pending": [], "unknown": []}
-
-
-def test_identidade_do_owner_vem_de_um_helper_unico() -> None:
+    assert result == {"abi_version": 2, "operation": "close-drain", "generation": 7,
+                      "owner_sha256": OWNER["owner_sha256"], "unknown": [], "pending": [],
+                      "checkpoint_sha256": PREPARE["checkpoint_sha256"], "call_receipts_sha256":
+                      "e" * 64, "observations": [{"kind": "close-drain", "size": len(observation),
+                                                  "sha256": sha(observation)}]}
     assert promote_close.owner_identity(_request(_inputs())) == {
-        "caller": CALLER, "promotion_generation": 7, "promotion_id": OWNER["owner_sha256"],
-    }
+        "caller": CALLER, "promotion_generation": 7, "promotion_id": OWNER["owner_sha256"]}
 
 
 SNAPSHOT = "<AND over sorted semaphore attributes: #vN = :vN | attribute_not_exists(#vN)>"
@@ -267,8 +260,7 @@ def _item_shape(item: dict[str, Any]) -> dict[str, Any]:
 def _shape(call: tuple[str, str, str, dict[str, Any]]) -> dict[str, Any]:
     role, service, operation, parameters = call
     if operation == "describe_execution":
-        prefix = MACHINE_ARN.replace(":stateMachine:", ":execution:")
-        assert parameters["executionArn"].startswith(prefix + ":")
+        assert parameters["executionArn"].startswith(EXECUTION + ":")
         parameters = parameters | {"executionArn": "<state-machine-execution>:<dispatch_id>"}
     elif operation == "update_item":
         parameters = parameters | {
@@ -290,9 +282,7 @@ def _vector_of(calls: list[tuple[str, str, str, dict[str, Any]]]) -> dict[str, l
     }
 
 
-def test_vetor_de_chamadas_do_shim_e_a_fixture_versionada(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_vetor_do_shim_e_a_fixture_versionada(monkeypatch: pytest.MonkeyPatch) -> None:
     raw = VECTOR.read_bytes()
     vector = json.loads(raw)
     assert raw == canonical(vector)
@@ -339,25 +329,21 @@ def test_shim_recusa_operacao_fora_das_quatro_antes_da_chamada() -> None:
 )
 def test_shim_recusa_parametros_fora_do_vetor(operation: str, parameters: dict[str, Any]) -> None:
     context = Context(None, Probe(), {})
+    client = promote_close.FenceShim(context, MACHINE_ARN).client("dynamodb")
     with pytest.raises(ValueError, match="shim=parameters"):
-        getattr(promote_close.FenceShim(context, MACHINE_ARN).client("dynamodb"), operation)(
-            **parameters
-        )
+        getattr(client, operation)(**parameters)
     assert context.calls == []
 
 
 def test_shim_acrescenta_metadata_only_e_recusa_outra_state_machine() -> None:
     context = Context(None, Probe(), {})
     states = promote_close.FenceShim(context, MACHINE_ARN).client("stepfunctions")
-    for arn in (MACHINE_ARN.replace(":stateMachine:", ":execution:") + "-x:" + "a" * 16,
-                MACHINE_ARN.replace(":stateMachine:", ":execution:") + ":" + "A" * 16):
+    for arn in (EXECUTION + "-x:" + "a" * 16, EXECUTION + ":" + "A" * 16):
         with pytest.raises(ValueError, match="shim=parameters"):
             states.describe_execution(executionArn=arn)
     assert context.calls == []
     with pytest.raises(ClientError):
-        states.describe_execution(
-            executionArn=MACHINE_ARN.replace(":stateMachine:", ":execution:") + ":" + "a" * 16
-        )
+        states.describe_execution(executionArn=EXECUTION + ":" + "a" * 16)
     [(role, service, operation, parameters)] = context.calls
     assert (role, service, operation) == ("fence_operator", "stepfunctions", "describe_execution")
     assert parameters["includedData"] == "METADATA_ONLY"
@@ -382,32 +368,31 @@ def test_gate_sela_a_escrita_no_confirm_do_close(monkeypatch: pytest.MonkeyPatch
     assert writes == ["transact_write_items", "update_item"]
 
 
-@pytest.mark.parametrize("owner", [OWNER | {"repository": "outro/repo"},
-                                   OWNER | {"source_sha": "b" * 40}])
-def test_owner_de_outro_repositorio_ou_source_e_recusado(owner: dict[str, Any]) -> None:
-    context = Context(None, Probe(), _inputs())
-    with pytest.raises(ValueError, match="request=source"):
-        _run(context, _request(context.inputs, owner=owner))
-    assert context.calls == []
-
-
 @pytest.mark.parametrize(
-    "stage",
-    [PREPARE | {"close": _epoch(0)}, PREPARE | {"stage": "api", "close": _epoch(0)},
-     PREPARE | {"stage": "static"}],
+    ("changes", "error"),
+    [pytest.param({"owner": OWNER | {"repository": "outro/repo"}}, "request=source",
+                  id="owner-de-outro-repositorio"),
+     pytest.param({"owner": OWNER | {"source_sha": "b" * 40}}, "request=source",
+                  id="owner-de-outro-source"),
+     pytest.param({"stage": PREPARE | {"close": _epoch(0)}}, "request=stage",
+                  id="close-em-application-prepare"),
+     pytest.param({"stage": PREPARE | {"stage": "api", "close": _epoch(0)}}, "request=stage",
+                  id="estagio-api"),
+     pytest.param({"stage": PREPARE | {"stage": "static"}}, "request=stage", id="estagio-static"),
+     pytest.param({"activation_sha256": "9" * 64}, "activation=sha256",
+                  id="activation-diferente-do-request"),
+     pytest.param({"late": True}, "close_drain=preparation_deadline", id="prazo-de-preparacao")],
 )
-def test_estagio_ou_close_fora_da_tabela_e_recusado(stage: dict[str, Any]) -> None:
+def test_request_fora_do_contrato_e_recusado_antes_de_chamar(
+    changes: dict[str, Any], error: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if changes.get("late"):
+        monkeypatch.setattr(promote_api, "CLOCK", lambda: NOW + timedelta(seconds=180))
     context = Context(None, Probe(), _inputs())
-    with pytest.raises(ValueError, match="request=stage"):
-        _run(context, _request(context.inputs, stage))
-    assert context.calls == []
-
-
-def test_close_drain_apos_o_prazo_de_preparacao_nao_fecha(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(promote_api, "CLOCK", lambda: NOW + timedelta(seconds=180))
-    context = Context(None, Probe(), _inputs())
-    with pytest.raises(ValueError, match="close_drain=preparation_deadline"):
-        _run(context)
+    request = _request(context.inputs, changes.get("stage", PREPARE), changes.get("owner", OWNER))
+    request |= {key: changes[key] for key in changes.keys() & {"activation_sha256"}}
+    with pytest.raises(ValueError, match=error):
+        _run(context, request)
     assert context.calls == []
 
 
@@ -432,33 +417,14 @@ def test_membro_com_generation_da_promocao_e_recusado(monkeypatch: pytest.Monkey
                                          + "unit:2"}), "activation=account", id="outra-regiao"),
      pytest.param(_activation(revisions=[TASKS + "unit:2"]), "activation=account",
                   id="revisions-lista"),
-     pytest.param(_activation(revisions={}), "activation=account", id="revisions-vazio")],
+     pytest.param(_activation(revisions={}), "activation=account", id="revisions-vazio"),
+     pytest.param(_activation(source_sha="b" * 40), "common=caller_binding", id="common-source"),
+     pytest.param(_activation(repository="outro/repo"), "common=schema", id="common-repository"),
+     pytest.param(_activation(canary_id="c" * 31), "common=canary_id", id="common-canary_id")],
 )
 def test_activation_sem_fonte_autenticada_e_recusada(activation: bytes, error: str) -> None:
     context = Context(None, Probe(), _inputs(activation=activation))
-    with pytest.raises(ValueError, match=error):
-        _run(context)
-    assert context.calls == []
-
-
-def test_activation_diferente_do_request_e_recusada() -> None:
-    context = Context(None, Probe(), _inputs())
-    request = _request(context.inputs) | {"activation_sha256": "9" * 64}
-    with pytest.raises(ValueError, match="activation=sha256"):
-        _run(context, request)
-    assert context.calls == []
-
-
-@pytest.mark.parametrize(
-    ("changes", "error"),
-    [({"source_sha": "b" * 40}, "common=caller_binding"),
-     ({"repository": "outro/repo"}, "common=schema"),
-     ({"canary_id": "c" * 31}, "common=canary_id")],
-)
-def test_common_da_activation_passa_pelo_contrato_do_gate(changes: dict[str, Any],
-                                                          error: str) -> None:
-    context = Context(None, Probe(), _inputs(activation=_activation(**changes)))
-    with pytest.raises(DrainError, match=error):
+    with pytest.raises(DrainError if error.startswith("common=") else ValueError, match=error):
         _run(context)
     assert context.calls == []
 
@@ -491,10 +457,44 @@ def test_expirations_fora_do_contrato_sao_recusadas(expirations: bytes) -> None:
     assert context.calls == []
 
 
-def test_expirations_ordenadas_e_unicas_sao_repassadas(monkeypatch: pytest.MonkeyPatch) -> None:
+class Steps(Clock):
+    def __init__(self, values: list[float]) -> None:
+        super().__init__()
+        self.values = values
+
+    def monotonic(self) -> float:
+        return self.values.pop(0) if len(self.values) > 1 else self.values[0]
+
+
+def _instant(value: str) -> str:
+    assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", value), value
+    return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").strftime("%H:%M:%S")  # noqa: DTZ007
+
+
+@pytest.mark.parametrize("end", [1.5, 2.0])
+def test_timestamps_seguem_o_contract_instant(end: float, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Âncoras de prazo no piso do segundo, drain_observed_at no teto (correção 6906183797)."""
+    monkeypatch.setattr(promote_api, "CLOCK", lambda: NOW + timedelta(seconds=0.7))
     items = [OTHER, EXPIRY]
-    with _environment("empty", monkeypatch) as (raw, _, probe):
+    with _environment("empty", monkeypatch) as (raw, adapter, probe):
+        monkeypatch.setattr(promote_close, "DRAIN_CLOCK", Steps([0.0, 0.237, end]))
         context = Context(raw, probe, _inputs(expirations=canonical(items)))
         _run(context)
+        assert adapter.observe_environment_gate("prod").fence.confirmed_at == NOW
     record = json.loads(context.observed[0][1])
     assert [item for item in record["input_expirations"] if item["kind"] != "envelope"] == items
+    stamps = [*(item["expires_at"] for item in record["input_expirations"]),
+              record["fence"]["changed_at"], record["close_confirmed_at"],
+              record["drain_observed_at"], record["fixed_deadline"]]
+    assert [_instant(stamp) for stamp in stamps] == [
+        "14:00:00", "13:00:00", "12:30:00", "12:00:00", "12:00:00", "12:00:02", "12:30:00"]
+
+
+def test_teto_do_drain_igual_ao_prazo_fixo_recusa(monkeypatch: pytest.MonkeyPatch) -> None:
+    expiry = EXPIRY | {"expires_at": "2026-11-09T12:00:10Z"}
+    with _environment("empty", monkeypatch) as (raw, _, probe):
+        monkeypatch.setattr(promote_close, "DRAIN_CLOCK", Steps([0.0, 0.0, 9.5]))
+        context = Context(raw, probe, _inputs(expirations=canonical([expiry])))
+        with pytest.raises(DrainError, match="drain=deadline_exceeded"):
+            _run(context)
+    assert context.observed == []
