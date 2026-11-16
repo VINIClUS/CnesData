@@ -106,7 +106,7 @@ watcher de credencial (60 s, `cnes_infra.aws.credentials`), cancelado no shutdow
 
 | Var | Obrigatória | Descrição |
 |---|---|---|
-| `DB_URL` | sim | Postgres URL (`postgresql+psycopg://...`) |
+| `DB_URL` | sim, exceto `PROFILE=aws` | Postgres URL (`postgresql+psycopg://...`) |
 | `/run/config/config.json` | não (host gate) | Objeto JSON de strings aplicado ao env antes do `.env` (`cnes_infra.config.carregar_config_json`); recusa conflito com o env e chaves de credencial/endpoint (inclusive `AWS_CONFIG_FILE`/`AWS_SHARED_CREDENTIALS_FILE`) |
 | `AWS_CONFIG_FILE` | sim (target `production`) | `/etc/cnesdata/aws-config` da imagem (0444): `[default]` só com `credential_process = /usr/bin/timeout 5 /usr/local/bin/cnesdata-aws-credentials /run/credentials/aws-credentials.json`. O leitor (`docker/aws_credentials.py`, stdlib, `-IS`) valida o JSON v1 que o host publica (Roles Anywhere no host) e falha fechado com `credentials_json=<código> path=`; o botocore renova na janela advisory sem restart. O compose do host não tem `environment` (bind de diretório `:ro` em `/run/credentials`) |
 | `AWS_SHARED_CREDENTIALS_FILE`, `AWS_EC2_METADATA_DISABLED` | sim (target `production`) | `/dev/null` e `true`, da imagem. O `production-entrypoint` exige os cinco settings (com `PROFILE=aws` e `AWS_PRODUCTION_POLICY=true`), sai com 2 e `key=value` para chave estática, perfil, web identity, provider de container, `AWS_CREDENTIAL_FILE` ou `BOTO_CONFIG`, e roda o leitor como preflight (stdout descartado) antes do `exec` do uvicorn |

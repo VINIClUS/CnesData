@@ -158,11 +158,16 @@ def _sanitizar_db_url(raw: str) -> str:
     return urlunparse(parsed._replace(scheme=scheme, netloc=netloc))
 
 
+def _perfil_aws() -> bool:
+    return os.getenv("PROFILE", "").strip().lower() == "aws"
+
+
 DB_HOST: str = os.getenv("DB_HOST", "localhost")
 DB_USER: str = os.getenv("DB_USER", "SYSDBA")
 
 
-DB_URL: str = _sanitizar_db_url(_exigir("DB_URL"))
+# Postgres does not exist under PROFILE=aws: DB_URL is ignored there, so create_engine fails closed.
+DB_URL: str = "" if _perfil_aws() else _sanitizar_db_url(_exigir("DB_URL"))
 CACHE_DIR: Path = RAIZ_PROJETO / os.getenv("CACHE_DIR", "data/cache")
 
 _output_dir = os.getenv("OUTPUT_DIR", "data/processed")

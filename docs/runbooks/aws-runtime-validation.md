@@ -35,7 +35,9 @@ AWS_ENDPOINT_URL=http://127.0.0.1:4566 DYNAMODB_ENDPOINT_URL=http://127.0.0.1:18
 docker compose -p cnesdata-aws-gate --profile aws-test down -v
 ```
 
-Na suíte integrada, a API exige `DB_URL` (placeholder); o worker AWS isolado não exige.
+O comando acima não exporta `PROFILE=aws`, então o import de `cnes_infra.config` no pytest
+ainda exige `DB_URL` (placeholder). No perfil aws, `DB_URL` não é exigido, nem pela API nem
+pelo worker isolado.
 O LocalStack 4.11.1
 pinado não tem ECS: a suíte cria as state machines nele e as valida pela composição, mas atende
 `StartExecution`, `DescribeExecution` e `StopExecution` em processo, com semântica Standard.
@@ -73,7 +75,7 @@ Valor inválido derruba o boot com `AwsRuntimeConfigurationError(<código>)`.
   `oidc_domain_invalid`) e impõe as invariantes de região, rede, OIDC, concorrência, lease,
   TTL do serving e retenção do audit, com códigos `production_*` (por exemplo
   `production_serving_ttl_must_be_300`).
-- Na API, `DB_URL` segue obrigatório no import de `cnes_infra.config` (placeholder, não usado).
+- `DB_URL` não é exigido no perfil aws: com `PROFILE=aws`, `cnes_infra.config` o ignora (`""`).
 - Credenciais vêm só da provider chain (role da task). A task definition não define
   `AWS_ACCESS_KEY_ID` nem `AWS_SECRET_ACCESS_KEY`: o boto3 prefere as variáveis à role.
 - A API recusa `RAW_BACKEND` e `RAW_AWS_*` no mesmo processo (`raw_backend=forbidden`).
