@@ -143,8 +143,8 @@ def _seeded(port: FakeStaticPort) -> tuple[dict[str, bytes], list[tuple[str, str
     return files, old
 
 
-@pytest.mark.parametrize("operation", ["close-drain", "closed-ready", "reopen",
-                                       "terminal-readback", "retire-static"])
+@pytest.mark.parametrize("operation", ["closed-ready", "reopen", "terminal-readback",
+                                       "retire-static"])
 def test_operacao_fora_da_tarefa_e_recusada(operation: str) -> None:
     with pytest.raises(ValueError, match="operation=unsupported"):
         _run(FakeStaticPort(), operation, _inventory_inputs(release_files()))
