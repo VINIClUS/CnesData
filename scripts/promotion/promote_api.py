@@ -29,6 +29,7 @@ from scripts.promotion.build_host_archive import (
     REPOSITORY,
     archive_manifest,
 )
+from scripts.promotion.promote_close import close_drain
 from scripts.promotion.publish_dashboard import (
     PublicationError,
     StaticChannel,
@@ -66,11 +67,12 @@ INPUTS = {
     "rollback-api-static": frozenset(
         {"static-plan", "inventory", "publication", "host-recovery-receipt", "recovery-decision"}
     ),
+    "close-drain": frozenset({"activation", "expirations"}),
 }
 OBSERVATIONS = {"inventory": "inventory", "publish-static": "publication",
-                "rollback-api-static": "rollback"}
+                "rollback-api-static": "rollback", "close-drain": "close-drain"}
 STAGES = {"inventory": "application-prepare", "publish-static": "static",
-          "rollback-api-static": "recovery"}
+          "rollback-api-static": "recovery", "close-drain": "application-prepare"}
 _DIGEST = re.compile(r"[0-9a-f]{64}")
 
 
@@ -186,6 +188,7 @@ def _rollback(request: Mapping[str, Any], inputs: Mapping[str, bytes],
 
 _HANDLERS: dict[str, Callable[[Mapping[str, Any], Mapping[str, bytes], AdapterContext], bytes]] = {
     "inventory": _inventory, "publish-static": _publish, "rollback-api-static": _rollback,
+    "close-drain": close_drain,
 }
 
 
@@ -201,7 +204,7 @@ def _require_request(operation: str, request: Mapping[str, Any]) -> None:
         raise ValueError("request=source")
     stage = request["stage"]
     if stage["stage"] != STAGES[operation] or (stage["close"] is None) != (
-        operation == "inventory"
+        stage["stage"] == "application-prepare"
     ):
         raise ValueError("request=stage")
 
