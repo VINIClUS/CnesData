@@ -60,7 +60,7 @@ def close_drain(request: Mapping[str, Any], inputs: Mapping[str, bytes],
     activation, account = _activation(inputs["activation"], request)
     expirations = _expirations(inputs["expirations"])
     identity = owner_identity(request)
-    now = _now()
+    now = _now().replace(microsecond=0)
     if now.timestamp() >= request["stage"]["preparation_deadline"]:
         raise ValueError("close_drain=preparation_deadline")
     machine = f"arn:aws:states:us-east-2:{account}:stateMachine:{MACHINE}"

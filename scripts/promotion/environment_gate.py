@@ -352,6 +352,10 @@ def _drain(
         clock.sleep(min(1.0, max(0.0, limit - clock.monotonic())))
 
 
+def _second(value: datetime, *, ceil: bool = False) -> datetime:
+    return value.replace(microsecond=0) + timedelta(seconds=int(ceil and value.microsecond > 0))
+
+
 def _original_expirations(
     state: EnvironmentGateState, expirations: Iterable[Mapping[str, Any]]
 ) -> tuple[Mapping[str, Any], ...]:
@@ -361,7 +365,7 @@ def _original_expirations(
     expiry = {
         "kind": "envelope",
         "object_sha256": _sha(receipt),
-        "expires_at": receipt["expires_at"],
+        "expires_at": _utc(_second(datetime.fromisoformat(str(receipt["expires_at"])))),
     }
     return tuple(
         sorted([*expirations, expiry], key=lambda item: (item["kind"], item["object_sha256"]))
@@ -389,14 +393,14 @@ def close_and_drain(
     if _fixed_deadline(now, expirations) <= now:
         raise DrainError("drain=deadline_exceeded")
     state = _close_fence(gate, environment, promotion_id, now)
-    observed_close = now + timedelta(seconds=active_clock.monotonic() - started)
+    observed_close = _second(now + timedelta(seconds=active_clock.monotonic() - started))
     confirm = getattr(gate, "confirm_promotion_close", None)
     if not callable(confirm):
         raise DrainError("fence=native_confirmation_required")
     state = cast("EnvironmentGateState", confirm(environment, promotion_id, observed_close))
     closed_at = cast("datetime", state.fence.confirmed_at)
     expirations = _original_expirations(state, expirations)
-    fixed_deadline = _fixed_deadline(closed_at, expirations)
+    fixed_deadline = _second(_fixed_deadline(closed_at, expirations))
     limit = started + (fixed_deadline - now).total_seconds()
     if membership is not None and not isinstance(membership, PersistedMembershipSource):
         raise DrainError("membership=source_capability")
@@ -409,7 +413,7 @@ def close_and_drain(
     post_state = gate.observe_environment_gate(environment)
     if post_state.fence != state.fence or post_state.permit is not None:
         raise DrainError("fence=post_drain_mismatch")
-    observed_at = now + timedelta(seconds=active_clock.monotonic() - started)
+    observed_at = _second(now + timedelta(seconds=active_clock.monotonic() - started), ceil=True)
     if observed_at >= fixed_deadline:
         raise DrainError("drain=deadline_exceeded")
     return _drain_document(
