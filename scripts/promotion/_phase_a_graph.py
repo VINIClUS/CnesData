@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import re
-from typing import Any
+from typing import Any, cast
 
 from release.verify_candidate import require
 from scripts.promotion._canonical import STATE_LIMIT, canonical_bytes, decode_json, object_hash
@@ -13,6 +14,8 @@ from scripts.promotion._plan_contract import closed
 from scripts.promotion.verify_task_revisions import verify_role_producer
 
 type Node = dict[str, Any]
+type Leaf = tuple[Any, ...]
+EMPTY_NULL = {"ipc_mode": "", "pid_mode": "", "tags": {}}
 
 
 def _configuration(module: Node, prefix: str = "") -> Node:
@@ -196,6 +199,63 @@ def resolved_change(resource: Node, context: Node, unknown: set[str]) -> Node | 
     require(all(after.get(key) == value for key, value in known.items()), "delta=known_readback")
     resolver.verify(address, after)
     return after
+
+
+def delta_after(resource: Node, context: Node, task: bool, computed: set[str]) -> Node | None:
+    """Returns: after conhecido para o delta, ou None sem readback dos unknowns IAM.
+
+    Raises: ValueError para unknown fora da recriação de task def ou de IAM aprovado.
+    """
+    change = resource["change"]
+    leaves = [
+        leaf for leaf in _true_leaves(change.get("after_unknown", {})) if leaf[0] not in computed
+    ]
+    after = change["after"]
+    if task and change["before"] is not None:
+        after, leaves = _task_after(change, leaves)
+    unknown = {leaf[0] for leaf in leaves}
+    return resolved_change(resource, context, unknown) if unknown else after
+
+
+def _true_leaves(unknown: Any, path: Leaf = ()) -> list[Leaf]:
+    if unknown is True:
+        return [path]
+    pairs: list[tuple[Any, Any]]
+    if isinstance(unknown, dict):
+        pairs = list(cast("Node", unknown).items())
+    elif isinstance(unknown, list):
+        pairs = list(enumerate(cast("list[Any]", unknown)))
+    else:
+        return []
+    return [leaf for key, value in pairs for leaf in _true_leaves(value, (*path, key))]
+
+
+def _launch_leaf(leaf: Leaf) -> bool:
+    return leaf == ("enable_fault_injection",) or (
+        len(leaf) == 3 and leaf[0] == "volume" and leaf[2] == "configure_at_launch"
+    )
+
+
+def _task_after(change: Node, leaves: list[Leaf]) -> tuple[Node, list[Leaf]]:
+    before, after = change["before"], copy.deepcopy(change["after"])
+    if sorted(change["actions"]) == ["create", "delete"] and before.get("skip_destroy") is True:
+        for leaf in filter(_launch_leaf, leaves):
+            _substitute(after, before, leaf)
+        leaves = [leaf for leaf in leaves if not _launch_leaf(leaf)]
+    for key, empty in EMPTY_NULL.items():
+        if (before.get(key), after.get(key)) in ((empty, None), (None, empty)):
+            after[key] = before.get(key)
+    return after, leaves
+
+
+def _substitute(after: Node, before: Node, leaf: Leaf) -> None:
+    if leaf[0] == "volume":
+        require(
+            len(after["volume"]) == len(before.get("volume") or ()), "delta=task_functional_change"
+        )
+        after, before = after["volume"][leaf[1]], before["volume"][leaf[1]]
+    require(after.get(leaf[-1]) is None, "delta=unknown_leaf_value")
+    after[leaf[-1]] = before.get(leaf[-1])
 
 
 def _redacted_address(address: str) -> str:

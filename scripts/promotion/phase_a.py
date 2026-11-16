@@ -19,7 +19,7 @@ from scripts.promotion._phase_a_evidence import (
     build_evidence,
     validate_evidence,
 )
-from scripts.promotion._phase_a_graph import redacted_plan, resolved_change, review_graph
+from scripts.promotion._phase_a_graph import delta_after, redacted_plan, review_graph
 from scripts.promotion._plan_contract import (
     STATE_LIMIT,
     canonical_bytes,
@@ -235,17 +235,9 @@ def _changed_resource(resource: Node, context: Node) -> None:
     change, address = resource["change"], resource["address"]
     kind = _kind(address)
     _approved(change, address, context)
-    before, after = change["before"], change["after"]
-    unknown = {
-        key
-        for key, value in change.get("after_unknown", {}).items()
-        if value and key not in COMPUTED
-    }
-    if unknown:
-        resolved = resolved_change(resource, context, unknown)
-        if resolved is None:
-            return
-        after = resolved
+    before, after = change["before"], delta_after(resource, context, kind == "task", COMPUTED)
+    if after is None:
+        return
     if kind == "task":
         _task_delta(before, after, context)
     elif kind == "sfn":
