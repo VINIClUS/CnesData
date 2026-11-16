@@ -37,7 +37,8 @@ from tests.production.delivery._phase_a_runtime_fixtures import (
 github = candidates.github
 ROOT = Path(__file__).resolve().parents[3]
 NOW = BASE_NOW + timedelta(seconds=20)
-EXT2_SHA = "d6c2fe101f5a5c2287aabc83ed73dd9f9b95f41f"
+EXT2_SHA = "6d452373d3e6d83b88ba42c072356dec4d93d60b"
+PIN_ANTERIOR = "d6c2fe101f5a5c2287aabc83ed73dd9f9b95f41f"
 
 
 def digest(raw):
@@ -309,6 +310,26 @@ def test_slot_receipt_obrigatorio_antes_da_verificacao(activation):
             now=NOW,
             ext2_post_upload_receipt_v1=None,
         )
+
+
+def _verifica_com_workflow_sha(activation, monkeypatch, workflow_sha):
+    gate = type("Gate", (), {"verify_ext2_reference": staticmethod(lambda *a, **k: "ok")})
+    monkeypatch.setattr("release.verify_activation.importlib.import_module", lambda name: gate)
+    governance = copy.deepcopy(activation["governance"])
+    governance["provenance"]["workflow_sha"] = workflow_sha
+    return verify_activation(
+        github=activation["github"],
+        s3=None,
+        governance=governance,
+        now=NOW,
+        ext2_post_upload_receipt_v1={},
+    )
+
+
+def test_producer_pin_aceita_so_o_workflow_sha_corrigido(activation, monkeypatch):
+    assert _verifica_com_workflow_sha(activation, monkeypatch, EXT2_SHA) == "ok"
+    with pytest.raises(ValueError, match="producer_pin"):
+        _verifica_com_workflow_sha(activation, monkeypatch, PIN_ANTERIOR)
 
 
 def test_builder_carrega_apenas_verificador_autenticado(tmp_path, activation):
