@@ -13,7 +13,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-EXT2_SHA = "d6c2fe101f5a5c2287aabc83ed73dd9f9b95f41f"
+EXT2_SHA = "6d452373d3e6d83b88ba42c072356dec4d93d60b"
 REPOSITORY = "VINIClUS/CnesData"
 FIELD_NAMES = (
     "project environment schema_version repository release_id source_sha "
