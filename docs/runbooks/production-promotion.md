@@ -37,6 +37,8 @@ existentes e contra a Task 12 do plano de entrega e operações de 2026-08-31, e
      só em `ipc_mode`, `pid_mode` e `tags`.
 3. Fence, drain e Phase B (#472), depois API e estático (#473):
    [infrastructure-plan.md](infrastructure-plan.md#publicador-estático-473).
+   - O close do fence pelo ABI2 é o `close-drain` (`scripts/promotion/promote_close.py`):
+     `promotion_id` = `owner_sha256`, vetor de chamadas em `close_drain_call_vector.json`.
 4. Phase C, recovery e depois audit, com reabertura (#474): [recovery-drill.md](recovery-drill.md).
 5. Smoke de produção (#476) e, se preciso, rollback (#475): [rollback.md](rollback.md).
 
