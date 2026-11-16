@@ -14,8 +14,8 @@ RUN uv build --wheel --out-dir /wheels packages/cnes_contracts && \
     uv pip install --system /wheels/*.whl
 
 FROM python:3.13-slim AS production
-ARG AWS_SIGNING_HELPER_VERSION=1.8.5
-ARG AWS_SIGNING_HELPER_SHA256=beec9ed1c492d93db809890f16713e3556353294b823c2184ad4e891f1b2b54d
+ARG AWS_SIGNING_HELPER_VERSION=1.8.6
+ARG AWS_SIGNING_HELPER_SHA256=3553fdc515e5682541a9ebdd37031ec7f461169aa13ccbb6fbd5b7259644113d
 RUN groupadd --system --gid 10001 app && \
     useradd --system --uid 10001 --gid 10001 --no-create-home \
             --home-dir /nonexistent --shell /usr/sbin/nologin app
