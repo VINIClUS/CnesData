@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from typing import Any
 
 import pytest
@@ -78,3 +79,17 @@ def test_recusa_environment_diferente_com_inference_vazio(case, mode):
 def test_recusa_container_override_com_campo_extra(case, mode, key, value):
     _ecs_task(case, mode)["overrides"]["containerOverrides"][0][key] = value
     _denied(case)
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [("unknownOverrides", []), (INFERENCE, {}), (INFERENCE, None), (INFERENCE, "")],
+    ids=["outra-chave-vazia", "inference-dict", "inference-none", "inference-str"],
+)
+def test_binding_so_remove_inference_exatamente_lista_vazia(case, key, value):
+    contract, api, clock, _ = case
+    task = copy.deepcopy(api.responses["run_task"]["tasks"][0])
+    task["overrides"][INFERENCE] = []
+    task["overrides"][key] = value
+    with pytest.raises(ValueError, match=r"^canary=run_overrides$"):
+        runner._task_binding(contract, task, clock)
