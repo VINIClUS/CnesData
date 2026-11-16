@@ -314,9 +314,7 @@ def test_slot_receipt_obrigatorio_antes_da_verificacao(activation):
 
 def _verifica_com_workflow_sha(activation, monkeypatch, workflow_sha):
     gate = type("Gate", (), {"verify_ext2_reference": staticmethod(lambda *a, **k: "ok")})
-    monkeypatch.setattr(
-        "release.verify_activation.importlib.import_module", lambda name: gate
-    )
+    monkeypatch.setattr("release.verify_activation.importlib.import_module", lambda name: gate)
     governance = copy.deepcopy(activation["governance"])
     governance["provenance"]["workflow_sha"] = workflow_sha
     return verify_activation(
@@ -328,11 +326,8 @@ def _verifica_com_workflow_sha(activation, monkeypatch, workflow_sha):
     )
 
 
-def test_producer_pin_aceita_o_workflow_sha_corrigido(activation, monkeypatch):
+def test_producer_pin_aceita_so_o_workflow_sha_corrigido(activation, monkeypatch):
     assert _verifica_com_workflow_sha(activation, monkeypatch, EXT2_SHA) == "ok"
-
-
-def test_producer_pin_recusa_o_workflow_sha_anterior(activation, monkeypatch):
     with pytest.raises(ValueError, match="producer_pin"):
         _verifica_com_workflow_sha(activation, monkeypatch, PIN_ANTERIOR)
 
