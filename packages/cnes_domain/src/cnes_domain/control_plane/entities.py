@@ -15,6 +15,7 @@ from pydantic import (
     model_validator,
 )
 
+from cnes_domain.control_plane.dispatch_identity import require_dispatch_id
 from cnes_domain.control_plane.dispatch_start import DispatchStartClaim  # noqa: TC001
 from cnes_domain.control_plane.enums import (
     AccessRequestState,
@@ -30,7 +31,6 @@ from cnes_domain.control_plane.enums import (
 type JsonValue = bool | int | float | str | list[JsonValue] | dict[str, JsonValue] | None
 type UtcDatetime = datetime
 _COMPETENCIA = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
-_LOWER_HEX_16 = re.compile(r"^[0-9a-f]{16}$")
 _LOWER_HEX_64 = re.compile(r"^[0-9a-f]{64}$")
 _ERROR_CODE = re.compile(r"^[A-Za-z0-9_.:-]+$")
 def require_non_blank(value: object) -> str:
@@ -63,10 +63,6 @@ def optional_sha256(value: str | None) -> str | None:
 def optional_error_code(value: str | None) -> str | None:
     if value is not None and not _ERROR_CODE.fullmatch(value):
         raise ValueError("invalid_error_code")
-    return value
-def require_dispatch_id(value: str, name: str) -> str:
-    if not _LOWER_HEX_16.fullmatch(value):
-        raise ValueError(f"invalid_{name}")
     return value
 def _optional_key_component(value: str | None) -> str | None:
     return require_key_component(value) if value is not None else value

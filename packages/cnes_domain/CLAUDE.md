@@ -46,6 +46,8 @@ os apps deployáveis.
 | `ports/object_storage.py` | `ObjectStoragePort` Protocol + `NullObjectStoragePort` |
 | `ports/repository.py` | 3 Repository Protocols runtime_checkable |
 | `ports/storage.py` | `UnitOfWork` + `NullUnitOfWork` + `NullStorage` |
+| `ports/execution_status.py` | `ExecutionStatus`, sem pydantic (reexportado por `ports/processing.py`, #473) |
+| `control_plane/dispatch_identity.py` | `require_dispatch_id` e `request_json_sha256`, sem pydantic (#473) |
 | `processing/transformer.py` | Pipeline CPF (strip_chars → replace_all \D → pad_start → RQ-002), flag CH zero |
 | `processing/row_mapper.py` | DataFrame → row dicts (`mapear_estabelecimentos`, `mapear_profissionais`, `mapear_vinculos`, `extrair_fonte`) |
 | `competencia.py` | YYYY-MM parsing + range |

@@ -6,12 +6,12 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from cnes_domain.ports.environment_gate import UNGATED_ADMISSION
+from cnes_domain.ports.execution_status import ExecutionStatus
 
 if TYPE_CHECKING:
     from cnes_domain.control_plane.entities import Run, RunDispatch
@@ -119,13 +119,6 @@ class CancelRunExecution(_ExecutionModel):
     _execution_ref = field_validator("execution_ref")(_optional_non_blank)
 
 
-class ExecutionStatus(StrEnum):
-    RUNNING = "RUNNING"
-    SUCCEEDED = "SUCCEEDED"
-    FAILED = "FAILED"
-    CANCELED = "CANCELED"
-
-
 @runtime_checkable
 class ProcessorExecutorPort(Protocol):
     def start(self, request: StartRunExecution) -> str: ...
@@ -166,3 +159,17 @@ class ExecutionPolicyConfig:
     def __post_init__(self) -> None:
         _require_positive(self.deployment_limit)
         _require_positive(self.dispatch_lease_seconds)
+
+
+__all__ = [
+    "CancelRunExecution",
+    "ConcurrencyPolicy",
+    "ExecutionCallbacks",
+    "ExecutionPermit",
+    "ExecutionPolicyConfig",
+    "ExecutionStarted",
+    "ExecutionStatus",
+    "ProcessorExecutorPort",
+    "RunUnitMessage",
+    "StartRunExecution",
+]

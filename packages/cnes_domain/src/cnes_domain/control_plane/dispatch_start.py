@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
-from hashlib import sha256
 from typing import TYPE_CHECKING, cast
 
 from pydantic import BaseModel, ConfigDict, field_validator
+
+from cnes_domain.control_plane.dispatch_identity import request_json_sha256
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -112,8 +112,7 @@ def request_sha256(request: object) -> str:
         value.pop("claim", None)
     else:
         value = request
-    encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
-    return sha256(encoded).hexdigest()
+    return request_json_sha256(value)
 
 
 def claim_matches(
