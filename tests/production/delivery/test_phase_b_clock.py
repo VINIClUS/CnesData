@@ -42,7 +42,7 @@ def test_close_demora_e_replay_nao_rearma_o_prazo(ddb):
         clock=clock,
         common=COMMON,
     )
-    assert first["close_confirmed_at"] == "2026-11-09T12:00:30Z"
+    assert first["close_confirmed_at"] == first["fence"]["changed_at"] == "2026-11-09T12:00:00Z"
     assert first["fixed_deadline"] == "2026-11-09T12:30:00Z"
     receipt = adapter.observe_environment_gate("prod").fence.close_receipt
     replay = close_and_drain(
@@ -71,6 +71,42 @@ def test_close_demora_e_replay_nao_rearma_o_prazo(ddb):
             clock=Clock(),
             common=COMMON,
         )
+
+
+def test_replay_apos_escrita_sem_confirm_confirma_no_segundo_da_escrita(ddb, monkeypatch):
+    adapter, _ = ddb
+
+    def lost(*args):
+        raise RuntimeError("confirm_lost")
+
+    monkeypatch.setattr(adapter, "confirm_promotion_close", lost)
+    with pytest.raises(RuntimeError, match="confirm_lost"):
+        close_and_drain(
+            adapter,
+            StepFunctionsExecutionProbe(cast("Any", Probe()), MACHINE_ARN),
+            None,
+            "prod",
+            "r1",
+            NOW,
+            expirations=EXPIRATIONS,
+            clock=Clock(),
+            common=COMMON,
+        )
+    assert adapter.observe_environment_gate("prod").fence.confirmed_at is None
+    monkeypatch.undo()
+    replay = close_and_drain(
+        adapter,
+        StepFunctionsExecutionProbe(cast("Any", Probe()), MACHINE_ARN),
+        None,
+        "prod",
+        "r1",
+        NOW + timedelta(minutes=10),
+        expirations=EXPIRATIONS,
+        clock=Clock(),
+        common=COMMON,
+    )
+    assert replay["close_confirmed_at"] == replay["fence"]["changed_at"] == "2026-11-09T12:00:00Z"
+    assert replay["fixed_deadline"] == "2026-11-09T12:30:00Z"
 
 
 @pytest.mark.parametrize(("status", "outcome"), [("FAILED", "FAILED"), ("TIMED_OUT", "FAILED"),
