@@ -272,7 +272,7 @@ def static_aws_key_violations(root: Path) -> tuple[SourceViolation, ...]:
         _INFRA + "public_leads/dynamodb*.py",
     )
     paths = [path for pattern in patterns for path in _files(root, pattern)]
-    paths.append(root / (_INFRA + "executor/step_functions.py"))
+    paths += _files(root, _INFRA + "executor/step_functions*.py")
     paths += [root / (_API + "auth/aws_oidc.py")] + _files(root, _API + "serving/**/*.py")
     paths += _files(root, "apps/data_processor/src/data_processor/aws_*.py")
     findings: list[SourceViolation] = []
@@ -299,7 +299,7 @@ def adapter_scan_violations(root: Path) -> tuple[SourceViolation, ...]:
         _INFRA + "aws/**/*.py",
     )
     paths = [path for pattern in patterns for path in _files(root, pattern)]
-    paths.append(root / (_INFRA + "executor/step_functions.py"))
+    paths += _files(root, _INFRA + "executor/step_functions*.py")
     findings: list[SourceViolation] = []
     for path in sorted(set(paths)):
         tree = _ast(root, path)
