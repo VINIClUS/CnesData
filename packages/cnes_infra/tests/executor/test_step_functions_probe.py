@@ -258,3 +258,20 @@ def test_claim_valido_envia_payload_original_sem_a_prova():
             == _EXECUTION_ARN
         )
         stubber.assert_no_pending_responses()
+
+
+def test_modulos_originais_reexportam_os_mesmos_objetos_sem_pydantic():
+    from cnes_domain.control_plane import dispatch_identity, entities
+    from cnes_domain.ports import execution_status, processing
+    from cnes_infra.control_plane import dynamodb_codec, dynamodb_transaction
+    from cnes_infra.executor import step_functions, step_functions_probe
+
+    assert step_functions.ProcessorExecutionUnavailable is (
+        step_functions_probe.ProcessorExecutionUnavailable
+    )
+    assert step_functions.StepFunctionsExecutionProbe is (
+        step_functions_probe.StepFunctionsExecutionProbe
+    )
+    assert dynamodb_codec.execute_transaction is dynamodb_transaction.execute_transaction
+    assert entities.require_dispatch_id is dispatch_identity.require_dispatch_id
+    assert processing.ExecutionStatus is execution_status.ExecutionStatus

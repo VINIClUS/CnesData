@@ -4,41 +4,33 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from botocore.exceptions import ClientError
 
-from cnes_domain.control_plane.dispatch_start import claim_matches, request_sha256
-from cnes_domain.control_plane.entities import require_dispatch_id
-from cnes_domain.ports.environment_gate import ExecutionObservation, ExecutionPresence
+from cnes_domain.control_plane.dispatch_start import claim_matches
 from cnes_domain.ports.processing import ExecutionStatus, StartRunExecution
+from cnes_infra.executor.step_functions_probe import (
+    ProcessorExecutionUnavailable,
+    StepFunctionsExecutionProbe,
+    require_unqualified_state_machine_arn,
+)
+from cnes_infra.executor.step_functions_probe import error_code as _error_code
+from cnes_infra.executor.step_functions_probe import execution_arn as _execution_arn
+from cnes_infra.executor.step_functions_probe import execution_status as _execution_status
+from cnes_infra.executor.step_functions_probe import (
+    require_state_machine_arn as _require_state_machine_arn,
+)
 
 if TYPE_CHECKING:
     from botocore.client import BaseClient
 
     from cnes_domain.ports.processing import CancelRunExecution
-
-    class _StepFunctionsClient(Protocol):
-        def describe_state_machine(self, **kwargs: str) -> dict[str, Any]: ...
-        def start_execution(self, **kwargs: str) -> dict[str, Any]: ...
-        def stop_execution(self, **kwargs: str) -> dict[str, Any]: ...
-        def describe_execution(self, **kwargs: str) -> dict[str, Any]: ...
+    from cnes_infra.executor.step_functions_probe import (
+        StepFunctionsClient as _StepFunctionsClient,
+    )
 
 
-_STATUS = {
-    "RUNNING": ExecutionStatus.RUNNING,
-    "PENDING_REDRIVE": ExecutionStatus.RUNNING,
-    "SUCCEEDED": ExecutionStatus.SUCCEEDED,
-    "FAILED": ExecutionStatus.FAILED,
-    "TIMED_OUT": ExecutionStatus.FAILED,
-    "ABORTED": ExecutionStatus.CANCELED,
-}
-_PRESENCE = {
-    ExecutionStatus.RUNNING: ExecutionPresence.RUNNING,
-    ExecutionStatus.SUCCEEDED: ExecutionPresence.TERMINAL,
-    ExecutionStatus.FAILED: ExecutionPresence.TERMINAL,
-    ExecutionStatus.CANCELED: ExecutionPresence.TERMINAL,
-}
 _ECS_RUN_TASK_SYNC = "arn:aws:states:::ecs:runTask.sync"
 _ASSIGN_PUBLIC_IP = "DISABLED"
 _PRODUCTION_ASSIGN_PUBLIC_IP = "ENABLED"
@@ -78,10 +70,6 @@ class IncompatibleStateMachine(Exception):
     """State machine fora do contrato Standard + Inline Map + ECS Fargate."""
 
 
-class ProcessorExecutionUnavailable(Exception):
-    """Falha AWS normalizada ou conflito de nome de execução."""
-
-
 @dataclass(frozen=True, slots=True)
 class ProductionNetworkPolicy:
     """Contrato exato do perfil de produção: IP público efêmero, subnets e SG fixos."""
@@ -90,10 +78,6 @@ class ProductionNetworkPolicy:
     lease_seconds: int
     subnet_ids: tuple[str, ...]
     security_group_id: str
-
-
-def _error_code(error: ClientError) -> str:
-    return cast("dict[str, dict[str, str]]", error.response)["Error"]["Code"]
 
 
 def _payload(request: StartRunExecution) -> str:
@@ -291,23 +275,6 @@ def validate_production_state_machine(
     _validate_processor(parameters, policy.processor_container_name, policy.lease_seconds)
 
 
-def _require_state_machine_arn(state_machine_arn: str) -> str:
-    if ":stateMachine:" not in state_machine_arn:
-        raise ValueError("state_machine_arn=invalid")
-    return state_machine_arn
-
-
-def _execution_arn(state_machine_arn: str, execution_name: str) -> str:
-    prefix, _, machine = state_machine_arn.rpartition(":stateMachine:")
-    return f"{prefix}:execution:{machine}:{execution_name}"
-
-
-def _execution_status(state: str) -> ExecutionStatus:
-    if state not in _STATUS:
-        raise ValueError(f"execution_status={state}")
-    return _STATUS[state]
-
-
 class StepFunctionsExecutor:
     """Delega a execução de um dispatch a uma state machine do Step Functions."""
 
@@ -368,47 +335,15 @@ class StepFunctionsExecutor:
         return execution_ref
 
 
-def _require_unqualified_state_machine_arn(state_machine_arn: str) -> str:
-    _, _, machine = _require_state_machine_arn(state_machine_arn).rpartition(":stateMachine:")
-    # A version/alias ARN derives an execution ARN that never exists: a false absence proof.
-    if ":" in machine:
-        raise ValueError("state_machine_arn=qualified")
-    return state_machine_arn
+# processor_settings importa o nome privado original.
+_require_unqualified_state_machine_arn = require_unqualified_state_machine_arn
 
-
-class StepFunctionsExecutionProbe:
-    """`ExecutionProbePort` da execução Step Functions nomeada pelo dispatch_id."""
-
-    def __init__(self, client: BaseClient, state_machine_arn: str) -> None:
-        self._client = cast("_StepFunctionsClient", client)
-        self._state_machine_arn = _require_unqualified_state_machine_arn(state_machine_arn)
-
-    def probe(self, dispatch_id: str) -> ExecutionObservation:
-        """Classifica a execução do dispatch; só `ExecutionDoesNotExist` vira ABSENT.
-
-        Raises:
-            ValueError: dispatch_id fora de hex16 ou status desconhecido.
-            ProcessorExecutionUnavailable: outra falha AWS ao descrever a execução.
-        """
-        execution_arn = _execution_arn(
-            self._state_machine_arn,
-            require_dispatch_id(dispatch_id, "dispatch_id"),
-        )
-        try:
-            described = self._client.describe_execution(executionArn=execution_arn)
-        except ClientError as error:
-            if _error_code(error) != "ExecutionDoesNotExist":
-                raise ProcessorExecutionUnavailable(_error_code(error)) from error
-            evidence = json.dumps(
-                {"executionArn": execution_arn, "error": "ExecutionDoesNotExist"},
-                sort_keys=True,
-                separators=(",", ":"),
-            ).encode()
-            return ExecutionObservation(ExecutionPresence.ABSENT, None, evidence=evidence)
-        presence = _PRESENCE[_execution_status(described["status"])]
-        original = {
-            key: described[key] for key in ("executionArn", "status", "input") if key in described
-        }
-        evidence = json.dumps(original, sort_keys=True, separators=(",", ":")).encode()
-        digest = request_sha256(json.loads(described["input"])) if "input" in described else None
-        return ExecutionObservation(presence, execution_arn, digest, evidence)
+__all__ = [
+    "IncompatibleStateMachine",
+    "ProcessorExecutionUnavailable",
+    "ProductionNetworkPolicy",
+    "StepFunctionsExecutionProbe",
+    "StepFunctionsExecutor",
+    "validate_production_state_machine",
+    "validate_state_machine",
+]

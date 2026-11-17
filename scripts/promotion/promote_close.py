@@ -8,10 +8,10 @@ import re
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, cast
 
-from cnes_infra.control_plane.dynamodb_codec import execute_transaction
 from cnes_infra.control_plane.dynamodb_environment_gate import DynamoDBEnvironmentGate
 from cnes_infra.control_plane.dynamodb_keys import item_key
-from cnes_infra.executor.step_functions import StepFunctionsExecutionProbe
+from cnes_infra.control_plane.dynamodb_transaction import execute_transaction
+from cnes_infra.executor.step_functions_probe import StepFunctionsExecutionProbe
 from release.verify_activation import FIELDS
 from scripts.promotion._api_static_records import canonical
 from scripts.promotion.environment_gate import close_and_drain

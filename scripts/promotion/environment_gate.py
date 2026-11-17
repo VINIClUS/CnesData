@@ -10,6 +10,7 @@ from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol, cast
 
+from cnes_domain.control_plane.dispatch_identity import request_json_sha256
 from cnes_domain.control_plane.environment_gate import (
     AcquireUnitPermit,
     ClosePromotionFence,
@@ -91,14 +92,12 @@ class PersistedMembershipSource:
 
     @staticmethod
     def _validate_receipt(receipt: Node) -> None:
-        from cnes_domain.control_plane.dispatch_start import request_sha256
-
         if receipt["resolution"] == "TERMINAL":
             native = receipt["observation"]
             if (
                 native.get("executionArn") != receipt["execution_ref"]
                 or native.get("status") not in {"SUCCEEDED", "FAILED", "TIMED_OUT", "ABORTED"}
-                or request_sha256(json.loads(native["input"])) != receipt["request_sha256"]
+                or request_json_sha256(json.loads(native["input"])) != receipt["request_sha256"]
             ):
                 raise DrainError("membership=terminal_proof_content")
         else:
@@ -393,7 +392,7 @@ def close_and_drain(
     if _fixed_deadline(now, expirations) <= now:
         raise DrainError("drain=deadline_exceeded")
     state = _close_fence(gate, environment, promotion_id, now)
-    observed_close = _second(now + timedelta(seconds=active_clock.monotonic() - started))
+    observed_close = _second(cast("datetime", state.fence.changed_at))
     confirm = getattr(gate, "confirm_promotion_close", None)
     if not callable(confirm):
         raise DrainError("fence=native_confirmation_required")
