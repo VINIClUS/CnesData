@@ -5,11 +5,14 @@ from __future__ import annotations
 import ast
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING
 from xml.etree import ElementTree
 
 if TYPE_CHECKING:
-    from pathlib import Path
+    from collections.abc import Callable
+
+    import pytest
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,6 +24,8 @@ class SourceViolation:
 
 _API = "apps/central_api/src/central_api/"
 _INFRA = "packages/cnes_infra/src/cnes_infra/"
+_EXECUTOR = _INFRA + "executor/step_functions.py"
+_PROBE = _INFRA + "executor/step_functions_probe.py"
 _RULES = {
     "relative": "relative-production-api",
     "activation": "activation-at-origin",
@@ -455,3 +460,30 @@ def require_complete_junit(path: Path) -> None:
         cases = _junit_validate_container(root)
     if not cases:
         raise ValueError("junit_testcases=missing")
+
+
+def _scanned(
+    monkeypatch: pytest.MonkeyPatch, scan: Callable[[Path], tuple[SourceViolation, ...]]
+) -> tuple[set[str], tuple[SourceViolation, ...]]:
+    root = Path(__file__).resolve().parents[2]
+    parse = _ast
+    seen: set[str] = set()
+
+    def record(base: Path, path: Path) -> ast.Module:
+        seen.add(path.relative_to(base).as_posix())
+        return parse(base, path)
+
+    monkeypatch.setitem(globals(), "_ast", record)
+    return seen, scan(root)
+
+
+def test_varredura_de_chave_aws_cobre_executor_e_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen, findings = _scanned(monkeypatch, static_aws_key_violations)
+    assert {_EXECUTOR, _PROBE} - seen == set()
+    assert findings == ()
+
+
+def test_varredura_de_scan_cobre_executor_e_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen, findings = _scanned(monkeypatch, adapter_scan_violations)
+    assert {_EXECUTOR, _PROBE} - seen == set()
+    assert findings == ()
