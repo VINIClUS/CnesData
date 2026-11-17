@@ -392,7 +392,7 @@ def close_and_drain(
     if _fixed_deadline(now, expirations) <= now:
         raise DrainError("drain=deadline_exceeded")
     state = _close_fence(gate, environment, promotion_id, now)
-    observed_close = _second(now + timedelta(seconds=active_clock.monotonic() - started))
+    observed_close = _second(cast("datetime", state.fence.changed_at))
     confirm = getattr(gate, "confirm_promotion_close", None)
     if not callable(confirm):
         raise DrainError("fence=native_confirmation_required")
