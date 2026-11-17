@@ -13,18 +13,22 @@ from cnes_domain.ports.processing import ExecutionStatus, StartRunExecution
 from cnes_infra.executor.step_functions_probe import (
     ProcessorExecutionUnavailable,
     StepFunctionsExecutionProbe,
-    error_code,
-    execution_arn,
-    execution_status,
-    require_state_machine_arn,
     require_unqualified_state_machine_arn,
+)
+from cnes_infra.executor.step_functions_probe import error_code as _error_code
+from cnes_infra.executor.step_functions_probe import execution_arn as _execution_arn
+from cnes_infra.executor.step_functions_probe import execution_status as _execution_status
+from cnes_infra.executor.step_functions_probe import (
+    require_state_machine_arn as _require_state_machine_arn,
 )
 
 if TYPE_CHECKING:
     from botocore.client import BaseClient
 
     from cnes_domain.ports.processing import CancelRunExecution
-    from cnes_infra.executor.step_functions_probe import StepFunctionsClient
+    from cnes_infra.executor.step_functions_probe import (
+        StepFunctionsClient as _StepFunctionsClient,
+    )
 
 
 _ECS_RUN_TASK_SYNC = "arn:aws:states:::ecs:runTask.sync"
@@ -94,10 +98,10 @@ def _payload(request: StartRunExecution) -> str:
 
 def _describe_state_machine(client: BaseClient, state_machine_arn: str) -> dict[str, Any]:
     try:
-        sfn = cast("StepFunctionsClient", client)
+        sfn = cast("_StepFunctionsClient", client)
         return sfn.describe_state_machine(stateMachineArn=state_machine_arn)
     except ClientError as error:
-        raise ProcessorExecutionUnavailable(error_code(error)) from error
+        raise ProcessorExecutionUnavailable(_error_code(error)) from error
 
 
 def _start_state_of_type(
@@ -275,8 +279,8 @@ class StepFunctionsExecutor:
     """Delega a execução de um dispatch a uma state machine do Step Functions."""
 
     def __init__(self, client: BaseClient, state_machine_arn: str) -> None:
-        self._client = cast("StepFunctionsClient", client)
-        self._state_machine_arn = require_state_machine_arn(state_machine_arn)
+        self._client = cast("_StepFunctionsClient", client)
+        self._state_machine_arn = _require_state_machine_arn(state_machine_arn)
 
     def start(self, request: StartRunExecution) -> str:
         """Inicia a execução; reaproveita a existente em replay do mesmo dispatch."""
@@ -288,8 +292,8 @@ class StepFunctionsExecutor:
                 input=payload,
             )
         except ClientError as error:
-            if error_code(error) != "ExecutionAlreadyExists":
-                raise ProcessorExecutionUnavailable(error_code(error)) from error
+            if _error_code(error) != "ExecutionAlreadyExists":
+                raise ProcessorExecutionUnavailable(_error_code(error)) from error
             return self._confirm_existing(request.dispatch_id, payload)
         return response["executionArn"]
 
@@ -312,20 +316,20 @@ class StepFunctionsExecutor:
         try:
             self._client.stop_execution(executionArn=request.execution_ref, cause=cause)
         except ClientError as error:
-            raise ProcessorExecutionUnavailable(error_code(error)) from error
+            raise ProcessorExecutionUnavailable(_error_code(error)) from error
 
     def status(self, execution_ref: str) -> ExecutionStatus:
         """Traduz o status da execução para `ExecutionStatus`, falhando fechado."""
-        return execution_status(self._describe_execution(execution_ref)["status"])
+        return _execution_status(self._describe_execution(execution_ref)["status"])
 
     def _describe_execution(self, execution_ref: str) -> dict[str, Any]:
         try:
             return self._client.describe_execution(executionArn=execution_ref)
         except ClientError as error:
-            raise ProcessorExecutionUnavailable(error_code(error)) from error
+            raise ProcessorExecutionUnavailable(_error_code(error)) from error
 
     def _confirm_existing(self, execution_name: str, payload: str) -> str:
-        execution_ref = execution_arn(self._state_machine_arn, execution_name)
+        execution_ref = _execution_arn(self._state_machine_arn, execution_name)
         if self._describe_execution(execution_ref).get("input") != payload:
             raise ProcessorExecutionUnavailable("execution_name_conflict")
         return execution_ref
