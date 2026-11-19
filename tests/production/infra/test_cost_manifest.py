@@ -62,7 +62,7 @@ CAP_IDS = frozenset({
     "cloudfront_free_plan", "waf_dedicated", "kms_envelope",
 })
 SHARED_IDS = frozenset({"kms_envelope", "state_backend", "budget_actions", "other_projects_spend"})
-STANDARD_RUNNERS = frozenset({"ubuntu-latest", "windows-latest"})
+STANDARD_RUNNERS = frozenset({"ubuntu-latest", "ubuntu-24.04", "windows-latest"})
 UNVERIFIED_IDS = frozenset({"cognito_allowance", "other_projects_spend"})
 STORED_TOTAL_KEY = re.compile(r"(^|_)(sub)?totals?(_|$)|(^|_)sums?(_|$)")
 SOURCE_PREFIXES = (
