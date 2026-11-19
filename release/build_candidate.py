@@ -108,14 +108,14 @@ def _green(check: dict[str, Any], sha: str) -> bool:
 
 
 def _verification(api: Any, sha: str) -> dict[str, Any]:
-    require(api.get(f"compare/{sha}...develop").get("status") in {"ahead", "identical"},
-            "source=outside_develop")
+    require(api.get(f"compare/{sha}...main").get("status") in {"ahead", "identical"},
+            "source=outside_main")
     runs = _pages(api, "actions/workflows/verify-production.yml/runs"
-                  f"?head_sha={sha}&branch=develop&event=push&status=success", "workflow_runs")
+                  f"?head_sha={sha}&branch=main&event=push&status=success", "workflow_runs")
     require(runs, "verification=missing")
     run = api.get(f"actions/runs/{max(runs, key=lambda item: item['id'])['id']}")
     require(_green(run, sha) and run.get("event") == "push"
-            and run.get("head_branch") == "develop"
+            and run.get("head_branch") == "main"
             and run.get("path") == ".github/workflows/verify-production.yml",
             "verification=identity")
     checks = _pages(api, f"commits/{sha}/check-runs?filter=all", "check_runs")
@@ -128,17 +128,17 @@ def _verification(api: Any, sha: str) -> dict[str, Any]:
 
 
 def _pull_request(api: Any, sha: str, repository: str) -> dict[str, Any]:
-    rules = api.get("rules/branches/develop")
+    rules = api.get("rules/branches/main")
     required = {check["context"]: check.get("integration_id") for rule in rules for check in
                 rule.get("parameters", {}).get("required_status_checks", [])}
     require(required.keys() == REQUIRED_CHECKS, "rules=contexts_changed")
     associated = _pages(api, f"commits/{sha}/pulls")
     matching = [item for item in associated if item.get("merge_commit_sha") == sha
-                and item.get("merged_at") and item["base"]["ref"] == "develop"]
+                and item.get("merged_at") and item["base"]["ref"] == "main"]
     require(len(matching) == 1, "pull=association")
     pr = api.get(f"pulls/{matching[0]['number']}")
     require(pr.get("merged_at") and pr.get("merge_commit_sha") == sha
-            and pr["base"]["ref"] == "develop"
+            and pr["base"]["ref"] == "main"
             and pr["base"]["repo"]["full_name"].lower() == repository.lower(), "pull=identity")
     checks = _pages(api, f"commits/{pr['head']['sha']}/check-runs?filter=all", "check_runs")
     merged = timestamp(pr["merged_at"])
@@ -196,7 +196,7 @@ def _artifact_metadata(api: Any, run: dict[str, Any], now: datetime) -> dict[str
     for item in selected:
         origin = item.get("workflow_run", {})
         require(origin.get("id") == run["id"] and origin.get("head_sha") == run["head_sha"]
-                and origin.get("head_branch") == "develop", "artifact=origin")
+                and origin.get("head_branch") == "main", "artifact=origin")
         require(item.get("expired") is False and timestamp(item["expires_at"]) > now,
                 "artifact=expired")
         require(re.fullmatch(r"sha256:[0-9a-f]{64}", item.get("digest", "")), "artifact=digest")

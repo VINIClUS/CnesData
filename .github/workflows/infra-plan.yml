@@ -61,7 +61,7 @@ jobs:
           set -euo pipefail
           test "$GITHUB_REPOSITORY" = "VINIClUS/CnesData"
           test "$GITHUB_EVENT_NAME" = "workflow_dispatch"
-          test "$GITHUB_REF" = "refs/heads/develop"
+          test "$GITHUB_REF" = "refs/heads/main"
           [[ "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
           test "$GITHUB_SHA" = "$EXPECTED_SOURCE_SHA"
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -86,7 +86,7 @@ jobs:
       id-token: write
     uses: "VINIClUS/infra-ansible/.github/workflows/\
       reusable-cnesdata-infra-plan-gate.yml@\
-      97f8e7e086e3f107401b5eb35ff4017dde21ff34"
+      6cb0bb2f46007c3679d64f62106ee02bf8758c5d"
     with:
       request_descriptor: ${{ needs.admit.outputs.request_descriptor }}
       request_descriptor_sha256: ${{ needs.admit.outputs.request_descriptor_sha256 }}
@@ -96,3 +96,5 @@ jobs:
       contract_sha256: ${{ needs.admit.outputs.contract_sha256 }}
       expected_source_sha: ${{ needs.admit.outputs.expected_source_sha }}
       purpose: ${{ needs.admit.outputs.purpose }}
+    secrets:
+      CNESDATA_DELIVERY_GOVERNANCE: ${{ secrets.CNESDATA_DELIVERY_GOVERNANCE }}

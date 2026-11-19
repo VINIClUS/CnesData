@@ -100,7 +100,7 @@ class GitHubBoundary:
             "id": len(self.metadata) + 1, "name": name, "expired": False,
             "expires_at": "2026-12-01T21:00:00Z", "digest": "sha256:" + _hash(_zip(files)),
             "size_in_bytes": len(_zip(files)),
-            "workflow_run": {"id": 42, "head_sha": SHA, "head_branch": "develop"},
+            "workflow_run": {"id": 42, "head_sha": SHA, "head_branch": "main"},
         })
 
     def refresh(self, name: str) -> None:
@@ -132,12 +132,12 @@ def _add_image_artifacts(api: GitHubBoundary) -> None:
 @pytest.fixture
 def github() -> GitHubBoundary:
     api = GitHubBoundary()
-    run = {"id": 42, "run_attempt": 2, "head_sha": SHA, "head_branch": "develop",
+    run = {"id": 42, "run_attempt": 2, "head_sha": SHA, "head_branch": "main",
            "event": "push", "status": "completed", "conclusion": "success",
            "path": ".github/workflows/verify-production.yml", "check_suite_id": 91,
            "updated_at": "2026-11-07T20:00:00Z"}
     pr = {"number": 9, "merged_at": "2026-11-07T19:00:00Z", "merge_commit_sha": SHA,
-          "base": {"ref": "develop", "repo": {"full_name": REPOSITORY}},
+          "base": {"ref": "main", "repo": {"full_name": REPOSITORY}},
           "head": {"sha": PR_SHA}}
     checks = [{"name": name, "id": i + 1, "head_sha": PR_SHA, "status": "completed",
                "conclusion": "success", "completed_at": "2026-11-07T18:00:00Z",
@@ -147,12 +147,12 @@ def github() -> GitHubBoundary:
               "conclusion": "success", "check_suite": {"id": 91}}
              for i, name in enumerate(JOBS)]
     api.routes = {
-        "compare/" + SHA + "...develop": {"status": "ahead"},
+        "compare/" + SHA + "...main": {"status": "ahead"},
         "actions/workflows/verify-production.yml/runs": {"workflow_runs": [run]},
         "actions/runs/42": run, "commits/" + SHA + "/check-runs": {"check_runs": suite},
         "commits/" + SHA + "/pulls": [pr], "pulls/9": pr,
         "commits/" + PR_SHA + "/check-runs": {"check_runs": checks},
-        "rules/branches/develop": [{"type": "required_status_checks", "parameters": {
+        "rules/branches/main": [{"type": "required_status_checks", "parameters": {
             "required_status_checks": [{"context": name, "integration_id": 15368}
                                        for name in CHECKS]}}],
         "actions/runs/42/artifacts": {"artifacts": api.metadata},
@@ -285,18 +285,18 @@ def test_exige_os_dez_checks_obrigatorios_no_pr_mergeado(github, check, failure)
     assert github.downloads == []
 
 
-@pytest.mark.parametrize("failure", ["run", "suite", "develop", "pr", "rules"])
+@pytest.mark.parametrize("failure", ["run", "suite", "main", "pr", "rules"])
 def test_recusa_gate_invalido_antes_de_baixar_artefatos(github, failure) -> None:
     if failure == "run":
         github.routes["actions/runs/42"]["head_sha"] = PR_SHA
     elif failure == "suite":
         github.routes["commits/" + SHA + "/check-runs"]["check_runs"][0]["conclusion"] = "failure"
-    elif failure == "develop":
-        github.routes["compare/" + SHA + "...develop"]["status"] = "diverged"
+    elif failure == "main":
+        github.routes["compare/" + SHA + "...main"]["status"] = "diverged"
     elif failure == "pr":
         github.routes["pulls/9"]["merged_at"] = None
     else:
-        github.routes["rules/branches/develop"][0]["parameters"]["required_status_checks"].pop()
+        github.routes["rules/branches/main"][0]["parameters"]["required_status_checks"].pop()
     with pytest.raises(ValueError):
         _collect(github)
     assert github.downloads == []
@@ -460,7 +460,7 @@ def test_workflow_manual_hospedado_somente_leitura() -> None:
                                         "pull-requests": "read"}
     for job in workflow["jobs"].values():
         assert job["runs-on"] == "ubuntu-latest"
-        assert "github.ref == 'refs/heads/develop'" in job["if"]
+        assert "github.ref == 'refs/heads/main'" in job["if"]
         assert "permissions" not in job
     serialized = yaml.safe_dump(workflow)
     for forbidden in ("packages: write", "id-token", "docker build", "secrets.", "self-hosted"):

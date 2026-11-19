@@ -134,7 +134,7 @@ def _artifact(ref: dict[str, Any], api: Any, now: datetime) -> dict[str, bytes]:
             "run_attempt": int(ref["run_attempt"]),
             "head_sha": ref["workflow_sha"],
             "path": ref["workflow_path"],
-            "head_branch": "develop" if repository == REPOSITORY else "main",
+            "head_branch": "main",
             "status": "completed",
             "conclusion": "success",
         },
@@ -218,7 +218,7 @@ def _r1(candidate: dict[str, Any], api: Any, now: datetime) -> bytes:
         and run.get("conclusion") == "success"
         and run.get("check_suite_id") == verification["check_suite_id"]
         and run.get("event") == "push"
-        and run.get("head_branch") == "develop"
+        and run.get("head_branch") == "main"
         and run.get("path") == ".github/workflows/verify-production.yml",
         "r1_run",
     )
@@ -299,7 +299,7 @@ def _index(index: dict[str, Any], proof: dict[str, Any], status: str) -> None:
         and admission["source"]
         == {
             "repository": REPOSITORY,
-            "ref": "refs/heads/develop",
+            "ref": "refs/heads/main",
             "source_sha": proof["source_sha"],
         },
         "admission_binding",

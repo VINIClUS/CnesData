@@ -1,4 +1,4 @@
-"""Preâmbulo da promoção: SHA contido em develop, checks obrigatórios verdes e freeze ausente."""
+"""Preâmbulo da promoção: SHA contido em main, checks obrigatórios verdes e freeze ausente."""
 
 from __future__ import annotations
 
@@ -24,12 +24,12 @@ class PreambleError(RuntimeError):
 
 def check_preamble(evidence: dict[str, Any]) -> None:
     """Raises:
-    PreambleError: SHA fora de develop ou check obrigatório não verde no SHA.
+    PreambleError: SHA fora de main ou check obrigatório não verde no SHA.
     """
     sha = evidence.get("source_sha")
     if not isinstance(sha, str) or _SHA.fullmatch(sha) is None:
         raise PreambleError("source_sha=invalid")
-    _require_develop(evidence["compare"], sha)
+    _require_main(evidence["compare"], sha)
     _require_checks(evidence["check_runs"], sha)
 
 
@@ -61,11 +61,11 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-def _require_develop(compare: dict[str, Any], sha: str) -> None:
+def _require_main(compare: dict[str, Any], sha: str) -> None:
     if compare.get("status") not in {"identical", "ahead"} or (
         compare.get("merge_base_commit", {}).get("sha") != sha
     ):
-        raise PreambleError("source=outside_develop")
+        raise PreambleError("source=outside_main")
 
 
 def _require_checks(listing: dict[str, Any], sha: str) -> None:

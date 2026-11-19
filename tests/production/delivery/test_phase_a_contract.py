@@ -317,14 +317,14 @@ def test_artifact_generico_respeita_branch_governada_do_produtor(github):
     from tests.production.delivery._phase_a_fixtures import _public_artifact
 
     reference = _public_artifact(github, "baseline", {"proof.json": b"{}\n"}, (201, "baseline"))
-    github.routes["actions/runs/201"]["head_branch"] = "main"
+    github.routes["actions/runs/201"]["head_branch"] = "develop"
     github.routes[f"actions/artifacts/{reference['artifact_id']}"]["workflow_run"][
         "head_branch"
-    ] = "main"
+    ] = "develop"
     profile = {
         "repository": "VINIClUS/CnesData",
         "source_sha": SHA,
-        "branch": "main",
+        "branch": "develop",
         "event": "workflow_dispatch",
         "callers": [{"workflow_path": "baseline", "workflow_sha": SHA}],
         "reusables": {"baseline": []},

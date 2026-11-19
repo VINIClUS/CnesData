@@ -161,13 +161,13 @@ def _candidate_reference(api, registry=None):
         name, {"candidate.json": data, "candidate.json.sha256": (_digest(data)[7:] + "\n").encode()}
     )
     artifact = api.metadata[-1]
-    artifact["workflow_run"] = {"id": 93, "head_sha": "b" * 40, "head_branch": "develop"}
+    artifact["workflow_run"] = {"id": 93, "head_sha": "b" * 40, "head_branch": "main"}
     api.routes["actions/artifacts/" + str(artifact["id"])] = artifact
     api.routes["actions/runs/93"] = {
         "id": 93,
         "run_attempt": 1,
         "head_sha": "b" * 40,
-        "head_branch": "develop",
+        "head_branch": "main",
         "event": "workflow_dispatch",
         "status": "completed",
         "conclusion": "success",
@@ -351,14 +351,14 @@ def _public_artifact(api, name, members, producer):
     run_id, workflow = producer
     api.add(name, members)
     artifact = api.metadata[-1]
-    artifact["workflow_run"] = {"id": run_id, "head_sha": SHA, "head_branch": "develop"}
+    artifact["workflow_run"] = {"id": run_id, "head_sha": SHA, "head_branch": "main"}
     artifact["created_at"] = "2026-11-07T20:51:10Z" if run_id == 102 else "2026-11-07T20:30:00Z"
     api.routes[f"actions/artifacts/{artifact['id']}"] = artifact
     api.routes[f"actions/runs/{run_id}"] = {
         "id": run_id,
         "run_attempt": 1,
         "head_sha": SHA,
-        "head_branch": "develop",
+        "head_branch": "main",
         "event": "workflow_dispatch",
         "status": "completed",
         "conclusion": "success",

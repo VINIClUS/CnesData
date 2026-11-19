@@ -52,7 +52,7 @@ INFRA_CLOSE_EXPIRATION_KINDS = frozenset({"envelope", "artifact", "platform", "c
 OWNER = {"repository": "VINIClUS/CnesData", "source_sha": SHA, "run_id": 123, "run_attempt": 1,
          "release_sha256": "5" * 64, "generation": 7, "session_sha256": "6" * 64,
          "owner_sha256": "7" * 64}
-CALLER = {"repository": "VINIClUS/CnesData", "source_sha": SHA, "ref": "refs/heads/develop",
+CALLER = {"repository": "VINIClUS/CnesData", "source_sha": SHA, "ref": "refs/heads/main",
           "workflow_path": ".github/workflows/promote-production.yml", "workflow_sha": SHA,
           "run_id": 123, "run_attempt": 1}
 EXPIRY = {"kind": "credential", "object_sha256": "f" * 64, "expires_at": "2026-11-09T13:00:00Z"}

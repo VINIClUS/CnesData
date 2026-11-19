@@ -1,4 +1,4 @@
-"""Preâmbulo da promoção: SHA em develop, checks obrigatórios verdes e freeze ausente."""
+"""Preâmbulo da promoção: SHA em main, checks obrigatórios verdes e freeze ausente."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ def evidence(**changes) -> dict:
     return value | changes
 
 
-def test_preambulo_aceita_sha_em_develop_com_checks_verdes_sem_freeze() -> None:
+def test_preambulo_aceita_sha_em_main_com_checks_verdes_sem_freeze() -> None:
     check_preamble(evidence())
     check_preamble(evidence(compare={"status": "ahead", "merge_base_commit": {"sha": SHA}}))
     check_unfrozen(UNFROZEN, FREEZE)
@@ -53,8 +53,8 @@ def _with_run(*runs: dict) -> dict:
 @pytest.mark.parametrize(
     ("changes", "reason"),
     [
-        ({"compare": {"status": "diverged", "merge_base_commit": {"sha": "b" * 40}}}, "develop"),
-        ({"compare": {"status": "behind", "merge_base_commit": {"sha": SHA}}}, "develop"),
+        ({"compare": {"status": "diverged", "merge_base_commit": {"sha": "b" * 40}}}, "main"),
+        ({"compare": {"status": "behind", "merge_base_commit": {"sha": SHA}}}, "main"),
         ({"check_runs": _with_run(_run("delivery-contracts", "failure", ident=99))}, "check"),
         ({"check_runs": {"total_count": 1, "check_runs": [_run("dashboard")]}}, "check"),
         ({"check_runs": _with_run(_run("dashboard", ident=97, sha="b" * 40))}, "check"),
@@ -65,7 +65,7 @@ def _with_run(*runs: dict) -> dict:
         ({"freeze": {"AttachedPolicies": [], "IsTruncated": True}}, "freeze"),
     ],
 )
-def test_promocao_recusa_sha_fora_de_develop_check_vermelho_e_freeze(
+def test_promocao_recusa_sha_fora_de_main_check_vermelho_e_freeze(
     changes: dict, reason: str
 ) -> None:
     def attempt() -> None:

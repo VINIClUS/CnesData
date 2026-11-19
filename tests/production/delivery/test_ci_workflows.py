@@ -71,7 +71,7 @@ def test_pull_request_nao_recebe_segredo_id_token_nem_packages_write() -> None:
 
 def test_oci_publish_so_roda_em_push_e_nao_builda() -> None:
     job = _workflow()["jobs"]["oci-publish"]
-    assert job["if"] == "github.event_name == 'push' && github.ref == 'refs/heads/develop'"
+    assert job["if"] == "github.event_name == 'push' && github.ref == 'refs/heads/main'"
     assert "oci-build" in job["needs"]
     commands = _commands(job)
     assert "docker load --input image.tar" in commands
@@ -83,10 +83,10 @@ def test_oci_publish_so_roda_em_push_e_nao_builda() -> None:
     assert "manifest.json" in commands
 
 
-def test_push_em_develop_sem_filtro_de_path() -> None:
+def test_push_em_main_sem_filtro_de_path() -> None:
     events = _workflow()[True]
     assert set(events) == {"push", "pull_request", "workflow_dispatch"}
-    assert events["push"] == {"branches": ["develop"]}
+    assert events["push"] == {"branches": ["main"]}
 
 
 def test_imagem_salva_e_escaneada_antes_de_publicar_artifact() -> None:

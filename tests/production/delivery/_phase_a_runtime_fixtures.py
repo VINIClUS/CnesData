@@ -245,7 +245,7 @@ def _finalization_fixture(api, promotion, clock) -> dict[str, Any]:
     governed.update(
         clock=clock,
         region=REGION,
-        branch="develop",
+        branch="main",
         event="workflow_dispatch",
         candidate_creator={
             "workflow_path": ".github/workflows/release-candidate.yml",

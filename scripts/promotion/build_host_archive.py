@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 REPOSITORY = "VINIClUS/CnesData"
 CALLER_WORKFLOW = ".github/workflows/promote-production.yml"
 # Single caller-ref point; the owner amendment of the workflow track moves it to main.
-CALLER_REF = "refs/heads/develop"
+CALLER_REF = "refs/heads/main"
 PRODUCER_WORKFLOWS = frozenset({CALLER_WORKFLOW})
 ACTIONS = frozenset({"validate", "deploy", "rollback-previous"})
 MEMBERS = ("release-manifest.json", "compose.yml", "config.json")

@@ -58,15 +58,15 @@ ruleset de `develop` é decisão separada.
 ## Antes de qualquer apply (pré-apply)
 
 A entrega usa `infra-plan.yml` e `infra-apply.yml`, ambos somente `workflow_dispatch`
-em `develop`. Nenhum merge aplica infraestrutura. O source informado deve ser o SHA
-exato da execução, contido em develop, com os dez checks obrigatórios verdes no próprio
+em `main`. Nenhum merge aplica infraestrutura. O source informado deve ser o SHA
+exato da execução, contido em main, com os dez checks obrigatórios verdes no próprio
 SHA. O registro dos dois YAMLs na default main é um PR mínimo posterior ao Código verde,
 com bytes/pins idênticos, auditoria e CI de main; não é autorização para executar em main
 nem para habilitar Deploy develop.
 
-Os callers e a constante de produtor usam o pin EXT1 integrado/auditado/verde
-`97f8e7e086e3f107401b5eb35ff4017dde21ff34`, que inclui P1/P2. A CI de main
-42535291459 foi conferida e o controlador liberou esse pin para Código. Proposta/HEAD
+Os callers e a constante de produtor usam o pin integrado
+`6cb0bb2f46007c3679d64f62106ee02bf8758c5d` (infra-ansible#55, passo 4a), que declara o
+segredo de governança. Os callers o passam por nome, nunca com `secrets: inherit`. Proposta/HEAD
 não integrado não substitui release. Toda atualização de produtor exige pins coerentes
 nos dois callers e no helper, conferência de contratos, CI e nova auditoria do HEAD.
 A liberação do pin não concede Ready/Produção: registro em main, allowlists, identidades,

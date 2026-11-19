@@ -255,7 +255,7 @@ def _admission(index: Node, members: Node, governed: Node, latest: datetime) -> 
         proof["source"]
         == {
             "repository": index["repository"],
-            "ref": "refs/heads/develop",
+            "ref": "refs/heads/main",
             "source_sha": index["source_sha"],
         },
         "admission=source",

@@ -332,7 +332,7 @@ def _public_index(envelope, governed, status, prior):
         "proof_version": 1,
         "source": {
             "repository": plan["repository"],
-            "ref": "refs/heads/develop",
+            "ref": "refs/heads/main",
             "source_sha": SHA,
         },
         "producer": {"repository": plan["repository"], **producer},

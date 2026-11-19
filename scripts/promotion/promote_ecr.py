@@ -62,7 +62,7 @@ def _run(api: Any, reference: Node, creator: Node) -> Node:
     require(
         run.get("status") == "completed"
         and run.get("conclusion") == "success"
-        and run.get("head_branch") == "develop"
+        and run.get("head_branch") == "main"
         and run.get("event") == "workflow_dispatch"
         and run.get("path") == ".github/workflows/release-candidate.yml",
         "candidate=producer",
@@ -95,7 +95,7 @@ def _candidate_artifact(
     require(
         origin.get("id") == run["id"]
         and origin.get("head_sha") == run["head_sha"]
-        and origin.get("head_branch") == "develop",
+        and origin.get("head_branch") == "main",
         "candidate=artifact_origin",
     )
     require(

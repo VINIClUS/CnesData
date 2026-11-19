@@ -53,7 +53,7 @@ COMMON = {
     "caller": {
         "repository": "VINIClUS/CnesData",
         "source_sha": "a" * 40,
-        "ref": "refs/heads/develop",
+        "ref": "refs/heads/main",
         "workflow_path": ".github/workflows/promote-production.yml",
         "workflow_sha": "a" * 40,
         "run_id": 123,

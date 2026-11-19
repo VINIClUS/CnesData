@@ -12,7 +12,7 @@ from tests.production.delivery._phase_a_application_fixtures import _application
 NOW = datetime(2026, 11, 9, 0, 45, tzinfo=UTC)
 APPLICATION_NOW = datetime(2026, 11, 7, 20, 52, tzinfo=UTC)
 SOURCE = "a" * 40
-PRODUCER = "97f8e7e086e3f107401b5eb35ff4017dde21ff34"
+PRODUCER = "6cb0bb2f46007c3679d64f62106ee02bf8758c5d"
 BASELINES = ["backend", "cost", "drift", "policy", "shared-outputs", "toolchain"]
 
 
@@ -138,15 +138,15 @@ def source_responses(api, mode):
         "run_attempt": 2,
         "repository": {"full_name": "VINIClUS/CnesData"},
         "head_sha": SOURCE,
-        "head_branch": "develop",
+        "head_branch": "main",
         "event": "workflow_dispatch",
         "path": path,
         "status": "in_progress",
     }
-    api.responses["VINIClUS/CnesData", f"compare/{SOURCE}...develop"] = {"status": "identical"}
+    api.responses["VINIClUS/CnesData", f"compare/{SOURCE}...main"] = {"status": "identical"}
     from release.build_candidate import REQUIRED_CHECKS
 
-    api.responses["VINIClUS/CnesData", "rules/branches/develop"] = [
+    api.responses["VINIClUS/CnesData", "rules/branches/main"] = [
         {
             "type": "required_status_checks",
             "parameters": {

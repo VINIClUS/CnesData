@@ -297,7 +297,7 @@ def test_publish_static_publica_com_host_accepted_do_proprio_run() -> None:
     ("receipt", "erro"),
     [(_accepted(caller=CALLER | {"run_id": 999}), "host_receipt"),
      (_accepted(caller=CALLER | {"source_sha": "b" * 40}), "host_receipt"),
-     (_accepted(caller=CALLER | {"ref": "refs/heads/main"}), "host_receipt"),
+     (_accepted(caller=CALLER | {"ref": "refs/heads/develop"}), "host_receipt"),
      (_accepted(caller=CALLER | {"workflow_path": ".github/workflows/x.yml"}), "host_receipt"),
      (_accepted(caller=CALLER | {"workflow_sha": "b" * 40}), "host_receipt"),
      (handoff("accepted", None), "host_receipt"),
