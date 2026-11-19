@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING, Any
+
+from botocore.exceptions import ClientError
 
 from cnes_domain.control_plane.commands import (
     BeginIdempotency,
@@ -19,6 +22,7 @@ from cnes_domain.control_plane.entities import (
 from cnes_domain.control_plane.enums import RunState
 from cnes_domain.control_plane.errors import Conflict, NotFound
 from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
+from cnes_domain.control_plane.outbox import OutboxCursor, OutboxPage, next_outbox_cursor
 from cnes_domain.control_plane.transitions import transition_run
 from cnes_infra.control_plane.dynamodb_codec import (
     Action,
@@ -31,6 +35,7 @@ from cnes_infra.control_plane.dynamodb_codec import (
 from cnes_infra.control_plane.dynamodb_host import DynamoDBHost
 from cnes_infra.control_plane.dynamodb_keys import (
     idempotency_key,
+    item_key,
     key_component,
     outbox_key,
     pointer_key,
@@ -38,6 +43,7 @@ from cnes_infra.control_plane.dynamodb_keys import (
     timestamp,
     version_key,
 )
+from cnes_infra.control_plane.dynamodb_outbox_cursor import DynamoOutboxCursor
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -239,8 +245,19 @@ class DynamoDBPublication(DynamoDBHost):
             raise Conflict(ErrorCode.EVENT_ID_CONFLICT)
 
     def get_outbox_event(self, event_id: str) -> OutboxEvent | None:
-        """Retorna um evento pela identidade global."""
-        return self._get_outbox_event(event_id)
+        """Args: event_id da identidade global.
+        Returns: Evento canônico ou None para item ausente ou incompatível.
+        Raises: Erros do SDK ou de decodificação.
+        """
+        item = self._get_item(outbox_key(event_id))
+        if item is None or item.get("entity") != {"S": "OUTBOXEVENT"}:
+            return None
+        event = decode_model(item, OutboxEvent)
+        canonical = self._outbox_item(event)
+        fields = ("pk", "sk") if event.delivered_at is not None else (
+            "pk", "sk", "gsi6pk", "gsi6sk",
+        )
+        return event if all(item.get(name) == canonical[name] for name in fields) else None
 
     def _pending_outbox_event(self, candidate: Item, key: tuple[str, str]) -> OutboxEvent | None:
         item = self._get_item(key)
@@ -253,45 +270,54 @@ class DynamoDBPublication(DynamoDBHost):
             return None
         return event
 
-    def pending_outbox(self, limit: int) -> tuple[OutboxEvent, ...]:
-        """Lista eventos pendentes globalmente."""
-        if limit <= 0:
-            return ()
+    def read_outbox_page(self, cursor: OutboxCursor | None, limit: int) -> OutboxPage:
+        """Args: Cursor opcional e limite da página bruta.
+        Returns: Eventos revalidados, token esperado e próxima geração.
+        Raises: ValueError ou erros do SDK e de decodificação.
+        """
+        if limit < 1:
+            raise ValueError("limit=invalid")
+        durable = DynamoOutboxCursor(self._client, self._table_name)
+        expected = durable.load() if cursor is None else cursor
         request: dict[str, Any] = {
             "TableName": self._table_name,
             "IndexName": "gsi6",
             "KeyConditionExpression": "gsi6pk = :partition",
             "ExpressionAttributeValues": {":partition": {"S": "OUTBOX#PENDING"}},
             "ScanIndexForward": True,
+            "Limit": limit,
         }
-        events: list[OutboxEvent] = []
-        seen: set[tuple[str, str]] = set()
-        while True:
-            request["Limit"] = limit - len(events)
-            response = self._client.query(**request)
-            for candidate in response.get("Items", ()):
-                key = (
-                    candidate.get("base_pk", candidate["pk"])["S"],
-                    candidate.get("base_sk", candidate["sk"])["S"],
-                )
-                if key in seen:
-                    continue
-                event = self._pending_outbox_event(candidate, key)
-                if event is None:
-                    continue
-                seen.add(key)
-                events.append(event)
-                if len(events) == limit:
-                    return tuple(events)
-            last_key = response.get("LastEvaluatedKey")
-            if not last_key:
-                return tuple(events)
-            request["ExclusiveStartKey"] = last_key
+        if expected is not None and expected.position is not None:
+            request["ExclusiveStartKey"] = json.loads(expected.position)
+        response = self._client.query(**request)
+        events: dict[str, OutboxEvent] = {}
+        for candidate in response.get("Items", ()):
+            key = (
+                candidate.get("base_pk", candidate["pk"])["S"],
+                candidate.get("base_sk", candidate["sk"])["S"],
+            )
+            event = self._pending_outbox_event(candidate, key)
+            if event is not None and key == outbox_key(event.event_id):
+                events[event.event_id] = event
+        last_key = response.get("LastEvaluatedKey")
+        position = json.dumps(last_key, sort_keys=True) if last_key else None
+        return OutboxPage(tuple(events.values()), expected, next_outbox_cursor(expected, position))
+
+    def advance_outbox_cursor(
+        self, expected: OutboxCursor | None, next_cursor: OutboxCursor | None,
+    ) -> bool:
+        """Args: Token esperado e próxima geração ou volta ao início.
+        Returns: True para avanço; False para perda do CAS.
+        Raises: ValueError ou erros do SDK.
+        """
+        return DynamoOutboxCursor(self._client, self._table_name).advance(expected, next_cursor)
 
     def mark_outbox_delivered(self, event_id: str, delivered_at: datetime) -> None:
-        """Marca um evento global como entregue."""
-        key = outbox_key(event_id)
-        item = self._get_item(key)
+        """Args: Identidade global e instante de entrega.
+        Returns: None após marcador condicional ou replay idêntico.
+        Raises: NotFound, Conflict ou erros do SDK.
+        """
+        item = self._get_item(outbox_key(event_id))
         if item is None:
             raise NotFound(ErrorCode.OUTBOX_EVENT_MISSING)
         event = decode_model(item, OutboxEvent)
@@ -300,4 +326,21 @@ class DynamoDBPublication(DynamoDBHost):
                 raise Conflict(ErrorCode.OUTBOX_DELIVERY_CONFLICT)
             return
         updated = event.model_copy(update={"delivered_at": delivered_at})
-        self._transact((put_action(self._table_name, self._outbox_item(updated), payload(item)),))
+        encoded = self._outbox_item(updated)
+        try:
+            self._client.update_item(
+                TableName=self._table_name, Key=item_key(*outbox_key(event_id)),
+                UpdateExpression="SET payload = :next REMOVE gsi6pk, gsi6sk",
+                ConditionExpression="#entity = :entity AND payload = :expected",
+                ExpressionAttributeNames={"#entity": "entity"},
+                ExpressionAttributeValues={
+                    ":entity": {"S": "OUTBOXEVENT"}, ":expected": item["payload"],
+                    ":next": encoded["payload"],
+                },
+            )
+        except ClientError as error:
+            if error.response.get("Error", {}).get("Code") != "ConditionalCheckFailedException":
+                raise
+            current = self.get_outbox_event(event_id)
+            if current != updated:
+                raise Conflict(ErrorCode.OUTBOX_DELIVERY_CONFLICT) from error

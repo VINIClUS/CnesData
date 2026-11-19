@@ -21,6 +21,7 @@ from cnes_domain.billing.models import BillingEnforcementMode
 from cnes_domain.billing.shadow import NULL_SHADOW_OBSERVER, ShadowEntitlementObserver
 from cnes_domain.profiles import BillingMode, parse_profile
 from cnes_infra.aws import AwsRuntimeSettings
+from cnes_infra.aws.runtime import AwsProcessorCore
 from cnes_infra.billing import BillingGateResources, BillingSettings
 from cnes_infra.billing.dynamodb_catalog import DynamoBillingCatalog
 from cnes_infra.billing.dynamodb_quota import DynamoQuotaReservations
@@ -29,7 +30,7 @@ if TYPE_CHECKING:
     from fastapi import FastAPI
 
     from central_api.composition import RuntimeComponents
-    from cnes_infra.aws.runtime import AwsClients, AwsRuntimeComponents
+    from cnes_infra.aws.runtime import AwsClients
 
 if TYPE_CHECKING:
     from central_api.services.billing_gates import ApiBillingGates
@@ -144,14 +145,14 @@ def test_entitled_serving_access_envolve_o_acesso_local() -> None:
 def test_runtime_aws_envolve_serving_assinado_com_gate() -> None:
     settings = _aws_settings()
     clients = SimpleNamespace(dynamodb=Mock(name="dynamodb"), s3=Mock(name="s3"))
-    core = SimpleNamespace(control_plane=Mock(), object_store=Mock())
+    core = AwsProcessorCore(control_plane=Mock(), object_store=Mock())
     gates = api_billing_gates(
         _billing(BillingMode.DISABLED, BillingEnforcementMode.OFF),
         BillingGateResources(_clock, 4),
     )
 
     services = composition._aws_api_services(
-        settings, cast("AwsClients", clients), cast("AwsRuntimeComponents", core), gates
+        settings, cast("AwsClients", clients), core, gates
     )
 
     assert isinstance(services.serving_access, S3SignedServingAccess)
@@ -200,9 +201,7 @@ def test_runtime_aws_api_usa_o_mesmo_gate_em_runs_serving_e_runtime() -> None:
     clients = SimpleNamespace(
         dynamodb=Mock(name="dynamodb"), s3=Mock(name="s3"), step_functions=Mock(),
     )
-    core = SimpleNamespace(
-        control_plane=Mock(), object_store=Mock(), audit_sink=Mock(),
-    )
+    core = AwsProcessorCore(control_plane=Mock(), object_store=Mock())
     billing = composition._AwsBilling(
         _billing(BillingMode.DISABLED, BillingEnforcementMode.OFF),
         composition.noop_execution_started,
@@ -212,7 +211,7 @@ def test_runtime_aws_api_usa_o_mesmo_gate_em_runs_serving_e_runtime() -> None:
         patch.object(composition, "StepFunctionsExecutor"),
     ):
         runtime = composition._build_aws_api_runtime(
-            settings, cast("AwsClients", clients), cast("AwsRuntimeComponents", core), billing
+            settings, cast("AwsClients", clients), core, billing
         )
 
     gates = cast("ApiBillingGates", runtime.billing_gates)

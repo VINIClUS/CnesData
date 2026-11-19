@@ -1,0 +1,133 @@
+{
+ "input": {
+  "application_promotion": {
+   "account_id": "111122223333",
+   "application_role_arn": "arn:aws:iam::111122223333:role/cnesdata-prod-application",
+   "application_role_name": "cnesdata-prod-application",
+   "caller_by_purpose": {
+    "mode-readiness-drill": {
+     "environment": "production",
+     "ref": "refs/heads/main",
+     "repository": "VINIClUS/CnesData",
+     "workflow_path": ".github/workflows/readiness-production.yml"
+    },
+    "promotion": {
+     "environment": "production",
+     "ref": "refs/heads/main",
+     "repository": "VINIClUS/CnesData",
+     "workflow_path": ".github/workflows/promote-production.yml"
+    }
+   },
+   "delegations": {
+    "fence_operator": "arn:aws:iam::111122223333:role/cnesdata-prod-promotion-fence-operator",
+    "mode_audit_launch": "arn:aws:iam::111122223333:role/cnesdata-prod-mode-audit-launch",
+    "mode_dispatch": "arn:aws:iam::111122223333:role/cnesdata-prod-mode-dispatch",
+    "mode_observe": "arn:aws:iam::111122223333:role/cnesdata-prod-mode-observe",
+    "mode_seed": "arn:aws:iam::111122223333:role/cnesdata-prod-mode-seed",
+    "normal": "arn:aws:iam::111122223333:role/cnesdata-prod-static-normal",
+    "observer": "arn:aws:iam::111122223333:role/cnesdata-prod-static-observer",
+    "recovery": "arn:aws:iam::111122223333:role/cnesdata-prod-static-recovery",
+    "seeder": "arn:aws:iam::111122223333:role/cnesdata-prod-canary-seeder",
+    "verifier": "arn:aws:iam::111122223333:role/cnesdata-prod-canary-verifier"
+   },
+   "enabled_until": "2030-01-01T00:00:00Z",
+   "evidence": {
+    "bucket_arn": "arn:aws:s3:::synthetic-evidence",
+    "kms_key_arn": "arn:aws:kms:us-east-2:111122223333:key/00000000-0000-4000-8000-000000000002",
+    "prefix": "cnesdata/prod/evidence/lifecycle/"
+   },
+   "fragment_version": 4,
+   "lease": {
+    "bucket_arn": "arn:aws:s3:::synthetic-state",
+    "key": "shared/cnesdata-delivery/prod/coordination/cnesdata-prod.lease.json",
+    "kms_key_arn": "arn:aws:kms:us-east-2:111122223333:key/00000000-0000-4000-8000-000000000001"
+   },
+   "policy_sha256": "fab8f192233733cbaa93b39491fdce01a01161803c8f821264d9080f2b32fe9b",
+   "producer": {
+    "repository": "VINIClUS/infra-ansible",
+    "source_closure_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+    "workflow_path": ".github/workflows/reusable-cnesdata-application-gate.yml",
+    "workflow_sha": "6cb0bb2f46007c3679d64f62106ee02bf8758c5d"
+   },
+   "provider_arn": "arn:aws:iam::111122223333:oidc-provider/token.actions.githubusercontent.com",
+   "region": "us-east-2",
+   "trust_sha256": "df80878ae1c71d823701c2ab27546b14099ecd1ea421f1ac3b88d84d538405a9"
+  },
+  "binding": {
+   "generation": 7,
+   "product_source_sha": "1111111111111111111111111111111111111111",
+   "release_id": "r498",
+   "run_attempt": 1,
+   "run_id": 4980001,
+   "shared_source_sha": "6cb0bb2f46007c3679d64f62106ee02bf8758c5d",
+   "static_plan_sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+  },
+  "candidate_keys": [
+   "assets/r498/app.js",
+   "index.html",
+   "theme-init.js"
+  ],
+  "enabled_until": "2029-12-31T00:00:00Z",
+  "inventory_sha256": "7777777777777777777777777777777777777777777777777777777777777777",
+  "mode": "operational",
+  "multipart_keys": [
+   "assets/r498/app.js"
+  ],
+  "retire_versions": [
+   {
+    "key": "assets/r497/app.js",
+    "version_id": "asset-original-497"
+   },
+   {
+    "key": "assets/r496/app.js",
+    "version_id": "asset-original-496"
+   }
+  ],
+  "rollback_versions": [
+   {
+    "key": "index.html",
+    "version_id": "index-original-498"
+   },
+   {
+    "key": "theme-init.js",
+    "version_id": "theme-original-498"
+   }
+  ]
+ },
+ "provenance": {
+  "binding": "binding copied from tests/fixtures/static-promotion-iam/requests.json with shared_source_sha set to the producer sha and enabled_until moved before the fragment expiry",
+  "command": "git -C infra-ansible worktree add --detach <dir> 6cb0bb2f46007c3679d64f62106ee02bf8758c5d && cd <dir> && CNESDATA_TEST_AWS_PROVIDER_DIR=<provider dir> python3 render_fragment.py <dir> 6cb0bb2f46007c3679d64f62106ee02bf8758c5d out.json",
+  "fragment": "application_promotion output of opentofu/cnesdata-delivery rendered by tests/test_cnesdata_delivery_oidc.py::application_values with the overrides below",
+  "overrides": {
+   "source_closure_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+   "workflow_sha": "6cb0bb2f46007c3679d64f62106ee02bf8758c5d"
+  },
+  "producer_repository": "VINIClUS/infra-ansible",
+  "producer_sha": "6cb0bb2f46007c3679d64f62106ee02bf8758c5d",
+  "script": [
+   "import json, os, sys",
+   "sys.path.insert(0, os.path.join(sys.argv[1], \"tests\"))",
+   "sys.path.insert(0, sys.argv[1])",
+   "from tests.test_cnesdata_delivery_oidc import application_values",
+   "from fixtures.cnesdata_delivery_oidc_native import Native",
+   "v = application_values()",
+   "v[\"application_promotion\"][\"workflow_sha\"] = sys.argv[2]",
+   "v[\"application_promotion\"][\"source_closure_sha256\"] = \"4\" * 64",
+   "n = Native()",
+   "code, plans, errors = n.plan(v, \"r3a\")",
+   "assert code == 0, json.dumps(errors, indent=2)",
+   "out = plans[0][\"planned_values\"][\"outputs\"][\"application_promotion\"]",
+   "print(json.dumps(out, indent=1)[:3000])",
+   "json.dump(out, open(sys.argv[3], \"w\"), indent=1)"
+  ],
+  "synthetic": {
+   "account_id": "111122223333",
+   "region": "us-east-2"
+  },
+  "toolchain": "tofu 1.13.9, hashicorp/aws 6.54.0 from a cached provider directory exported as CNESDATA_TEST_AWS_PROVIDER_DIR"
+ },
+ "static_web": {
+  "bucket_arn": "arn:aws:s3:::cnesdata-prod-static-web",
+  "distribution_arn": "arn:aws:cloudfront::111122223333:distribution/ESTATIC498"
+ }
+}

@@ -1,0 +1,189 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.13.2",
+  "variables": {},
+  "resource_changes": [
+    {
+      "address": "aws_s3_bucket.data",
+      "mode": "managed",
+      "type": "aws_s3_bucket",
+      "name": "data",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "bucket": "example-data",
+          "force_destroy": false
+        },
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "aws_acm_certificate.edge",
+      "mode": "managed",
+      "type": "aws_acm_certificate",
+      "name": "edge",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "domain_name": "example.test"
+        },
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "aws_wafv2_web_acl.edge",
+      "mode": "managed",
+      "type": "aws_wafv2_web_acl",
+      "name": "edge",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "name": "example",
+          "scope": "CLOUDFRONT"
+        },
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "aws_ecs_cluster.processor",
+      "mode": "managed",
+      "type": "aws_ecs_cluster",
+      "name": "processor",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "name": "example",
+          "setting": [
+            {
+              "name": "containerInsights",
+              "value": "disabled"
+            }
+          ]
+        },
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "aws_cognito_user_pool.main",
+      "mode": "managed",
+      "type": "aws_cognito_user_pool",
+      "name": "main",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "name": "example",
+          "user_pool_tier": "ESSENTIALS"
+        },
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "aws_dynamodb_table.main",
+      "mode": "managed",
+      "type": "aws_dynamodb_table",
+      "name": "main",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "name": "example",
+          "replica": []
+        },
+        "after_unknown": {}
+      }
+    }
+  ],
+  "configuration": {
+    "provider_config": {
+      "aws": {
+        "name": "aws",
+        "full_name": "registry.opentofu.org/hashicorp/aws",
+        "alias": null,
+        "expressions": {
+          "region": {
+            "constant_value": "us-east-2"
+          }
+        }
+      },
+      "aws.global_edge": {
+        "name": "aws",
+        "full_name": "registry.opentofu.org/hashicorp/aws",
+        "alias": "global_edge",
+        "expressions": {
+          "region": {
+            "constant_value": "us-east-1"
+          }
+        }
+      }
+    },
+    "root_module": {
+      "resources": [
+        {
+          "address": "aws_s3_bucket.data",
+          "mode": "managed",
+          "type": "aws_s3_bucket",
+          "name": "data",
+          "provider_config_key": "aws"
+        },
+        {
+          "address": "aws_acm_certificate.edge",
+          "mode": "managed",
+          "type": "aws_acm_certificate",
+          "name": "edge",
+          "provider_config_key": "aws.global_edge"
+        },
+        {
+          "address": "aws_wafv2_web_acl.edge",
+          "mode": "managed",
+          "type": "aws_wafv2_web_acl",
+          "name": "edge",
+          "provider_config_key": "aws.global_edge"
+        },
+        {
+          "address": "aws_ecs_cluster.processor",
+          "mode": "managed",
+          "type": "aws_ecs_cluster",
+          "name": "processor",
+          "provider_config_key": "aws"
+        },
+        {
+          "address": "aws_cognito_user_pool.main",
+          "mode": "managed",
+          "type": "aws_cognito_user_pool",
+          "name": "main",
+          "provider_config_key": "aws"
+        },
+        {
+          "address": "aws_dynamodb_table.main",
+          "mode": "managed",
+          "type": "aws_dynamodb_table",
+          "name": "main",
+          "provider_config_key": "aws"
+        }
+      ]
+    }
+  }
+}

@@ -86,7 +86,7 @@ def _case_authorization_jobs(adapter: Any, clock: MutableClock) -> None:
     adapter.put_agent(_agent("agent-a", AgentState.REVOKED))
     created_event = _event("job-created")
     adapter.create_job(_job("job-a"), created_event)
-    assert adapter.pending_outbox(100).count(created_event) == 1
+    assert adapter.read_outbox_page(None, 100).events.count(created_event) == 1
     assert adapter.list_claimable_jobs(_TENANT, "agent-a", 10) == ()
     assert adapter.claim_job(_claim_job("job-a", "worker-a", clock)) is None
     adapter.put_agent(_agent("agent-a"))
@@ -229,7 +229,7 @@ def _case_degraded_unit(adapter: Any, clock: MutableClock) -> None:
     assert (failed.lease_owner, failed.lease_until) == (None, None)
     assert adapter.list_run_units(_TENANT, "run-a")[0] == failed
     assert adapter.get_run(_TENANT, "run-a").missing_sources == ("CNES/ST",)
-    assert adapter.pending_outbox(100).count(event) == 1
+    assert adapter.read_outbox_page(None, 100).events.count(event) == 1
 
 def _case_cancellation(adapter: Any, clock: MutableClock) -> None:
     adapter.put_run(_run("run-a"))
@@ -245,16 +245,17 @@ def _case_cancellation(adapter: Any, clock: MutableClock) -> None:
         canceled_at=clock.now())
     event = _event("run-canceled")
     before = (adapter.get_run(_TENANT, "run-a"), adapter.list_run_units(_TENANT, "run-a"),
-              adapter.pending_outbox(100))
+              adapter.read_outbox_page(None, 100).events)
     _expect_error(Conflict, lambda: adapter.finalize_run_cancellation(command, event))
     assert before == (adapter.get_run(_TENANT, "run-a"),
-                      adapter.list_run_units(_TENANT, "run-a"), adapter.pending_outbox(100))
+                      adapter.list_run_units(_TENANT, "run-a"),
+                      adapter.read_outbox_page(None, 100).events)
     requested_event = _event("run-cancel-requested")
     adapter.transition_run(
         TransitionRun(
             tenant_id=_TENANT, run_id="run-a", expected_state=RunState.PROCESSING,
             new_state=RunState.CANCEL_REQUESTED), requested_event)
-    assert adapter.pending_outbox(100).count(requested_event) == 1
+    assert adapter.read_outbox_page(None, 100).events.count(requested_event) == 1
     result = adapter.finalize_run_cancellation(command, event)
     assert result.state is RunState.CANCELED
     assert adapter.get_run(_TENANT, "run-a") == result
@@ -264,7 +265,7 @@ def _case_cancellation(adapter: Any, clock: MutableClock) -> None:
     assert states["unit-b"] == states["unit-c"] == (RunUnitState.CANCELED, None, None)
     assert set(states) == {"unit-a", "unit-b", "unit-c"}
     assert adapter.finalize_run_cancellation(command, event) == result
-    assert adapter.pending_outbox(10).count(event) == 1
+    assert adapter.read_outbox_page(None, 10).events.count(event) == 1
 def _case_dispatch(adapter: Any, clock: MutableClock) -> None:
     dispatch = _prepare_unit(adapter, clock)
     assert _reserve(adapter, clock) == dispatch
@@ -386,14 +387,14 @@ def _case_publication(adapter: Any, clock: MutableClock) -> None:
     assert adapter.get_dataset_pointer(_TENANT, "gold") == pointer
     assert adapter.get_run(_TENANT, "run-a").state is RunState.PUBLISHED
     assert adapter.publish_dataset(first) == pointer
-    assert adapter.pending_outbox(10).count(first.event) == 1
+    assert adapter.read_outbox_page(None, 10).events.count(first.event) == 1
     adapter.put_run(_run("run-c"))
     invalid_parent = _publish("run-c", "published-c", "run-a", False)
     before = (adapter.get_dataset_pointer(_TENANT, "gold"),
-              adapter.get_run(_TENANT, "run-c"), adapter.pending_outbox(100))
+              adapter.get_run(_TENANT, "run-c"), adapter.read_outbox_page(None, 100).events)
     _expect_error(Conflict, lambda: adapter.publish_dataset(invalid_parent))
     after = (adapter.get_dataset_pointer(_TENANT, "gold"),
-             adapter.get_run(_TENANT, "run-c"), adapter.pending_outbox(100))
+             adapter.get_run(_TENANT, "run-c"), adapter.read_outbox_page(None, 100).events)
     assert after == before
     assert adapter.get_dataset_version(_TENANT, "gold", "run-c") is None
     changed = first.model_copy(update={"version": first.version.model_copy(update={
@@ -405,13 +406,13 @@ def _case_publication(adapter: Any, clock: MutableClock) -> None:
     _expect_error(Conflict, lambda: adapter.publish_dataset(conflict))
     assert adapter.get_dataset_version(_TENANT, "gold", "run-b") is None
     assert adapter.get_run(_TENANT, "run-b").state is RunState.PUBLISHING
-    assert conflict.event not in adapter.pending_outbox(10)
+    assert conflict.event not in adapter.read_outbox_page(None, 10).events
     success = conflict.model_copy(update={"expected_version_id": "run-a"})
     degraded_pointer = adapter.publish_dataset(success)
     assert degraded_pointer.version_id == "run-b"
     assert adapter.get_dataset_pointer(_TENANT, "gold") == degraded_pointer
     assert adapter.get_dataset_version(_TENANT, "gold", "run-b") == success.version
-    assert adapter.pending_outbox(100).count(success.event) == 1
+    assert adapter.read_outbox_page(None, 100).events.count(success.event) == 1
     run = adapter.get_run(_TENANT, "run-b")
     assert run.state is RunState.PUBLISHED_DEGRADED
     assert run.missing_sources == ("CNES/ST",)

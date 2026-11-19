@@ -1,0 +1,158 @@
+{
+  "first": {
+    "UserPools": [
+      {
+        "Id": "us-east-2_a1b2c3d4",
+        "Name": "cnesdata-cap-a1b2c3d4",
+        "CreationDate": 1730000000.0,
+        "LastModifiedDate": 1730000100.0,
+        "LambdaConfig": {},
+        "Status": "Enabled"
+      },
+      {
+        "Id": "us-east-2_legacy99",
+        "Name": "legacy-pool",
+        "CreationDate": 1720000000.0,
+        "LastModifiedDate": 1720000100.0,
+        "LambdaConfig": {}
+      }
+    ],
+    "NextToken": "pool-next"
+  },
+  "second": {
+    "UserPools": [
+      {
+        "Id": "us-east-2_production",
+        "Name": "production-pool",
+        "CreationDate": 1710000000.0,
+        "LastModifiedDate": 1710000100.0,
+        "LambdaConfig": {}
+      }
+    ]
+  },
+  "empty_inventory": {"UserPools": []},
+  "empty_with_next": {"UserPools": [], "NextToken": "pool-next"},
+  "repeat": {"UserPools": [], "NextToken": "pool-next"},
+  "cycle_second": {"UserPools": [], "NextToken": "pool-other"},
+  "missing_pools": {},
+  "bad_pools": {"UserPools": "pool"},
+  "bad_pool_entry": {"UserPools": [{"Id": "us-east-2_bad"}]},
+  "empty_id": {"UserPools": [{"Id": "", "Name": "pool"}]},
+  "empty_name": {"UserPools": [{"Id": "us-east-2_pool", "Name": ""}]},
+  "empty_token": {"UserPools": [], "NextToken": ""},
+  "token_number": {"UserPools": [], "NextToken": 1},
+  "token_null": {"UserPools": [], "NextToken": null},
+  "token_list": {"UserPools": [], "NextToken": ["R1_PRIVATE_CANARY"]},
+  "extra_field": {"UserPools": [], "Unexpected": "R1_PRIVATE_CANARY"},
+  "describe": {
+    "UserPool": {
+      "Id": "us-east-2_a1b2c3d4",
+      "Name": "cnesdata-cap-a1b2c3d4",
+      "Arn": "arn:aws:cognito-idp:us-east-2:111111111111:userpool/us-east-2_a1b2c3d4",
+      "CreationDate": 1730000000.0,
+      "LastModifiedDate": 1730000100.0,
+      "LambdaConfig": {},
+      "Status": "Enabled"
+    }
+  },
+  "describe_aws_assigned": {
+    "UserPool": {
+      "Id": "us-east-2_7f9x2m4q",
+      "Name": "aws-assigned-pool",
+      "Arn": "arn:aws:cognito-idp:us-east-2:111111111111:userpool/us-east-2_7f9x2m4q"
+    }
+  },
+  "describe_legacy": {
+    "UserPool": {
+      "Id": "us-east-2_legacy99",
+      "Name": "legacy-pool",
+      "Arn": "arn:aws:cognito-idp:us-east-2:111111111111:userpool/us-east-2_legacy99"
+    }
+  },
+  "wrong_account": {
+    "UserPool": {
+      "Id": "us-east-2_a1b2c3d4",
+      "Name": "cnesdata-cap-a1b2c3d4",
+      "Arn": "arn:aws:cognito-idp:us-east-2:222222222222:userpool/us-east-2_a1b2c3d4"
+    }
+  },
+  "wrong_region": {
+    "UserPool": {
+      "Id": "us-east-2_a1b2c3d4",
+      "Name": "cnesdata-cap-a1b2c3d4",
+      "Arn": "arn:aws:cognito-idp:us-west-2:111111111111:userpool/us-east-2_a1b2c3d4"
+    }
+  },
+  "wrong_service": {
+    "UserPool": {
+      "Id": "us-east-2_a1b2c3d4",
+      "Name": "cnesdata-cap-a1b2c3d4",
+      "Arn": "arn:aws:s3:us-east-2:111111111111:userpool/us-east-2_a1b2c3d4"
+    }
+  },
+  "wrong_id": {
+    "UserPool": {
+      "Id": "us-east-2_foreign",
+      "Name": "cnesdata-cap-a1b2c3d4",
+      "Arn": "arn:aws:cognito-idp:us-east-2:111111111111:userpool/us-east-2_a1b2c3d4"
+    }
+  },
+  "wrong_name": {
+    "UserPool": {
+      "Id": "us-east-2_a1b2c3d4",
+      "Name": "foreign-pool",
+      "Arn": "arn:aws:cognito-idp:us-east-2:111111111111:userpool/us-east-2_a1b2c3d4"
+    }
+  },
+  "wrong_arn": {
+    "UserPool": {
+      "Id": "us-east-2_a1b2c3d4",
+      "Name": "cnesdata-cap-a1b2c3d4",
+      "Arn": "arn:aws:cognito-idp:us-east-2:111111111111:userpool/foreign"
+    }
+  },
+  "missing_id": {"UserPool": {"Name": "cnesdata-cap-a1b2c3d4", "Arn": "x"}},
+  "missing_name": {"UserPool": {"Id": "us-east-2_a1b2c3d4", "Arn": "x"}},
+  "missing_arn": {
+    "UserPool": {"Id": "us-east-2_a1b2c3d4", "Name": "cnesdata-cap-a1b2c3d4"}
+  },
+  "empty": {},
+  "bad_pool_type": {"UserPool": []},
+  "tags": {
+    "Tags": {
+      "Project": "CnesData",
+      "Purpose": "aws-capability",
+      "Run": "a1b2c3d4",
+      "ExpiresAt": "1060"
+    }
+  },
+  "tags_aws_assigned": {
+    "Tags": {
+      "Project": "CnesData",
+      "Purpose": "aws-capability",
+      "Run": "a1b2c3d4"
+    }
+  },
+  "tags_legacy": {
+    "Tags": {
+      "Project": "legacy-system",
+      "Purpose": "imported"
+    }
+  },
+  "tags_removed": {"Tags": {"Project": "CnesData"}},
+  "tags_empty": {"Tags": {"Optional": ""}},
+  "tags_missing": {},
+  "tags_object": {"Tags": []},
+  "tags_null": {"Tags": null},
+  "tags_string": {"Tags": "R1_PRIVATE_CANARY"},
+  "tags_key_number": {"Tags": {"Project": 1}},
+  "tags_value_object": {"Tags": {"Project": {"private": "R1_PRIVATE_CANARY"}}},
+  "tags_value_null": {"Tags": {"Project": null}},
+  "private_arn": {
+    "UserPool": {
+      "Id": "us-east-2_a1b2c3d4",
+      "Name": "cnesdata-cap-a1b2c3d4",
+      "Arn": "arn:aws:cognito-idp:us-east-2:111111111111:userpool/R1_PRIVATE_CANARY"
+    }
+  }
+}

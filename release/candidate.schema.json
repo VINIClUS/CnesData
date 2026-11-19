@@ -1,0 +1,346 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Candidato de produção sem revisões ECS",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "repository",
+    "source_sha",
+    "release_id",
+    "created_at",
+    "expires_at",
+    "verification",
+    "pull_request",
+    "expected_ecr_repository",
+    "images",
+    "dashboard_sha256",
+    "config_sha256",
+    "compose_sha256",
+    "locks",
+    "ecr_source_sha256",
+    "artifacts"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "type": "integer"
+    },
+    "repository": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+    },
+    "source_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "release_id": {
+      "type": "string",
+      "pattern": "^candidate-[0-9a-f]{40}-[1-9][0-9]*-[1-9][0-9]*$"
+    },
+    "created_at": {
+      "type": "string",
+      "pattern": "^20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "expires_at": {
+      "type": "string",
+      "pattern": "^20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "attempt",
+        "check_suite_id",
+        "completed_at"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "check_suite_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "completed_at": {
+          "type": "string",
+          "pattern": "^20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+        }
+      }
+    },
+    "pull_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "number",
+        "head_sha",
+        "merged_at",
+        "checks"
+      ],
+      "properties": {
+        "number": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "head_sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "merged_at": {
+          "type": "string",
+          "pattern": "^20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+        },
+        "checks": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "lint-test-coverage",
+            "sonar",
+            "dependencies",
+            "config",
+            "image (central_api)",
+            "image (data_processor)",
+            "image (cnes_db_migrator)",
+            "image (web_dashboard)",
+            "production-runtime-acceptance",
+            "opentofu-native"
+          ],
+          "properties": {
+            "lint-test-coverage": {
+              "$ref": "#/$defs/check"
+            },
+            "sonar": {
+              "$ref": "#/$defs/check"
+            },
+            "dependencies": {
+              "$ref": "#/$defs/check"
+            },
+            "config": {
+              "$ref": "#/$defs/check"
+            },
+            "image (central_api)": {
+              "$ref": "#/$defs/check"
+            },
+            "image (data_processor)": {
+              "$ref": "#/$defs/check"
+            },
+            "image (cnes_db_migrator)": {
+              "$ref": "#/$defs/check"
+            },
+            "image (web_dashboard)": {
+              "$ref": "#/$defs/check"
+            },
+            "production-runtime-acceptance": {
+              "$ref": "#/$defs/check"
+            },
+            "opentofu-native": {
+              "$ref": "#/$defs/check"
+            }
+          }
+        }
+      }
+    },
+    "expected_ecr_repository": {
+      "type": "string",
+      "const": "cnesdata-prod-processor"
+    },
+    "images": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "central_api",
+        "data_processor"
+      ],
+      "properties": {
+        "central_api": {
+          "$ref": "#/$defs/image"
+        },
+        "data_processor": {
+          "$ref": "#/$defs/image"
+        }
+      }
+    },
+    "dashboard_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "config_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "compose_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "locks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "opentofu",
+        "python",
+        "dashboard"
+      ],
+      "properties": {
+        "opentofu": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "python": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "dashboard": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "ecr_source_sha256": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "infra/opentofu/env/prod/providers.tf",
+        "infra/opentofu/env/prod/main.tf",
+        "infra/opentofu/modules/processor-registry/main.tf"
+      ],
+      "properties": {
+        "infra/opentofu/env/prod/providers.tf": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "infra/opentofu/env/prod/main.tf": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "infra/opentofu/modules/processor-registry/main.tf": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "production-config",
+        "production-dashboard",
+        "production-oci-central_api",
+        "production-oci-data_processor",
+        "production-published-central_api",
+        "production-published-data_processor"
+      ],
+      "properties": {
+        "production-config": {
+          "$ref": "#/$defs/artifact"
+        },
+        "production-dashboard": {
+          "$ref": "#/$defs/artifact"
+        },
+        "production-oci-central_api": {
+          "$ref": "#/$defs/artifact"
+        },
+        "production-oci-data_processor": {
+          "$ref": "#/$defs/artifact"
+        },
+        "production-published-central_api": {
+          "$ref": "#/$defs/artifact"
+        },
+        "production-published-data_processor": {
+          "$ref": "#/$defs/artifact"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "completed_at"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "completed_at": {
+          "type": "string",
+          "pattern": "^20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+        }
+      }
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "image",
+        "config_digest",
+        "image_archive_sha256",
+        "sbom_sha256"
+      ],
+      "properties": {
+        "image": {
+          "type": "string",
+          "pattern": "^ghcr\\.io/[a-z0-9_.-]+/[a-z0-9_.-]+/(central_api|data_processor)@sha256:[0-9a-f]{64}$"
+        },
+        "config_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "image_archive_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "sbom_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "sha256",
+        "expires_at",
+        "source_sha",
+        "run_id",
+        "run_attempt"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "expires_at": {
+          "type": "string",
+          "pattern": "^20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+        },
+        "source_sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "run_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "run_attempt": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  }
+}

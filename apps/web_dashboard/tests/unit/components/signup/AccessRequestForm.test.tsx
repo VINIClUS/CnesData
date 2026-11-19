@@ -5,6 +5,7 @@ import { http, HttpResponse } from "msw";
 import { describe, expect, test, vi } from "vitest";
 
 import { server } from "../../../mocks/server";
+import { LegacySession } from "../../helpers/LegacySession";
 
 import { AccessRequestForm } from "@/components/signup/AccessRequestForm";
 
@@ -14,7 +15,11 @@ vi.mock("@/auth/oidc", () => ({
 
 function wrap(ui: React.ReactNode) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>);
+  return render(
+    <QueryClientProvider client={qc}>
+      <LegacySession>{ui}</LegacySession>
+    </QueryClientProvider>,
+  );
 }
 
 describe("AccessRequestForm", () => {

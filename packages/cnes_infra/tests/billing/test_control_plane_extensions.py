@@ -163,7 +163,7 @@ def test_grava_idempotencia_e_evento_de_run_autorizado(env: Env) -> None:
 
     key = idempotency_key(TENANT, "billing.quota.run", "req-01")
     assert read_item(env, key) is not None
-    (event,) = env.plane.pending_outbox(10)
+    (event,) = env.plane.read_outbox_page(None, 10).events
     assert event.event_type == "run.authorized"
     assert event.aggregate_id == "run-01"
     assert event.payload["plan_version_id"] == "plan_v1"
@@ -212,7 +212,7 @@ def test_run_existente_sob_outra_chave_e_conflito_sem_gravar_nada(env: Env) -> N
     assert error.value.code == "run_conflict"
     assert env.plane.get_run_billing_state(TENANT, "run-01") is None
     assert read_item(env, idempotency_key(TENANT, "billing.quota.run", "req-01")) is None
-    assert env.plane.pending_outbox(10) == ()
+    assert env.plane.read_outbox_page(None, 10).events == ()
 
 
 def test_perda_de_condicao_sem_colisao_e_contencao_retentavel(env: Env) -> None:

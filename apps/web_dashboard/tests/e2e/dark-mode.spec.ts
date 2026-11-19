@@ -1,37 +1,44 @@
 import { expect, test } from "@playwright/test";
 
-test.beforeEach(async ({ context }) => {
-  await context.route("**/api/v1/dashboard/auth/me", (r) =>
-    r.fulfill({
-      json: {
-        user_id: "u-1",
-        email: "g@m",
-        display_name: "G",
-        role: "gestor",
-        tenant_ids: ["354130"],
-        has_pending_request: false,
-      },
-    }),
-  );
-  await context.route("**/api/v1/dashboard/tenants", (r) =>
-    r.fulfill({
-      json: [{ ibge6: "354130", ibge7: "3541308", nome: "Presidente Epitácio", uf: "SP" }],
-    }),
-  );
-});
+import { authenticatedJson } from "./fixtures/api";
+import { test as authenticatedTest } from "./fixtures/oidc";
 
-test("toggle_muda_classe_html_para_dark", async ({ page }) => {
-  await page.goto("/agentes");
-  await page.getByRole("button", { name: /Tema Escuro/ }).click();
-  const hasDark = await page.evaluate(() => document.documentElement.classList.contains("dark"));
-  expect(hasDark).toBe(true);
-});
+authenticatedTest.describe("tema autenticado", () => {
+  authenticatedTest.beforeEach(async ({ context, page, oidc }) => {
+    await context.route("**/api/v1/dashboard/auth/me", (r) =>
+      authenticatedJson(r, {
+        json: {
+          user_id: "u-1",
+          email: "g@m",
+          display_name: "G",
+          role: "gestor",
+          tenant_ids: ["354130"],
+          has_pending_request: false,
+        },
+      }),
+    );
+    await context.route("**/api/v1/dashboard/tenants", (r) =>
+      authenticatedJson(r, {
+        json: [{ ibge6: "354130", ibge7: "3541308", nome: "Presidente Epitácio", uf: "SP" }],
+      }),
+    );
+    await oidc.login(page);
+    await expect(page).toHaveURL(/\/agentes$/);
+  });
 
-test("preferencia_persiste_em_localStorage", async ({ page }) => {
-  await page.goto("/agentes");
-  await page.getByRole("button", { name: /Tema Escuro/ }).click();
-  const stored = await page.evaluate(() => localStorage.getItem("cnesdata-theme"));
-  expect(stored).toBe("dark");
+  authenticatedTest("toggle_muda_classe_html_para_dark", async ({ page }) => {
+    await page.goto("/agentes");
+    await page.getByRole("button", { name: /Tema Escuro/ }).click();
+    const hasDark = await page.evaluate(() => document.documentElement.classList.contains("dark"));
+    expect(hasDark).toBe(true);
+  });
+
+  authenticatedTest("preferencia_persiste_em_localStorage", async ({ page }) => {
+    await page.goto("/agentes");
+    await page.getByRole("button", { name: /Tema Escuro/ }).click();
+    const stored = await page.evaluate(() => localStorage.getItem("cnesdata-theme"));
+    expect(stored).toBe("dark");
+  });
 });
 
 test("tema_dark_aplicado_pelo_script_externo_antes_da_hidratacao", async ({ context, page }) => {

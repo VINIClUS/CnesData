@@ -118,7 +118,7 @@ class Env:
         return usage_counter(self.stored(capacity_usage_key(ACCOUNT)), "tenant_count")
 
     def outbox_types(self) -> set[str]:
-        return {event.event_type for event in self.plane.pending_outbox(100)}
+        return {event.event_type for event in self.plane.read_outbox_page(None, 100).events}
 
 
 @contextmanager

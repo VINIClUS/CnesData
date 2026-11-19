@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 from hashlib import sha256
 from hmac import compare_digest
@@ -19,11 +19,19 @@ from starlette.requests import Request  # noqa: TC002 - needed at runtime by Fas
 from central_api.billing_deps import install_billing
 from central_api.composition import build_runtime
 from central_api.middleware import AuthenticatedUser
-from cnes_domain.outbox_dispatcher import dispatch_once
 from cnes_domain.tenant import set_tenant_id
 from cnes_infra import config
 from cnes_infra.auth.oidc import OidcVerifier
-from cnes_infra.aws import AwsRuntimeConfigurationError, AwsRuntimeSettings
+from cnes_infra.aws import (
+    AwsRuntimeConfigurationError,
+    AwsRuntimeSettings,
+    CredentialAdoption,
+    register_signing_observer,
+    require_process_credentials,
+    watch_credentials,
+)
+from cnes_infra.aws.settings import production_policy_enabled
+from cnes_infra.observability.json_logging import configure_json_stdout
 from cnes_infra.storage.query_counter import install_query_counter
 from cnes_infra.storage.rls import install_rls_listener
 from cnes_infra.telemetry import instrument_engine
@@ -36,7 +44,6 @@ if TYPE_CHECKING:
 
     from central_api.composition import AwsApiServices, RuntimeComponents
     from central_api.routes.serving import ServingPrincipal
-    from cnes_domain.outbox_dispatcher import DispatchResult
     from cnes_domain.ports.control_plane import ControlPlanePort, TypedRawQueryPort
     from cnes_domain.profiles import ProfileSettings
     from cnes_infra.auth.local_auth import LocalAuthService
@@ -47,7 +54,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _engine: Engine | None = None
-_OUTBOX_INTERVAL = 30
 _OIDC_HTTP_TIMEOUT_SECONDS = 5.0
 
 
@@ -300,30 +306,38 @@ def _install_aws_serving(app: FastAPI, runtime: RuntimeComponents) -> None:
     app.dependency_overrides[serving.get_serving_delivery] = lambda: delivery
 
 
-def _dispatch_outbox(runtime: RuntimeComponents) -> DispatchResult:
-    return dispatch_once(runtime.control_plane, runtime.audit_sink, _utc_now())
+def _adopt_process_credentials(app: FastAPI, session: Session) -> CredentialAdoption:
+    adoption = CredentialAdoption(require_process_credentials(session))
+    # Clients copy the session event emitter on creation: the observer must precede them.
+    register_signing_observer(session, adoption)
+    adoption.observe()
+    app.state.aws_credential_adoption = adoption
+    return adoption
 
 
-async def _outbox_dispatch_loop(runtime: RuntimeComponents) -> None:
-    loop = asyncio.get_running_loop()
-    while True:
-        await asyncio.sleep(_OUTBOX_INTERVAL)
-        try:
-            result = await loop.run_in_executor(None, _dispatch_outbox, runtime)
-        except Exception:
-            logger.exception("outbox_dispatch_error")
-            continue
-        if result.delivered or result.failed:
-            logger.info(
-                "outbox_dispatched delivered=%d failed=%d", result.delivered, result.failed,
-            )
+def _start_watcher(adoption: CredentialAdoption | None) -> asyncio.Task[None] | None:
+    if adoption is None:
+        return None
+    return asyncio.create_task(watch_credentials(adoption))
+
+
+async def _stop_watcher(watcher: asyncio.Task[None] | None) -> None:
+    if watcher is None:
+        return
+    watcher.cancel()
+    with suppress(asyncio.CancelledError):
+        await watcher
 
 
 @asynccontextmanager
 async def _aws_lifespan(app: FastAPI) -> AsyncGenerator[None]:
+    production = production_policy_enabled(os.environ)
+    if production:
+        configure_json_stdout("central-api")
     _reject_raw_backend(os.environ)
     settings = AwsRuntimeSettings.from_mapping(os.environ)
     session = Session(region_name=settings.region)
+    adoption = _adopt_process_credentials(app, session) if production else None
     runtime = build_runtime("aws", os.environ, session)
     install_billing(app, runtime, session)
     http_client = httpx.Client(timeout=_OIDC_HTTP_TIMEOUT_SECONDS)
@@ -332,13 +346,13 @@ async def _aws_lifespan(app: FastAPI) -> AsyncGenerator[None]:
         settings.oidc_issuer, settings.oidc_audience, http_client,
     )
     _install_aws_serving(app, runtime)
-    dispatcher = asyncio.create_task(_outbox_dispatch_loop(runtime))
     logger.info("aws_profile_composed region=%s", settings.region)
+    watcher = _start_watcher(adoption)
     try:
         yield
     finally:
-        dispatcher.cancel()
         http_client.close()
+        await _stop_watcher(watcher)
 
 
 def _build_legacy_state(app: FastAPI) -> Engine:

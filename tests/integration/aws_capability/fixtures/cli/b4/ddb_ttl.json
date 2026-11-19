@@ -1,0 +1,225 @@
+{
+  "steps": [
+    {
+      "request": [
+        "dynamodb",
+        "put-item",
+        "us-east-2",
+        {
+          "TableName": "cnesdata-cap-a1b2c3d4",
+          "Item": {
+            "pk": {
+              "S": "cap#a1b2c3d4#ttl"
+            },
+            "sk": {
+              "S": "expired"
+            },
+            "expires_at": {
+              "N": "1999996400"
+            }
+          }
+        }
+      ],
+      "reply": {
+        "exit": 0,
+        "data": {
+          "Private": "R1_PRIVATE_CANARY"
+        }
+      }
+    },
+    {
+      "request": [
+        "dynamodb",
+        "put-item",
+        "us-east-2",
+        {
+          "TableName": "cnesdata-cap-a1b2c3d4",
+          "Item": {
+            "pk": {
+              "S": "cap#a1b2c3d4#ttl"
+            },
+            "sk": {
+              "S": "current"
+            },
+            "expires_at": {
+              "N": "2000003600"
+            }
+          }
+        }
+      ],
+      "reply": {
+        "exit": 0,
+        "data": {
+          "Private": "R1_PRIVATE_CANARY"
+        }
+      }
+    },
+    {
+      "request": [
+        "dynamodb",
+        "get-item",
+        "us-east-2",
+        {
+          "TableName": "cnesdata-cap-a1b2c3d4",
+          "Key": {
+            "pk": {
+              "S": "cap#a1b2c3d4#ttl"
+            },
+            "sk": {
+              "S": "expired"
+            }
+          },
+          "ConsistentRead": true
+        }
+      ],
+      "reply": {
+        "exit": 0,
+        "data": {
+          "Item": {
+            "pk": {
+              "S": "cap#a1b2c3d4#ttl"
+            },
+            "sk": {
+              "S": "expired"
+            },
+            "expires_at": {
+              "N": "1999996400"
+            }
+          },
+          "Private": "R1_PRIVATE_CANARY"
+        }
+      }
+    },
+    {
+      "request": [
+        "dynamodb",
+        "get-item",
+        "us-east-2",
+        {
+          "TableName": "cnesdata-cap-a1b2c3d4",
+          "Key": {
+            "pk": {
+              "S": "cap#a1b2c3d4#ttl"
+            },
+            "sk": {
+              "S": "current"
+            }
+          },
+          "ConsistentRead": true
+        }
+      ],
+      "reply": {
+        "exit": 0,
+        "data": {
+          "Item": {
+            "pk": {
+              "S": "cap#a1b2c3d4#ttl"
+            },
+            "sk": {
+              "S": "current"
+            },
+            "expires_at": {
+              "N": "2000003600"
+            }
+          },
+          "Private": "R1_PRIVATE_CANARY"
+        }
+      }
+    },
+    {
+      "request": [
+        "dynamodb",
+        "query",
+        "us-east-2",
+        {
+          "TableName": "cnesdata-cap-a1b2c3d4",
+          "KeyConditionExpression": "#pk=:pk",
+          "ExpressionAttributeNames": {
+            "#pk": "pk"
+          },
+          "ExpressionAttributeValues": {
+            ":pk": {
+              "S": "cap#a1b2c3d4#ttl"
+            }
+          },
+          "ConsistentRead": true,
+          "Limit": 2
+        }
+      ],
+      "reply": {
+        "exit": 0,
+        "data": {
+          "Items": [
+            {
+              "pk": {
+                "S": "cap#a1b2c3d4#ttl"
+              },
+              "sk": {
+                "S": "expired"
+              },
+              "expires_at": {
+                "N": "1999996400"
+              }
+            },
+            {
+              "pk": {
+                "S": "cap#a1b2c3d4#ttl"
+              },
+              "sk": {
+                "S": "current"
+              },
+              "expires_at": {
+                "N": "2000003600"
+              }
+            }
+          ],
+          "Count": 0,
+          "Private": "R1_PRIVATE_CANARY"
+        }
+      }
+    },
+    {
+      "request": [
+        "dynamodb",
+        "scan",
+        "us-east-2",
+        {
+          "TableName": "cnesdata-cap-a1b2c3d4",
+          "ConsistentRead": true,
+          "Limit": 2
+        }
+      ],
+      "reply": {
+        "exit": 0,
+        "data": {
+          "Items": [
+            {
+              "pk": {
+                "S": "cap#a1b2c3d4#ttl"
+              },
+              "sk": {
+                "S": "expired"
+              },
+              "expires_at": {
+                "N": "1999996400"
+              }
+            },
+            {
+              "pk": {
+                "S": "cap#a1b2c3d4#ttl"
+              },
+              "sk": {
+                "S": "current"
+              },
+              "expires_at": {
+                "N": "2000003600"
+              }
+            }
+          ],
+          "Count": 0,
+          "Private": "R1_PRIVATE_CANARY"
+        }
+      }
+    }
+  ]
+}

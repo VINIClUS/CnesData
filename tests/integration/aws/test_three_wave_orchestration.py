@@ -32,7 +32,6 @@ from tests.integration.aws._harness import (
 
 if TYPE_CHECKING:
     from cnes_domain.ports.control_plane import ControlPlanePort
-    from data_processor.composition import AwsProcessorServices
     from tests.integration.aws._harness import AwsTestRuntime
 
 pytestmark = [pytest.mark.dynamodb_local, pytest.mark.s3_integration]
@@ -71,7 +70,7 @@ def test_terminal_sem_claim_retry_mantem_wave_e_avanca_dispatch(
     assert {unit.state for unit in units_of(aws_runtime, run)} == {RunUnitState.PENDING}
     aws_runtime.step_functions.set_status(cast("str", first.execution_ref), "FAILED")
 
-    cast("AwsProcessorServices", aws_runtime.processor.services).recovery.run_once(limit=10)
+    aws_runtime.processor.recovery.run_once(limit=10)
 
     retry = active_dispatch(aws_runtime, run)
     assert (retry.wave_id, retry.unit_ids) == (first.wave_id, first.unit_ids)
@@ -107,7 +106,7 @@ def test_bind_dispatch_falha_cancela_ref_e_recovery_cria_geracao_nova(
     assert (failed.state, failed.terminal_outcome, failed.execution_ref) == (
         DispatchState.TERMINAL, DispatchOutcome.CANCELED, None,
     )
-    cast("AwsProcessorServices", aws_runtime.processor.services).recovery.run_once(limit=10)
+    aws_runtime.processor.recovery.run_once(limit=10)
     recovered = active_dispatch(aws_runtime, run)
     assert (recovered.wave_id, recovered.generation) == (failed.wave_id, failed.generation + 1)
     assert recovered.dispatch_id != failed.dispatch_id

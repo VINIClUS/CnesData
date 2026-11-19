@@ -32,12 +32,17 @@ def dispatch_once(
 
     delivered = 0
     failed = 0
-    for event in control_plane.pending_outbox(limit):
+    page = control_plane.read_outbox_page(None, limit)
+    for event in page.events:
         try:
+            current = control_plane.get_outbox_event(event.event_id)
+            if current is None or current != event or current.delivered_at is not None:
+                continue
             sink.append(event)
             control_plane.mark_outbox_delivered(event.event_id, now)
         except Exception:
             failed += 1
             continue
         delivered += 1
+    control_plane.advance_outbox_cursor(page.expected, page.next_cursor)
     return DispatchResult(delivered=delivered, failed=failed)

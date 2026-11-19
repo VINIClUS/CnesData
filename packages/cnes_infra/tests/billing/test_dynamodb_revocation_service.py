@@ -204,7 +204,7 @@ def snapshot_of(env: RevEnv) -> Any:
 
 
 def outbox_events(env: RevEnv, event_type: str) -> list[Any]:
-    return [e for e in env.plane.pending_outbox(500) if e.event_type == event_type]
+    return [e for e in env.plane.read_outbox_page(None, 500).events if e.event_type == event_type]
 
 
 def assert_run_canceled(env: RevEnv, run_id: str, dispatch: RunDispatch) -> None:
@@ -242,7 +242,7 @@ def assert_outbox(env: RevEnv, version: int) -> None:
     assert {e.aggregate_id for e in canceled} == {RUN_ID, SECOND_RUN}
     for event in (*fences, *canceled):
         assert event.payload["reason_code"] == "revoked"
-    for event in env.plane.pending_outbox(500):
+    for event in env.plane.read_outbox_page(None, 500).events:
         if event.tenant_id == TENANT:
             assert "fraud_confirmed" not in json.dumps(event.payload)
 

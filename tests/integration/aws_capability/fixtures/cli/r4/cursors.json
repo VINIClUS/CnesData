@@ -1,0 +1,160 @@
+{
+  "valid": {
+    "v": 1,
+    "run": "a1b2c3d4",
+    "service": "iam",
+    "parent": null,
+    "kind": "iam.roles",
+    "markers": {
+      "Marker": "role-next"
+    },
+    "seen": [
+      "a6feea9b7323ab067a1fe779e154110a943899996f578c24158b72f63b18318f"
+    ]
+  },
+  "cycle": {
+    "v": 1,
+    "run": "a1b2c3d4",
+    "service": "iam",
+    "parent": null,
+    "kind": "iam.roles",
+    "markers": {
+      "Marker": "role-other"
+    },
+    "seen": [
+      "a6feea9b7323ab067a1fe779e154110a943899996f578c24158b72f63b18318f",
+      "0ef6d8c3ba1e9afcc056cf85bacfcd95c5a1f09763163a72a163daa70c12898e"
+    ]
+  },
+  "invalid": {
+    "wrong_version": {
+      "v": 2,
+      "run": "a1b2c3d4",
+      "service": "iam",
+      "parent": null,
+      "kind": "iam.roles",
+      "markers": {
+        "Marker": "role-next"
+      },
+      "seen": [
+        "a6feea9b7323ab067a1fe779e154110a943899996f578c24158b72f63b18318f"
+      ]
+    },
+    "other_run": {
+      "v": 1,
+      "run": "deadbeef",
+      "service": "iam",
+      "parent": null,
+      "kind": "iam.roles",
+      "markers": {
+        "Marker": "role-next"
+      },
+      "seen": [
+        "a6feea9b7323ab067a1fe779e154110a943899996f578c24158b72f63b18318f"
+      ]
+    },
+    "other_service": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "s3",
+      "parent": null,
+      "kind": "iam.roles",
+      "markers": {
+        "Marker": "role-next"
+      },
+      "seen": [
+        "a6feea9b7323ab067a1fe779e154110a943899996f578c24158b72f63b18318f"
+      ]
+    },
+    "other_parent": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "iam",
+      "parent": "CapRole",
+      "kind": "iam.roles",
+      "markers": {
+        "Marker": "role-next"
+      },
+      "seen": [
+        "a6feea9b7323ab067a1fe779e154110a943899996f578c24158b72f63b18318f"
+      ]
+    },
+    "other_kind": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "iam",
+      "parent": null,
+      "kind": "iam.policies",
+      "markers": {
+        "Marker": "role-next"
+      },
+      "seen": [
+        "a6feea9b7323ab067a1fe779e154110a943899996f578c24158b72f63b18318f"
+      ]
+    },
+    "missing_marker": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "iam",
+      "parent": null,
+      "kind": "iam.roles",
+      "markers": {},
+      "seen": [
+        "a6feea9b7323ab067a1fe779e154110a943899996f578c24158b72f63b18318f"
+      ]
+    },
+    "empty_marker": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "iam",
+      "parent": null,
+      "kind": "iam.roles",
+      "markers": {
+        "Marker": ""
+      },
+      "seen": [
+        "a6feea9b7323ab067a1fe779e154110a943899996f578c24158b72f63b18318f"
+      ]
+    },
+    "wrong_marker_key": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "iam",
+      "parent": null,
+      "kind": "iam.roles",
+      "markers": {
+        "NextToken": "role-next"
+      },
+      "seen": [
+        "a6feea9b7323ab067a1fe779e154110a943899996f578c24158b72f63b18318f"
+      ]
+    },
+    "fingerprint_missing": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "iam",
+      "parent": null,
+      "kind": "iam.roles",
+      "markers": {
+        "Marker": "role-next"
+      },
+      "seen": [
+        "0000000000000000000000000000000000000000000000000000000000000000"
+      ]
+    },
+    "fingerprint_not_last": {
+      "v": 1,
+      "run": "a1b2c3d4",
+      "service": "iam",
+      "parent": null,
+      "kind": "iam.roles",
+      "markers": {
+        "Marker": "role-next"
+      },
+      "seen": [
+        "a6feea9b7323ab067a1fe779e154110a943899996f578c24158b72f63b18318f",
+        "0000000000000000000000000000000000000000000000000000000000000000"
+      ]
+    }
+  }
+}

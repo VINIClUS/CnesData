@@ -38,6 +38,7 @@ os apps deployáveis.
 | `contracts/columns.py` | Colunas canônicas CNES (set + listas) |
 | `contracts/sihd_columns.py` | Colunas canônicas SIHD / AIH |
 | `orchestration/source_definitions/sihd.py` | Pipeline SIHD: `SIHD_DEFINITION`, `SIHD_LAYOUT` |
+| `orchestration/mode_canary.py` | Namespace reservado `prod-canary-`, binding, record/control/ticket fechados (#499) |
 | `contracts/schemas.py` | PEP 544 Protocols para DataFrames canônicos |
 | `models/api.py` | Pydantic: `JobCreate`, `JobStatus`, `LeaseResponse` etc. |
 | `models/extraction.py` | `ExtractionIntent` enum + `ExtractionParams` (regex CNES/IBGE) |
@@ -45,6 +46,8 @@ os apps deployáveis.
 | `ports/object_storage.py` | `ObjectStoragePort` Protocol + `NullObjectStoragePort` |
 | `ports/repository.py` | 3 Repository Protocols runtime_checkable |
 | `ports/storage.py` | `UnitOfWork` + `NullUnitOfWork` + `NullStorage` |
+| `ports/execution_status.py` | `ExecutionStatus`, sem pydantic (reexportado por `ports/processing.py`, #473) |
+| `control_plane/dispatch_identity.py` | `require_dispatch_id` e `request_json_sha256`, sem pydantic (#473) |
 | `processing/transformer.py` | Pipeline CPF (strip_chars → replace_all \D → pad_start → RQ-002), flag CH zero |
 | `processing/row_mapper.py` | DataFrame → row dicts (`mapear_estabelecimentos`, `mapear_profissionais`, `mapear_vinculos`, `extrair_fonte`) |
 | `competencia.py` | YYYY-MM parsing + range |

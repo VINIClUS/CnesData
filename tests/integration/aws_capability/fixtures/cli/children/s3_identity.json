@@ -1,0 +1,39 @@
+{
+  "source": {
+    "file": "task-3-services-b1-source-s3.txt",
+    "sha256": "f11e9149d16fcc226a85456d1d5d4a2258041818f1a64027007f76ce535f2eb3",
+    "operations": ["ListObjectVersions", "ListMultipartUploads"]
+  },
+  "replies": {
+    "versions": {
+      "IsTruncated": false,
+      "Name": "cnesdata-cap-a1b2c3d4",
+      "Versions": [
+        {"Key": "private/key|one", "VersionId": "version-private-1"},
+        {"Key": "private/key|one", "VersionId": "version-A"}
+      ],
+      "DeleteMarkers": [
+        {"Key": "private/deleted", "VersionId": "version-private-1"}
+      ]
+    },
+    "uploads": {
+      "IsTruncated": false,
+      "Bucket": "cnesdata-cap-a1b2c3d4",
+      "Uploads": [
+        {"Key": "private/key|one", "UploadId": "version-private-1"}
+      ]
+    }
+  },
+  "expected": {
+    "resources": [
+      {"service":"s3","resource_id":"{\"child_id\":{\"key\":\"private/key|one\",\"version_id\":\"version-private-1\"},\"kind\":\"s3.version\",\"parent_id\":\"cnesdata-cap-a1b2c3d4\",\"root_id\":\"cnesdata-cap-a1b2c3d4\",\"run\":\"a1b2c3d4\",\"service\":\"s3\",\"v\":1}","name":"cnesdata-cap-a1b2c3d4"},
+      {"service":"s3","resource_id":"{\"child_id\":{\"key\":\"private/key|one\",\"version_id\":\"version-A\"},\"kind\":\"s3.version\",\"parent_id\":\"cnesdata-cap-a1b2c3d4\",\"root_id\":\"cnesdata-cap-a1b2c3d4\",\"run\":\"a1b2c3d4\",\"service\":\"s3\",\"v\":1}","name":"cnesdata-cap-a1b2c3d4"},
+      {"service":"s3","resource_id":"{\"child_id\":{\"key\":\"private/deleted\",\"version_id\":\"version-private-1\"},\"kind\":\"s3.marker\",\"parent_id\":\"cnesdata-cap-a1b2c3d4\",\"root_id\":\"cnesdata-cap-a1b2c3d4\",\"run\":\"a1b2c3d4\",\"service\":\"s3\",\"v\":1}","name":"cnesdata-cap-a1b2c3d4"},
+      {"service":"s3","resource_id":"{\"child_id\":{\"key\":\"private/key|one\",\"upload_id\":\"version-private-1\"},\"kind\":\"s3.upload\",\"parent_id\":\"cnesdata-cap-a1b2c3d4\",\"root_id\":\"cnesdata-cap-a1b2c3d4\",\"run\":\"a1b2c3d4\",\"service\":\"s3\",\"v\":1}","name":"cnesdata-cap-a1b2c3d4"}
+    ],
+    "trace": ["location", "tags", "versions", "location", "tags", "uploads"],
+    "calls": 6,
+    "work_calls": 6,
+    "resources_count": 4
+  }
+}

@@ -203,7 +203,7 @@ def test_replay_apos_crash_converge_sem_duplicar_cadeia(tmp_path: Path) -> None:
         assert [ref.manifest_id for ref in chain(restarted)] == [SNAPSHOT]
         accepted = [
             event.event_type
-            for event in restarted.state.control_plane.pending_outbox(100)
+            for event in restarted.state.control_plane.read_outbox_page(None, 100).events
             if event.event_type == "raw.manifest.accepted"
         ]
         assert accepted == ["raw.manifest.accepted"]

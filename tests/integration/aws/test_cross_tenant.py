@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
+import httpx
 import pytest
 
 from central_api.serving.aws_signed import ServingKeyForbidden
@@ -10,7 +11,6 @@ from tests.integration.aws._harness import publish_version, seed_membership, ser
 
 if TYPE_CHECKING:
     from fastapi.testclient import TestClient
-    from httpx import Response
 
     from central_api.composition import AwsApiServices
     from tests.integration.aws._harness import AwsTestRuntime
@@ -18,15 +18,17 @@ if TYPE_CHECKING:
 pytestmark = [pytest.mark.dynamodb_local, pytest.mark.s3_integration]
 
 _OVERVIEW = "/api/v1/dashboard/serving/cnes/overview"
+_ENVELOPE_KEYS = {"url", "version_id", "expires_in"}
 _FORBIDDEN_NAMES = (
     "../../raw/data.parquet",
     "../../normalized/data.parquet",
     "../../reconciliation/data.parquet",
+    "../../tmp/data.json",
     "../../audit/event.json",
 )
 
 
-def _get_overview(client: TestClient, user_id: str, tenant_id: str) -> Response:
+def _get_overview(client: TestClient, user_id: str, tenant_id: str) -> httpx.Response:
     return client.get(
         _OVERVIEW,
         headers={"Authorization": f"Bearer {user_id}", "X-Tenant-Id": tenant_id},
@@ -46,10 +48,29 @@ def test_tenant_b_nao_le_pointer_ou_serving_do_tenant_a(
     assert (denied.status_code, denied.json()) == (403, {"detail": "tenant_not_allowed"})
     assert aws_runtime.s3.presigned == []
     granted = _get_overview(serving_client, "user-a", "tenant-a")
-    assert (granted.status_code, granted.headers["x-dataset-version"]) == (307, "run-a")
+    envelope = granted.json()
+    assert (granted.status_code, set(envelope)) == (200, _ENVELOPE_KEYS)
+    assert (envelope["version_id"], envelope["expires_in"]) == ("run-a", 300)
+    assert granted.headers["cache-control"] == "private, no-store"
+    assert "location" not in granted.headers
     assert [call["Params"]["Key"] for call in aws_runtime.s3.presigned] == [
         "serving/tenant-a/run-a/overview.json",
     ]
+
+
+def test_url_do_envelope_entrega_o_documento_sem_cache(
+    aws_runtime: AwsTestRuntime, serving_client: TestClient,
+) -> None:
+    seed_membership(aws_runtime, "tenant-a", "user-a")
+    publish_version(aws_runtime, "run-a", tenant_id="tenant-a")
+    envelope = _get_overview(serving_client, "user-a", "tenant-a").json()
+
+    with httpx.Client(trust_env=False, follow_redirects=False) as s3:
+        document = s3.get(envelope["url"])
+
+    assert document.status_code == 200
+    assert document.json() == {"schema_version": "cnes-serving-v1"}
+    assert document.headers["cache-control"] == "private, no-store"
 
 
 def test_request_nao_assina_raw_normalized_reconciliation_ou_audit(

@@ -1,9 +1,15 @@
-"""Tests for the explicit CORS allow-list on the app factory."""
+"""Tests for the explicit CORS allow-list on the app factory (non-production mode)."""
 from unittest.mock import patch
 
 import pytest
 
 from cnes_infra import config
+
+
+@pytest.fixture(autouse=True)
+def _modo_nao_producao(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PROFILE", raising=False)
+    monkeypatch.delenv("AWS_PRODUCTION_POLICY", raising=False)
 
 
 def _make_app():

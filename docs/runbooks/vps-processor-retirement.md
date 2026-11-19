@@ -168,3 +168,24 @@ Publique T0, T1 e o veredito na #278.
 - **Escritas legadas:** nunca reative. Ou seja:
   - não religue o `data-processor`;
   - não crie flag de runtime que desfaça o fence.
+
+## Relação com o aceite de rota da Phase C (#474)
+
+O plano de entrega previa desligar o processor da VPS só depois do aceite de unit, recovery e
+audit na AWS. O MIG-012 antecipou esse passo, e o estado atual dispensa repeti-lo:
+- `deploy/prod/docker-compose.prod.yml` não tem serviço `data-processor`;
+- `tests/production/delivery/test_phase_c.py` fixa essa ausência.
+
+Na evidência de aceite de rota da promoção, faça duas coisas:
+- referencie o veredito T0/T1 deste runbook, publicado na #278;
+- não peça nenhuma ação na VPS.
+
+O aceite em si sai de `scripts/promotion/accept_routing.py`, que o emite depois de três coisas:
+- os dois applies revisados da Phase C;
+- os canaries de recovery e de audit;
+- a leitura forte das três rotas com o state limpo.
+
+O status termina em `routes-open-operational-pending` enquanto a prova operacional do
+`mode-readiness-drill` não existir. Veja `docs/runbooks/mode-canary.md`.
+
+A remoção do runtime legado continua no MIG-014 (#280).
