@@ -5,3 +5,5 @@
 
 DS-0002  # apps/web_dashboard/Dockerfile nginx runs as root; non-root nginx needs port >1024 rearchitecture, tracked as follow-up, review 2026-12-17
 KSV-0014  # charts/web-dashboard readOnlyRootFilesystem needs emptyDir mounts for nginx cache/pid, tracked as follow-up, review 2026-12-17
+
+CVE-2026-97054 exp:2026-12-19  # GO-2026-6859 net/http server MaxBytesReader race in Go 1.27.3 stdlib of /opt/aws/aws_signing_helper v1.8.6 (apps/central_api/Dockerfile:17-28); unreachable: helper runs only as credential_process (deploy/aws/config:2), never serve; upstream has no release built with Go >=1.27.4; review 2026-12-03, remove when helper is bumped
