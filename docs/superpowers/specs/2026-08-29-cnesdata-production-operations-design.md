@@ -15,6 +15,10 @@ the architecture, resources, identity, network and serving contracts.
 
 ## 2. CI/CD
 
+[Ownership amendment](2026-11-07-prod-delivery-external-ownership-amendment.md) governs the
+external producers and execution gates. Its infra-ansible producers supply delivery OIDC,
+signing/evidence and host gates; personal-infra-live supplies only backend and Budget/freeze.
+
 ### 2.1 Continuous integration
 
 Pull requests to `develop` run the existing locked Python/CND/AWS gates plus:
@@ -54,11 +58,22 @@ activation manifest is finalized and signed only after phase A below.
 
 Mutable tags may aid discovery but are never deployment authority.
 
+The [Phase A contract amendment](2026-11-07-phase-a-contract-amendment.md) is authoritative
+for provenance, canary identity and pre-signature evidence. Its `canary_id` is a derived
+32-hex binding and does not replace the full `release_id`; activation and evidence retain
+both IDs, the complete binding and candidate digest.
+
 ### 2.3 Infrastructure plan/apply
 
 Plan and apply are separate manual workflows. Apply downloads and verifies the
 exact unexpired binary plan; it does not replan. GitHub OIDC supplies temporary
 AWS credentials. The paid Actions spending limit is USD 0.
+
+The versioned plan/apply envelope and producer belong to #468. A planned artifact is never
+rewritten into an applied receipt: the receipt binds the exact plan, protected full-state
+hashes before/after, lineage/serial and allowlisted outputs. Artifact identity is external
+authenticated metadata, so no artifact hashes its own envelope. #469 validates consumed
+fields and compatibility before Production; this design does not invent a workflow dependency.
 
 ### 2.4 Application promotion
 
@@ -68,20 +83,25 @@ marker is absent.
 
 Order:
 
-1. copy/promote and verify the processor digest in the expected ECR repository,
-   yielding its exact `ECR_URI@sha256`;
+1. authenticate GitHub provenance and verify candidate/sidecar/run/attempt inputs,
+   then copy/promote and verify processor bytes in the expected ECR repository, yielding
+   its exact `ECR_URI@sha256`; checksum is not a signature;
 2. under a reviewed exact OpenTofu plan/apply, phase A registers immutable unit,
    recovery and audit-dispatch revisions pinned to exact `ECR_URI@sha256` and
    dual-authorizes old and new `ecs:RunTask` ARNs without routing changes;
    it creates canary task/execution/seeder/verifier roles plus a persistent canary
    table and bucket owned by OpenTofu;
-3. wait for and revalidate IAM propagation, prove all revisions authorized,
-   then output their ARNs and phase-A evidence;
-4. sign one activation manifest with candidate SHA-256, release ID, source SHA,
+3. perform two concordant typed readbacks of policy/trust/PassRole and authorization
+   evaluation by exact principals/context, at least 10 seconds apart within the D1-A deadline;
+   record `proof_kind="iam-readback-and-evaluation"`. This is a bounded stability observation,
+   not a simulation or proof of real propagation/runtime; timeout or divergence fails closed;
+4. sign one activation manifest with EXT-2 only after Phase A and that evidence, binding
+   candidate SHA-256, full release ID, 32-hex `canary_id`, source SHA,
    exact revisions, ECR digest and phase-A evidence; never re-register them. A seeder
    restricted to `PutItem` on the exact canary table writes one bound pending event.
    The verifier polls the exact canary GSI until that event is visible, bounded to
-   60 seconds and fail-closed; then run promotion `RunTask`, overriding roles/resource
+   60 seconds and fail-closed; the bound canary is a real execution after signed activation;
+   then run promotion `RunTask`, overriding roles/resource
    variables to canary-only values. It passes only canary task/execution roles with
    ECS PassedToService. Verifier gets exact-GSI `Query`, conditioned `GetItem` and
    bound `GetObject`/`GetObjectRetention`; require retention/delivered proof;
@@ -110,6 +130,26 @@ Retain old revisions/grants until active old Standard/scheduled work drains and
 rollback retention ends. Then prune older non-rollback revisions.
 
 No production deployment occurs automatically after merge.
+
+### 2.5 Mode canaries (#499)
+
+Mode canaries prove unit, recovery and audit on the real production route with the reserved
+synthetic tenant `prod-canary-<canary_id>`; they never reuse the #471 pre-close canary roles or
+storage. After keeper acquisition and authenticated activation, and before F,
+`application-prepare` with `mode=mode-canary` materializes exactly the four nullable
+identities (`mode_seed`, `mode_dispatch`, `mode_audit_launch`, `mode_observe`): eight addresses,
+create/no-op initially and update/no-op afterwards, two concordant IAM readbacks at least
+10 seconds apart within the original preparation deadline. Phase A is unchanged.
+
+The control item is written ACTIVE before the seed; every synthetic effect admits a ledger
+ticket first. Unit runs after B through the production state machine; recovery and audit run
+after their C apply by `RunTask` of the exact Scheduler target revision, command and network,
+without role/command/resource overrides and with a deterministic client token. A lost
+response stays `unknown`. Seal precedes final quiescence. A promotion that proves these
+modes but lacks the 3600-second hang, the two-window alarm and periodic audit delivery ends
+`routes-open-operational-pending`, never `accepted-open`; those requirements belong to the
+manual `mode-readiness-drill` purpose. Simulated freeze denies seed/dispatch before effects
+and keeps audit/observe. Runbook: `docs/runbooks/mode-canary.md`.
 
 ## 3. Rollback
 
@@ -279,10 +319,11 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
   and expected ECR destination/repository while rejecting ECS revision ARNs and
   a promoted ECR digest. Phase-A exact OpenTofu plan/apply registers each
   revision once from verified `ECR_URI@sha256`, dual-authorizes old/new
-  `ecs:RunTask` ARNs without routing changes, waits for/revalidates IAM
-  propagation and proves both authorized. One signed activation manifest binds
-  candidate manifest SHA-256, release ID, source SHA, revision ARNs, verified
-  digest and phase-A evidence;
+  `ecs:RunTask` ARNs without routing changes, then records two concordant typed
+  policy/trust/PassRole readbacks and authorization evaluations. This is not a
+  simulation or claim of real propagation. One signed activation manifest binds
+  candidate manifest SHA-256, full release ID, `canary_id`, source SHA, revision
+  ARNs, verified digest and phase-A evidence;
 - phase-B exact OpenTofu plan/apply consumes that signed manifest and switches
   only the state-machine target while both Schedulers remain prior.
   API/frontend verify the binding. Tests reject artifact
@@ -357,8 +398,8 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - API is unreachable at the VPS address/ports and healthy through Tunnel;
 - the collision-safe AWS-managed Cognito prefix domain serves real
   `/oauth2/authorize`, `/oauth2/token` and `/logout` endpoints; the PKCE code
-  exchange and configured logout URL succeed, with no custom Cognito domain or
-  managed login v2 dependency;
+  exchange, audience-preserving refresh and logout succeed using Essentials,
+  managed login v2 and Cognito-provided branding, with no custom Cognito domain;
 - demo user authenticates with PKCE and resolves only the demo tenant;
 - a real constrained API/VPS leaf from the external CA assumes the Roles
   Anywhere profile; a CRL-revoked leaf is denied, alerts and remains failed
@@ -376,10 +417,12 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 - a Step Functions execution starts only the approved Fargate task definition,
   uses only the exact source account/state-machine trust, event rule and pass
   roles above, and fails when any scope drifts;
-- phase-A promotion evidence proves propagated old/new `ecs:RunTask`
-  authorization without routing changes, then the signed activation manifest
-  binds candidate manifest SHA-256, release ID, source SHA, exact ARNs/digest
-  and phase-A evidence. Phase-B OpenTofu evidence verifies that binding and
+- phase-A promotion evidence records two concordant typed IAM readbacks/evaluations
+  (`proof_kind="iam-readback-and-evaluation"`) for old/new `ecs:RunTask`
+  authorization without routing changes; it does not claim simulated propagation.
+  The signed activation manifest then binds candidate SHA-256, full release ID,
+  32-hex `canary_id`, source SHA, exact ARNs/digest and phase-A evidence. Phase-B
+  OpenTofu evidence verifies that binding and
   proves phase B selected unit while both Schedulers remained prior. After both
   canaries, separate phase-C applies accept recovery then audit while fenced. Partial
   applies converge that route; both accepted to reopen. Executions keep revisions;
@@ -419,28 +462,28 @@ S3 access denial, Athena cutoff, budget thresholds and anomaly detection.
 
 ## 8. Cost contract
 
-CnesData receives a USD 8 monthly operational envelope. Expected initial use is
-approximately USD 2-6 depending on Fargate jobs and stored data.
+CnesData retains USD 8/month; paid Actions stay USD 0. The historical USD 2-6 total is
+provisional and predates Essentials. [AWS pricing](https://aws.amazon.com/cognito/pricing/),
+consulted 2026-10-25, quotes Essentials direct sign-in at USD 0.015/MAU. Without any allowance,
+illustrative min/base/max 1/10/100 MAU costs USD 0.015/0.15/1.50 monthly; these are not quotas.
+AWS describes 10,000 direct/social MAU free per account/organization outside GovCloud, but
+this account's eligibility, remaining allowance and aggregate MAUs are unverified.
+Before production, dated manifest #388 must validate actual MAUs, allowance and all auxiliary
+costs; these scenarios do not replace that manifest or establish zero cost.
 
 Cost controls:
 
-- voluntary 5 GB operational cap for the web bucket, aligned with the
-  CloudFront Free plan's account-wide 5 GB S3 Standard credit;
-- one of the account's maximum three CloudFront Free-plan subscriptions, with
-  eligibility and `ACTIVE` status checked before cutover;
-- ECR generally below 2 GB;
-- semaphore-enforced maximum one concurrent unit Fargate task per environment;
-  recovery passes are individually bounded but have no global concurrency
-  ceiling; zero idle desired count; and a monitored 100 combined unit, recovery
-  and audit-dispatch task-hours monthly target, including every invocation;
-- Step Functions Standard and 200 execution attempts maximum, atomically shared
-  by initial and recovery starts;
-- Athena 5 GB/query and 100 GB/month;
-- DynamoDB on-demand maximum throughput;
-- short CloudWatch retention and no Container Insights;
-- no NAT Gateway, load balancer, RDS or multi-region resource;
-- monthly review for the first three months and re-baseline if the project
-  exceeds its envelope or aggregate forecast reaches USD 15.
+- voluntary web bucket cap 5 GB, aligned with CloudFront Free plan's account-wide 5 GB
+  S3 Standard credit; ECR generally below 2 GB;
+- one of at most three account CloudFront Free subscriptions; check eligibility/`ACTIVE` at cutover;
+- semaphore: at most one concurrent unit Fargate task/environment; recovery passes are individually
+  bounded; no global concurrency cap; zero idle desired count; monitor 100 combined unit, recovery
+  and audit-dispatch task-hours/month, including every invocation;
+- Step Functions Standard: max 200 execution attempts atomically shared by initial/recovery starts;
+- Athena 5 GB/query and 100 GB/month; DynamoDB on-demand maximum throughput;
+- short CloudWatch retention; no Container Insights, NAT Gateway, load balancer, RDS, multi-region;
+- monthly review for three months; re-baseline if the project exceeds USD 8 or aggregate forecast
+  reaches USD 15; freeze at USD 15 aggregate forecast.
 
 ## 9. Definition of done
 

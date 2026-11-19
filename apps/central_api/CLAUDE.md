@@ -11,7 +11,8 @@ de landing nem URL presigned. Expõe OpenAPI em `/openapi.json`.
 
 **Central orchestrator**. Único ponto de entrada HTTP do sistema.
 Horizontalmente escalável; o lifespan não agenda nenhuma background task de
-lease (reaper removido em MIG-012).
+lease (reaper removido em MIG-012). Sob a política de produção, a única task é o
+watcher de credencial (60 s, `cnes_infra.aws.credentials`), cancelado no shutdown.
 
 ## Functionalities
 
@@ -26,16 +27,22 @@ lease (reaper removido em MIG-012).
 - `POST /api/v1/admin/raw-jobs/enqueue` — cria até dez jobs raw idempotentes por competência
 - `GET /api/v1/agents/status` — status agregado do agent (Bearer + `require_tenant_header`)
 - `GET /api/v1/agents/whoami` — identidade do cert mTLS (`require_agent_cert`); smoke do `register`
-- AuthMiddleware (JWKS) — gates Bearer JWT for /api/v1/dashboard/* + /activate/confirm
+- AuthMiddleware (JWKS) — gates Bearer JWT for /api/v1/dashboard/* + /api/v1/activate/confirm
 - /api/v1/dashboard/auth/me, /tenants, /agents/status, /agents/runs
 - /api/v1/dashboard/overview, /faturamento/by-establishment — aposentadas (MIG-011): 410
   `legacy_route_retired`, sem tocar o `DashboardRepo`
 - `GET /api/v1/dashboard/serving/{dataset_name}/{document_name}` — única leitura de produto: só o
   pointer `current`; dataset fora de `build_source_catalog()` → 404 `dataset_unknown`; conteúdo
-  ativo ausente → 503 `active_serving_unavailable`, sem fallback a versão anterior nem a Postgres
+  ativo ausente → 503 `active_serving_unavailable`, sem fallback a versão anterior nem a Postgres.
+  `PROFILE=aws`: 200 `{url, version_id, expires_in}` com `Cache-Control: private, no-store`, sem
+  `Location`; URL assinada e object key nunca em log nem `repr` (`ServingEnvelope`,
+  `SignedServingGrant`)
 - /api/v1/dashboard/access-requests/*
-- /activate/confirm — RFC 8628 redemption (Bearer JWT + tenant gate + rate limit 10/min)
-- /oauth/device_authorization, /oauth/token — device flow
+- `POST /api/v1/activate/confirm` — RFC 8628 redemption (Bearer JWT + tenant gate + rate limit
+  10/min); `oauth.activation_router` montado em `/api/v1`, sem rota na raiz nem redirect.
+  Composta só no perfil legado: `PROFILE=local|aws` não setam `device_code_store`/`dashboard_repo`
+- /oauth/device_authorization, /oauth/token — device flow, na raiz (o `dumpagent register` fixa
+  esses paths)
 - /provision/cert, /provision/cert/rotate — cert enrollment + rotation
 
 - `/api/v1/billing/{accounts,accounts/{id}/transfer,checkout,portal,status}` + `POST
@@ -63,6 +70,11 @@ lease (reaper removido em MIG-012).
   `503 leads_unavailable` se o banco falhar.
 - CORS explícito: `CORS_ALLOWED_ORIGINS` (lista separada por vírgula; `*` é ignorado).
   `CORSMiddleware` é o middleware mais externo para responder preflight antes do Auth.
+  `cors_policy(os.environ)` decide em `create_app()`: só com `PROFILE=aws` e
+  `AWS_PRODUCTION_POLICY=true` vale a política exata (origem `https://cnesdata.com.br`,
+  GET/POST, `Authorization`/`Content-Type`/`X-Tenant-Id`, sem credentials, `max_age=600`,
+  ignora `CORS_ALLOWED_ORIGINS`); flag inválida sob `PROFILE=aws` falha no boot. Fora disso,
+  a lista acima com credentials (cookie HttpOnly do perfil local).
 
 ## Objectives
 
@@ -94,7 +106,10 @@ lease (reaper removido em MIG-012).
 
 | Var | Obrigatória | Descrição |
 |---|---|---|
-| `DB_URL` | sim | Postgres URL (`postgresql+psycopg://...`) |
+| `DB_URL` | sim, exceto `PROFILE=aws` | Postgres URL (`postgresql+psycopg://...`) |
+| `/run/config/config.json` | não (host gate) | Objeto JSON de strings aplicado ao env antes do `.env` (`cnes_infra.config.carregar_config_json`); recusa conflito com o env e chaves de credencial/endpoint (inclusive `AWS_CONFIG_FILE`/`AWS_SHARED_CREDENTIALS_FILE`) |
+| `AWS_CONFIG_FILE` | sim (target `production`) | `/etc/cnesdata/aws-config` da imagem (0444): `[default]` só com `credential_process = /usr/bin/timeout 5 /usr/local/bin/cnesdata-aws-credentials /run/credentials/aws-credentials.json`. O leitor (`docker/aws_credentials.py`, stdlib, `-IS`) valida o JSON v1 que o host publica (Roles Anywhere no host) e falha fechado com `credentials_json=<código> path=`; o botocore renova na janela advisory sem restart. O compose do host não tem `environment` (bind de diretório `:ro` em `/run/credentials`) |
+| `AWS_SHARED_CREDENTIALS_FILE`, `AWS_EC2_METADATA_DISABLED` | sim (target `production`) | `/dev/null` e `true`, da imagem. O `production-entrypoint` exige os cinco settings (com `PROFILE=aws` e `AWS_PRODUCTION_POLICY=true`), sai com 2 e `key=value` para chave estática, perfil, web identity, provider de container, `AWS_CREDENTIAL_FILE` ou `BOTO_CONFIG`, e roda o leitor como preflight (stdout descartado) antes do `exec` do uvicorn |
 | `S3_*` (`S3_ENDPOINT_URL`, `S3_PUBLIC_ENDPOINT_URL`, `S3_REGION`, `S3_BUCKET`, `S3_ADDRESSING_STYLE`) | não | Sem leitor em `central_api` desde MIG-012 (presign legado removido); seguem definidas em `cnes_infra.config` |
 | `API_HOST` | opcional | Default `0.0.0.0` |
 | `API_PORT` | opcional | Default `8000` |
@@ -136,9 +151,9 @@ uv run uvicorn central_api.app:create_app --factory --reload
 | `src/central_api/routes/admin.py` | `/api/v1/admin/reap-leases` — aposentada (410) |
 | `src/central_api/routes/dashboard.py` | `/api/v1/dashboard/auth/me`, tenants, agents |
 | `src/central_api/routes/overview.py` | rotas legadas `/overview` e `/faturamento/by-establishment` aposentadas (410) |
-| `src/central_api/routes/serving.py` | `/api/v1/dashboard/serving/{dataset}/{doc}` — leitura pointer-only (stream local ou 307 aws) |
+| `src/central_api/routes/serving.py` | `/api/v1/dashboard/serving/{dataset}/{doc}` — leitura pointer-only (stream local ou envelope 200 aws) |
 | `src/central_api/routes/access_requests.py` | signup JIT access request |
-| `src/central_api/routes/oauth.py` | device flow + `/activate/confirm` |
+| `src/central_api/routes/oauth.py` | device flow na raiz + `activation_router` em `/api/v1` |
 | `src/central_api/routes/provision.py` | cert enrollment |
 | `src/central_api/routes/provision_rotate.py` | cert rotation |
 | `src/central_api/routes/billing*.py`, `stripe_webhook.py` | Billing Owner API + webhook Stripe (BIL-020/021); composição em `billing_deps.install_billing` |
@@ -171,6 +186,12 @@ uv run uvicorn central_api.app:create_app --factory --reload
   sobe o profile `dev` (`docker compose --profile dev`); sem licença AIStor
   em `./minio.license`, `minio` nunca fica `healthy` e o compose aborta —
   ver comentário do serviço `minio` em `docker-compose.yml`.
+- **Prova de adoção da credencial é contrato com o host (#473):** em produção o lifespan chama
+  `configure_json_stdout("central-api")` antes de tudo e recusa subir sem `custom-process`
+  renovável. Eventos JSON do logger `cnes_infra.aws.credentials`: `aws_credentials_refreshed
+  key_fp=<sha256[:12]> previous_fp=<fp|none> pid=` (boot e cada geração), `aws_credentials_signed
+  key_fp= service=<escopo SigV4> pid=` e `aws_credentials_refresh_failed error=`. O formato fica
+  congelado em `test_credential_lifespan.py`; nenhum log leva chave, secret ou token.
 - **RLS install:** `install_rls_listener(engine)` é chamado no lifespan.
   Sem isso, queries via SQLAlchemy não setam `app.tenant_id` e RLS bloqueia
   tudo. Teste de regressão: qualquer query em integration test deve passar

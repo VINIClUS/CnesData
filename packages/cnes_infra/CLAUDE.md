@@ -39,6 +39,7 @@ importam classes concretas diretamente (exceto factories no bootstrap).
 
 | Path | Responsabilidade |
 |---|---|
+| `aws/mode_canary.py` | `ModeCanaryContext`: provider de admissão sintética (record+control fortes, #499) |
 | `storage/schema_v2.py` | Tabelas Gold v2 (`dim_*`, `fato_*`, `extractions_table`) SQLAlchemy Core |
 | `storage/extractions_repo.py` | Claim/lease N-file manifest em `landing.extractions` |
 | `storage/dim_lookup.py` | `PostgresDimLookup` (surrogate key cache) + `upsert_dim_*` (merge `fontes`) |
@@ -58,6 +59,7 @@ importam classes concretas diretamente (exceto factories no bootstrap).
 | `telemetry.py` | `init_telemetry(service)` + `instrument_engine(engine)` |
 | `config.py` | `DB_URL`, `S3_*`, `API_*`, `COMPETENCIA_*`, `_LAZY_ATTRS` |
 | `auth/jwt.py` | JWKSValidator for OIDC JWT verification |
+| `auth/cert_extensions.py` | OIDs `tenant_id`/`agent_id` do PEN IANA 67386 + codec DER UTF8String estrito (`docs/contracts/agent-certificate-oids.md`) |
 | `storage/dashboard_models.py` | SQLAlchemy ORM for `dashboard.*` tables |
 | `billing/settings.py` | `BillingSettings.from_mapping` (compõe `parse_profile`) + `BillingConfigurationError` |
 | `billing/wiring.py` | `build_entitlement_gate` (off/shadow/enforce, observador de shadow) + `build_execution_callbacks` |
@@ -71,6 +73,8 @@ importam classes concretas diretamente (exceto factories no bootstrap).
 | `billing/stripe_gateway.py`, `secrets_manager.py`, `webhook_*.py`, `projector.py`, `recovery*.py` | Stripe (BIL-020/021); `stripe`/`botocore` só importados no ramo `stripe` |
 | `billing/reconciliation*.py`, `snapshot_mapping.py`, `metrics.py` | Reconciliação Stripe (drift por CAS, cursor retomável), mapeamento compartilhado com o projector, métricas EMF (BIL-023) |
 | `control_plane/dynamodb_billing.py`, `sqlite_billing.py` | Extensões billing do `ControlPlanePort` (companion, run sem medição, claim) |
+| `control_plane/dynamodb_transaction.py` | `execute_transaction` de chaves únicas, sem pydantic (child `-I` do application gate, #473) |
+| `executor/step_functions_probe.py` | `StepFunctionsExecutionProbe` e `ProcessorExecutionUnavailable`, sem pydantic (#473) |
 
 ## Gotchas
 

@@ -1,0 +1,55 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.13.2",
+  "variables": {},
+  "resource_changes": [
+    {
+      "address": "aws_ecs_cluster.processor",
+      "mode": "managed",
+      "type": "aws_ecs_cluster",
+      "name": "processor",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "name": "example",
+          "setting": [
+            {
+              "name": "containerInsights",
+              "value": "enabled"
+            }
+          ]
+        },
+        "after_unknown": {}
+      }
+    }
+  ],
+  "configuration": {
+    "provider_config": {
+      "aws": {
+        "name": "aws",
+        "full_name": "registry.opentofu.org/hashicorp/aws",
+        "alias": null,
+        "expressions": {
+          "region": {
+            "constant_value": "us-east-2"
+          }
+        }
+      }
+    },
+    "root_module": {
+      "resources": [
+        {
+          "address": "aws_ecs_cluster.processor",
+          "mode": "managed",
+          "type": "aws_ecs_cluster",
+          "name": "processor",
+          "provider_config_key": "aws"
+        }
+      ]
+    }
+  }
+}

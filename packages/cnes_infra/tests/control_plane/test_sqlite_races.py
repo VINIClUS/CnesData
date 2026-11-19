@@ -90,7 +90,7 @@ def test_reverte_transicao_e_outbox_quando_evento_conflita(adapter, clock) -> No
     _no(Conflict, "run_state_conflict", lambda: adapter.transition_run(transition.model_copy(
         update={"expected_state": RunState.WAITING_INPUTS}), _event("invalid-transition")))
     _no(Conflict, "outbox_event_conflict", lambda: adapter.transition_run(transition, existing))
-    assert adapter.pending_outbox(10) == (existing,)
+    assert adapter.read_outbox_page(None, 10).events == (existing,)
     event = _event("run-transitioned")
     adapter.transition_run(transition, event)
     retry = SQLiteControlPlane(adapter._database_path, clock.now)
@@ -361,14 +361,14 @@ def test_rejeita_dataset_e_replay_divergentes_apos_publicacao(adapter, field) ->
     assert adapter.get_run("354130", "run-a") == run
     assert adapter.get_dataset_pointer("354130", "gold") is None
     assert adapter.get_dataset_version("354130", "gold", "run-a") is None
-    assert invalid_pointer.event not in adapter.pending_outbox(100)
+    assert invalid_pointer.event not in adapter.read_outbox_page(None, 100).events
     mismatched = first.model_copy(
         update={"version": first.version.model_copy(update={"dataset_name": "silver"})})
     _no(Conflict, "run_dataset_mismatch", lambda: adapter.publish_dataset(mismatched))
     assert adapter.get_run("354130", "run-a") == run
     assert adapter.get_dataset_pointer("354130", "silver") is None
     assert adapter.get_dataset_version("354130", "silver", "run-a") is None
-    assert mismatched.event not in adapter.pending_outbox(100)
+    assert mismatched.event not in adapter.read_outbox_page(None, 100).events
     pointer = adapter.publish_dataset(first)
     permit = first.publication_permit.model_copy(update={"policy_version": 2})
     event = first.event.model_copy(update={"payload": {"changed": True}})
@@ -381,13 +381,13 @@ def test_rejeita_dataset_e_replay_divergentes_apos_publicacao(adapter, field) ->
     before = (
         adapter.get_run("354130", "run-a"), pointer,
         adapter.get_dataset_version("354130", "gold", "run-a"),
-        adapter.pending_outbox(100))
+        adapter.read_outbox_page(None, 100).events)
     _no(Conflict, "publication_replay_conflict", lambda: adapter.publish_dataset(divergent))
     assert before == (
         adapter.get_run("354130", "run-a"),
         adapter.get_dataset_pointer("354130", "gold"),
         adapter.get_dataset_version("354130", "gold", "run-a"),
-        adapter.pending_outbox(100))
+        adapter.read_outbox_page(None, 100).events)
     assert adapter.publish_dataset(first) == pointer
     adapter.put_run(_run("run-b", RunState.PUBLISHING))
     adapter.publish_dataset(_publish("run-b", "published-b", "run-a", False))
@@ -423,8 +423,8 @@ def test_ordena_e_limita_todos_os_metodos_de_listagem(adapter, clock, monkeypatc
     assert tuple(unit.unit_id for unit in run_units) == ("unit-a", "unit-b")
     assert adapter.list_raw_manifest_chain("354130", "CNES", "ST", "2026-07", 0) == ()
     assert len(adapter.list_raw_manifest_chain("354130", "CNES", "ST", "2026-07", 1)) == 1
-    pending = adapter.pending_outbox(1)
-    assert pending[0] == min(adapter.pending_outbox(100), key=lambda event: (
+    pending = adapter.read_outbox_page(None, 1).events
+    assert pending[0] == min(adapter.read_outbox_page(None, 100).events, key=lambda event: (
         event.created_at, event.event_id))
 def test_ordena_runs_recuperaveis_por_tenant_antes_do_limite(adapter, clock) -> None:
     runs = (

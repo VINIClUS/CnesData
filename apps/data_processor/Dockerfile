@@ -27,5 +27,7 @@ RUN echo "os-patch-level=${OS_PATCH_LEVEL}" && \
     apt-get update && \
     apt-get upgrade -y --no-install-recommends && \
     rm -rf /var/lib/apt/lists/*
+# Fargate bind mounts are root:root 0755 unless the image declares VOLUME at the path.
+VOLUME ["/tmp", "/logs", "/data"]
 USER app
 ENTRYPOINT ["python", "-m", "data_processor.main"]

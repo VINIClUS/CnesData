@@ -1,6 +1,7 @@
 """Matriz de billing da composição do processor: perfil x modo."""
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -14,11 +15,13 @@ from cnes_domain.billing import (
     RunExecutionPermit,
 )
 from cnes_domain.billing.publication import BillingPublicationPolicy
-from cnes_domain.profiles import BillingMode
-from cnes_infra.billing import BillingConfigurationError
+from cnes_domain.profiles import BillingMode, parse_profile
+from cnes_infra.aws.processor_settings import AwsRecoverySettings
+from cnes_infra.billing import BillingConfigurationError, BillingSettings
 from cnes_infra.billing.wiring import ChainedExecutionStarted
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
-from data_processor.composition import build_processor_runtime
+from data_processor.aws_composition import AwsExecutionPolicy, build_aws_recovery_runtime
+from data_processor.composition import build_local_processor_runtime
 from data_processor.orchestration.coordinator import noop_execution_started
 
 STATE_MACHINE_ARN = "arn:aws:states:us-east-1:000000000000:stateMachine:cnesdata-test"
@@ -39,7 +42,7 @@ def _aws_values() -> dict[str, str]:
         "AWS_STATE_MACHINE_ARN": STATE_MACHINE_ARN,
         "AWS_PROCESSOR_CONTAINER_NAME": "processor",
         "AWS_PROCESSOR_MAX_CONCURRENCY": "8",
-        "AWS_PROCESSOR_LEASE_SECONDS": "300",
+        "AWS_PROCESSOR_LEASE_SECONDS": "3600",
         "AWS_PROCESSOR_RECOVERY_BATCH_SIZE": "100",
         "AWS_SERVING_URL_TTL_SECONDS": "300",
         "AWS_AUDIT_RETENTION_DAYS": "365",
@@ -53,7 +56,9 @@ def session() -> Mock:
     step_functions = Mock(name="stepfunctions")
     step_functions.describe_state_machine.return_value = {
         "type": "STANDARD",
-        "definition": STATE_MACHINE_FIXTURE.read_text(encoding="utf-8"),
+        "definition": STATE_MACHINE_FIXTURE.read_text(encoding="utf-8").replace(
+            '"Value": "300"', '"Value": "3600"',
+        ),
     }
     s3 = Mock(name="s3")
     s3.get_object_lock_configuration.return_value = {
@@ -70,13 +75,17 @@ def _local_values(tmp_path: Path) -> dict[str, str]:
 
 
 def _callbacks(runtime: Any):
-    return runtime.coordinator._execution.callbacks
+    return runtime.recovery._coordinator._execution.callbacks
 
 
 def test_local_disabled_usa_callbacks_de_billing_encadeados_ao_noop(tmp_path: Path) -> None:
-    runtime = build_processor_runtime("local", _local_values(tmp_path), Mock())
+    values = _local_values(tmp_path)
+    runtime = build_local_processor_runtime(
+        parse_profile(values), lambda: datetime(2026, 10, 12, tzinfo=UTC),
+        BillingSettings.from_mapping(values),
+    )
 
-    callbacks = _callbacks(runtime)
+    callbacks = runtime.coordinator._execution.callbacks
     assert isinstance(callbacks.policy, BillingConcurrencyPolicy)
     assert isinstance(callbacks.started, ChainedExecutionStarted)
     assert isinstance(callbacks.started.billing, BillingExecutionStarted)
@@ -84,14 +93,20 @@ def test_local_disabled_usa_callbacks_de_billing_encadeados_ao_noop(tmp_path: Pa
 
 
 def test_local_disabled_emite_permit_com_contexto_de_binding(tmp_path: Path) -> None:
-    runtime = build_processor_runtime("local", _local_values(tmp_path), Mock())
+    values = _local_values(tmp_path)
+    runtime = build_local_processor_runtime(
+        parse_profile(values), lambda: datetime(2026, 10, 12, tzinfo=UTC),
+        BillingSettings.from_mapping(values),
+    )
     run = SimpleNamespace(tenant_id="354130", run_id="run-01")
     dispatch = SimpleNamespace(
         tenant_id="354130", run_id="run-01", wave_id="1" * 16, dispatch_id="2" * 16,
         generation=1,
     )
 
-    permit = _callbacks(runtime).policy(run, dispatch, 2)
+    permit = cast("Any", runtime.coordinator._execution.callbacks).policy(
+        run, dispatch, 2,
+    )
 
     assert permit.max_concurrency == 2
     assert isinstance(permit.binding_context, RunExecutionPermit)
@@ -101,7 +116,7 @@ def test_local_stripe_e_rejeitado_no_startup(tmp_path: Path) -> None:
     values = _local_values(tmp_path) | {"BILLING_MODE": "stripe"}
 
     with pytest.raises(BillingConfigurationError) as error:
-        build_processor_runtime("local", values, Mock())
+        BillingSettings.from_mapping(values)
 
     assert error.value.code == "local_billing_disabled"
 
@@ -121,12 +136,16 @@ def test_aws_propaga_modo_efetivo_ao_control_plane_e_a_politica(
     started = Mock(name="execution_started")
     values = _aws_values() | {"BILLING_MODE": mode, "BILLING_ENFORCEMENT_MODE": enforcement}
 
-    runtime = build_processor_runtime("aws", values, session, started)
+    runtime = build_aws_recovery_runtime(
+        AwsRecoverySettings.from_mapping(values), session,
+        lambda: datetime(2026, 10, 12, tzinfo=UTC),
+        AwsExecutionPolicy(BillingSettings.from_mapping(values), started),
+    )
 
     callbacks = _callbacks(runtime)
-    assert isinstance(runtime.control_plane, DynamoDBControlPlane)
-    assert runtime.control_plane._billing.mode is BillingMode(mode)
-    assert runtime.control_plane._billing.enforcement_mode.value == enforcement
+    assert isinstance(runtime.recovery._control_plane, DynamoDBControlPlane)
+    assert runtime.recovery._control_plane._billing.mode is BillingMode(mode)
+    assert runtime.recovery._control_plane._billing.enforcement_mode.value == enforcement
     assert isinstance(callbacks.policy, BillingConcurrencyPolicy)
     assert callbacks.policy._dependencies.mode is expected
     assert callbacks.started.billing._dependencies.mode is expected
@@ -136,20 +155,32 @@ def test_aws_propaga_modo_efetivo_ao_control_plane_e_a_politica(
 def test_aws_compoe_com_tenant_id_do_envelope_ecs_fora_do_padrao_ibge(session: Mock) -> None:
     values = _aws_values() | {"TENANT_ID": "tenant-a", "BILLING_MODE": "stripe"}
 
-    runtime = build_processor_runtime("aws", values, session)
+    runtime = build_aws_recovery_runtime(
+        AwsRecoverySettings.from_mapping(values), session,
+        lambda: datetime(2026, 10, 12, tzinfo=UTC),
+        AwsExecutionPolicy(BillingSettings.from_mapping(values), noop_execution_started),
+    )
 
-    assert cast("Any", runtime.control_plane)._billing.mode is BillingMode.STRIPE
+    assert cast("Any", runtime.recovery._control_plane)._billing.mode is BillingMode.STRIPE
 
 
 def test_aws_rejeita_enforcement_invalido(session: Mock) -> None:
     values = _aws_values() | {"BILLING_ENFORCEMENT_MODE": "bogus"}
 
     with pytest.raises(BillingConfigurationError):
-        build_processor_runtime("aws", values, session)
+        build_aws_recovery_runtime(
+        AwsRecoverySettings.from_mapping(values), session,
+        lambda: datetime(2026, 10, 12, tzinfo=UTC),
+        AwsExecutionPolicy(BillingSettings.from_mapping(values), noop_execution_started),
+    )
 
 
 def test_local_disabled_injeta_politica_de_publicacao_sem_medicao(tmp_path: Path) -> None:
-    runtime = build_processor_runtime("local", _local_values(tmp_path), Mock())
+    values = _local_values(tmp_path)
+    runtime = build_local_processor_runtime(
+        parse_profile(values), lambda: datetime(2026, 10, 12, tzinfo=UTC),
+        BillingSettings.from_mapping(values),
+    )
 
     policy = runtime.publisher._publication_policy
     assert isinstance(policy, BillingPublicationPolicy)
@@ -170,10 +201,14 @@ def test_aws_injeta_politica_de_publicacao_com_modo_efetivo(
 ) -> None:
     values = _aws_values() | {"BILLING_MODE": mode, "BILLING_ENFORCEMENT_MODE": enforcement}
 
-    runtime = build_processor_runtime("aws", values, session)
+    runtime = build_aws_recovery_runtime(
+        AwsRecoverySettings.from_mapping(values), session,
+        lambda: datetime(2026, 10, 12, tzinfo=UTC),
+        AwsExecutionPolicy(BillingSettings.from_mapping(values), noop_execution_started),
+    )
 
-    policy = runtime.publisher._publication_policy
+    policy = runtime.recovery._coordinator._dependencies.publisher._publication_policy
     assert isinstance(policy, BillingPublicationPolicy)
     assert policy._dependencies.mode is expected
-    assert policy._dependencies.control_plane is runtime.control_plane
+    assert policy._dependencies.control_plane is runtime.recovery._control_plane
     assert hasattr(policy._dependencies.gate, "authorize_publish_run")

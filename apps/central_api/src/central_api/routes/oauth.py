@@ -1,4 +1,4 @@
-"""OAuth routes — device authorization + token + activate confirmation."""
+"""OAuth routes — device flow na raiz (`router`) + ativação versionada (`activation_router`)."""
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from pydantic import BaseModel, Field
 
@@ -14,6 +14,7 @@ from cnes_infra.auth import (
 from cnes_infra.auth.errors import OAuthError
 
 router = APIRouter(tags=["oauth"])
+activation_router = APIRouter(tags=["oauth"])
 
 _DEVICE_CODE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 
@@ -83,7 +84,7 @@ async def token(
     )
 
 
-@router.post("/activate/confirm", response_model=ActivateConfirmResponse)
+@activation_router.post("/activate/confirm", response_model=ActivateConfirmResponse)
 @limiter.limit("10/minute")  # pyright: ignore[reportUnknownMemberType, reportUntypedFunctionDecorator]
 async def activate_confirm(
     body: ActivateConfirmRequest,

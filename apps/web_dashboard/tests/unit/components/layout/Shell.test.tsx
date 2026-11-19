@@ -19,7 +19,14 @@ const mocks = vi.hoisted(() => ({
   useTenants: vi.fn(),
 }));
 
-vi.mock("@/api/hooks/useTenants", () => ({ useTenants: mocks.useTenants }));
+vi.mock("@/api/hooks/useTenants", () => ({
+  useSelectedTenant: () => {
+    const tenants = mocks.useTenants() as {
+      data: { nome: string; uf: string; ibge6: string }[] | undefined;
+    };
+    return { tenants, selected: tenants.data?.[0], selectTenant: vi.fn() };
+  },
+}));
 vi.mock("@/auth/local", () => ({ logoutLocal: mocks.logoutLocal }));
 vi.mock("@/auth/oidc", () => ({ logout: mocks.logoutOidc }));
 vi.mock("@/auth/useAuth", () => ({

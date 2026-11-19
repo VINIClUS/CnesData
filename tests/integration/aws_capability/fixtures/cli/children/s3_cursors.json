@@ -1,0 +1,19 @@
+{
+  "source":{"file":"task-3-services-b1-source-s3.txt","sha256":"f11e9149d16fcc226a85456d1d5d4a2258041818f1a64027007f76ce535f2eb3"},
+  "cursors":{
+    "uploads_from_key":"{\"kind\":\"s3.uploads\",\"markers\":{},\"parent\":\"cnesdata-cap-a1b2c3d4\",\"run\":\"a1b2c3d4\",\"seen\":[\"770c64d1f8f71dbe6ce5a67b9bf2c8aebc966523a6b9d2901c4c482467b9576b\",\"eb3708bc5ada1657c9cb39a8de4de0a4d02fd4891ea9daf33de42e30109a3873\",\"08156c431b93bfc416f2069a4ecc765a67ec16eee465bf7461849921a397eb85\"],\"service\":\"s3\",\"v\":1}",
+    "versions_next":"{\"kind\":\"s3.versions\",\"markers\":{\"KeyMarker\":\"key-A\",\"VersionIdMarker\":\"version-A\"},\"parent\":\"cnesdata-cap-a1b2c3d4\",\"run\":\"a1b2c3d4\",\"seen\":[\"770c64d1f8f71dbe6ce5a67b9bf2c8aebc966523a6b9d2901c4c482467b9576b\"],\"service\":\"s3\",\"v\":1}",
+    "versions_key":"{\"kind\":\"s3.versions\",\"markers\":{\"KeyMarker\":\"key-B\"},\"parent\":\"cnesdata-cap-a1b2c3d4\",\"run\":\"a1b2c3d4\",\"seen\":[\"770c64d1f8f71dbe6ce5a67b9bf2c8aebc966523a6b9d2901c4c482467b9576b\",\"eb3708bc5ada1657c9cb39a8de4de0a4d02fd4891ea9daf33de42e30109a3873\"],\"service\":\"s3\",\"v\":1}",
+    "uploads_start":"{\"kind\":\"s3.uploads\",\"markers\":{},\"parent\":\"cnesdata-cap-a1b2c3d4\",\"run\":\"a1b2c3d4\",\"seen\":[\"08156c431b93bfc416f2069a4ecc765a67ec16eee465bf7461849921a397eb85\"],\"service\":\"s3\",\"v\":1}",
+    "uploads_from_versions":"{\"kind\":\"s3.uploads\",\"markers\":{},\"parent\":\"cnesdata-cap-a1b2c3d4\",\"run\":\"a1b2c3d4\",\"seen\":[\"770c64d1f8f71dbe6ce5a67b9bf2c8aebc966523a6b9d2901c4c482467b9576b\",\"08156c431b93bfc416f2069a4ecc765a67ec16eee465bf7461849921a397eb85\"],\"service\":\"s3\",\"v\":1}",
+    "uploads_next":"{\"kind\":\"s3.uploads\",\"markers\":{\"KeyMarker\":\"key-U\",\"UploadIdMarker\":\"upload-A\"},\"parent\":\"cnesdata-cap-a1b2c3d4\",\"run\":\"a1b2c3d4\",\"seen\":[\"08156c431b93bfc416f2069a4ecc765a67ec16eee465bf7461849921a397eb85\",\"cf958921476c30ae79cf6995dd66522731696265231bed94243e5ff94fdfaaf1\"],\"service\":\"s3\",\"v\":1}",
+    "uploads_key":"{\"kind\":\"s3.uploads\",\"markers\":{\"KeyMarker\":\"key-V\"},\"parent\":\"cnesdata-cap-a1b2c3d4\",\"run\":\"a1b2c3d4\",\"seen\":[\"08156c431b93bfc416f2069a4ecc765a67ec16eee465bf7461849921a397eb85\",\"cf958921476c30ae79cf6995dd66522731696265231bed94243e5ff94fdfaaf1\",\"7229a0572f42646f26f576c088292ddd8c4726a5cb6641dc7bd7787aa0b516d8\"],\"service\":\"s3\",\"v\":1}"
+  },
+  "replies":{
+    "versions_first":{"IsTruncated":true,"KeyMarker":"","VersionIdMarker":"","NextKeyMarker":"key-A","NextVersionIdMarker":"version-A"},
+    "versions_key":{"IsTruncated":true,"NextKeyMarker":"key-B"},
+    "versions_cycle":{"IsTruncated":true,"NextKeyMarker":"key-A","NextVersionIdMarker":"version-A"},
+    "uploads_first":{"IsTruncated":true,"KeyMarker":"","UploadIdMarker":"","NextKeyMarker":"key-U","NextUploadIdMarker":"upload-A"},
+    "uploads_key":{"IsTruncated":true,"NextKeyMarker":"key-V"}
+  }
+}

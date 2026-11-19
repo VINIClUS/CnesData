@@ -1,0 +1,94 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.13.2",
+  "variables": {},
+  "resource_changes": [
+    {
+      "address": "aws_security_group.tasks",
+      "mode": "managed",
+      "type": "aws_security_group",
+      "name": "tasks",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "name": "example",
+          "egress": [],
+          "ingress": [
+            {
+              "cidr_blocks": [
+                "0.0.0.0/0"
+              ],
+              "from_port": 443,
+              "to_port": 443,
+              "protocol": "tcp"
+            }
+          ]
+        },
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "aws_vpc_security_group_ingress_rule.https",
+      "mode": "managed",
+      "type": "aws_vpc_security_group_ingress_rule",
+      "name": "https",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "security_group_id": "sg-0example",
+          "cidr_ipv4": "0.0.0.0/0",
+          "ip_protocol": "tcp"
+        },
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "aws_security_group_rule.legacy",
+      "mode": "managed",
+      "type": "aws_security_group_rule",
+      "name": "legacy",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "type": "ingress",
+          "protocol": "tcp"
+        },
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "aws_default_security_group.this",
+      "mode": "managed",
+      "type": "aws_default_security_group",
+      "name": "this",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "ingress": [
+            {
+              "self": true,
+              "protocol": "-1"
+            }
+          ]
+        },
+        "after_unknown": {}
+      }
+    }
+  ]
+}

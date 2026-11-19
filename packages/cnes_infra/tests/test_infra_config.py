@@ -2,6 +2,7 @@
 
 import importlib
 
+import dotenv
 import pytest
 
 
@@ -153,3 +154,44 @@ class TestAgentMtlsRequired:
         from cnes_infra import config
         importlib.reload(config)
         assert config.AGENT_MTLS_REQUIRED is False
+
+
+class TestDbUrlPerfilAws:
+    @pytest.fixture(autouse=True)
+    def _sem_dotenv(self, monkeypatch):
+        monkeypatch.setattr(dotenv, "load_dotenv", lambda *a, **k: True)
+
+    @pytest.mark.parametrize("perfil", ["aws", " AWS "])
+    def test_perfil_aws_sem_db_url_importa_com_db_url_vazio(
+        self, monkeypatch, reload_config, perfil,
+    ):
+        monkeypatch.setenv("PROFILE", perfil)
+        monkeypatch.delenv("DB_URL", raising=False)
+        from cnes_infra import config
+        importlib.reload(config)
+        assert config.DB_URL == ""
+
+    def test_perfil_aws_ignora_db_url_presente(self, monkeypatch, reload_config):
+        monkeypatch.setenv("PROFILE", "aws")
+        monkeypatch.setenv("DB_URL", "postgresql://u:p@db:5432/gold")
+        from cnes_infra import config
+        importlib.reload(config)
+        assert config.DB_URL == ""
+
+    @pytest.mark.parametrize("perfil", [None, "", "local", "dev", "aws-test"])
+    def test_sem_perfil_aws_exige_db_url(self, monkeypatch, reload_config, perfil):
+        if perfil is None:
+            monkeypatch.delenv("PROFILE", raising=False)
+        else:
+            monkeypatch.setenv("PROFILE", perfil)
+        monkeypatch.delenv("DB_URL", raising=False)
+        from cnes_infra import config
+        with pytest.raises(OSError, match="DB_URL"):
+            importlib.reload(config)
+
+    def test_sem_perfil_aws_sanitiza_db_url_presente(self, monkeypatch, reload_config):
+        monkeypatch.setenv("PROFILE", "local")
+        monkeypatch.setenv("DB_URL", "postgresql://u:p@db:5432/gold")
+        from cnes_infra import config
+        importlib.reload(config)
+        assert config.DB_URL == "postgresql+psycopg://u:p@db:5432/gold"

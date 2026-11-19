@@ -305,14 +305,16 @@ def test_comandos_de_run_aceitam_valores_estritos() -> None:
             lease_seconds=30,
         ),
         BindRunDispatch(
-            **common,
+            tenant_id=common["tenant_id"],
+            run_id=common["run_id"],
             dispatch_id="fedcba9876543210",
             execution_ref="execution-1",
             now=NOW,
             lease_seconds=30,
         ),
         FinishRunDispatch(
-            **common,
+            tenant_id=common["tenant_id"],
+            run_id=common["run_id"],
             dispatch_id="fedcba9876543210",
             outcome=DispatchOutcome.SUCCEEDED,
             finished_at=NOW,

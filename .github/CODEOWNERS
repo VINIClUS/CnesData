@@ -5,3 +5,5 @@ tests/memory/**         @VINIClUS
 tests/chaos/**          @VINIClUS
 tests/negative/**       @VINIClUS
 .github/workflows/**    @VINIClUS
+infra/**                @VINIClUS
+policies/**             @VINIClUS

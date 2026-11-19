@@ -1,0 +1,61 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.13.2",
+  "variables": {},
+  "resource_changes": [
+    {
+      "address": "aws_ecr_repository.processor",
+      "mode": "managed",
+      "type": "aws_ecr_repository",
+      "name": "processor",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "name": "example",
+          "image_tag_mutability": "MUTABLE"
+        },
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "aws_ecs_task_definition.processor",
+      "mode": "managed",
+      "type": "aws_ecs_task_definition",
+      "name": "processor",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "family": "example",
+          "container_definitions": "[{\"name\":\"processor\",\"image\":\"123456789012.dkr.ecr.us-east-2.amazonaws.com/cnesdata-prod-processor:latest\",\"essential\":true}]"
+        },
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "aws_ecs_task_definition.digest_curto",
+      "mode": "managed",
+      "type": "aws_ecs_task_definition",
+      "name": "digest_curto",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create"
+        ],
+        "before": null,
+        "after": {
+          "family": "example",
+          "container_definitions": "[{\"name\":\"processor\",\"image\":\"123456789012.dkr.ecr.us-east-2.amazonaws.com/cnesdata-prod-processor@sha256:abc\",\"essential\":true}]"
+        },
+        "after_unknown": {}
+      }
+    }
+  ]
+}

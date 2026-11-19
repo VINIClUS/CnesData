@@ -311,6 +311,14 @@ type AgentWhoamiResponse struct {
 	TenantId  string `json:"tenant_id"`
 }
 
+// AwsMeResponse defines model for AwsMeResponse.
+type AwsMeResponse struct {
+	DisplayName *string `json:"display_name"`
+	Email       *string `json:"email"`
+	Issuer      string  `json:"issuer"`
+	Subject     string  `json:"subject"`
+}
+
 // BillingAccountCreate defines model for BillingAccountCreate.
 type BillingAccountCreate struct {
 	IdempotencyKey string `json:"idempotency_key"`
@@ -524,6 +532,13 @@ type MeResponse struct {
 	Role              string             `json:"role"`
 	TenantIds         []string           `json:"tenant_ids"`
 	UserId            openapi_types.UUID `json:"user_id"`
+}
+
+// MembershipResponse defines model for MembershipResponse.
+type MembershipResponse struct {
+	MunicipalityName string `json:"municipality_name"`
+	Role             string `json:"role"`
+	TenantId         string `json:"tenant_id"`
 }
 
 // OverviewResponse defines model for OverviewResponse.
@@ -837,6 +852,11 @@ type AgentsStatusApiV1DashboardAgentsStatusGetParams struct {
 	XTenantId *string `json:"X-Tenant-Id,omitempty"`
 }
 
+// AuthMeApiV1DashboardAuthMeGet200JSONResponseBody defines parameters for AuthMeApiV1DashboardAuthMeGet.
+type AuthMeApiV1DashboardAuthMeGet200JSONResponseBody struct {
+	union json.RawMessage
+}
+
 // GetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGetParams defines parameters for GetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGet.
 type GetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGetParams struct {
 	Months    *int    `form:"months,omitempty" json:"months,omitempty"`
@@ -873,8 +893,8 @@ type EnqueueApiV1ExtractionsEnqueuePostParams struct {
 // FailJobApiV1JobsJobIdFailPostJSONBody defines parameters for FailJobApiV1JobsJobIdFailPost.
 type FailJobApiV1JobsJobIdFailPostJSONBody map[string]interface{}
 
-// ActivateConfirmActivateConfirmPostJSONRequestBody defines body for ActivateConfirmActivateConfirmPost for application/json ContentType.
-type ActivateConfirmActivateConfirmPostJSONRequestBody = ActivateConfirmRequest
+// ActivateConfirmApiV1ActivateConfirmPostJSONRequestBody defines body for ActivateConfirmApiV1ActivateConfirmPost for application/json ContentType.
+type ActivateConfirmApiV1ActivateConfirmPostJSONRequestBody = ActivateConfirmRequest
 
 // RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostJSONRequestBody defines body for RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePost for application/json ContentType.
 type RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostJSONRequestBody = RevocationCreate
@@ -1060,6 +1080,68 @@ func (t *ValidationError_Loc_Item) UnmarshalJSON(b []byte) error {
 	return err
 }
 
+// AsMeResponse returns the union data inside the AuthMeApiV1DashboardAuthMeGet200JSONResponseBody as a MeResponse
+func (t AuthMeApiV1DashboardAuthMeGet200JSONResponseBody) AsMeResponse() (MeResponse, error) {
+	var body MeResponse
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromMeResponse overwrites any union data inside the AuthMeApiV1DashboardAuthMeGet200JSONResponseBody as the provided MeResponse
+func (t *AuthMeApiV1DashboardAuthMeGet200JSONResponseBody) FromMeResponse(v MeResponse) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeMeResponse performs a merge with any union data inside the AuthMeApiV1DashboardAuthMeGet200JSONResponseBody, using the provided MeResponse
+func (t *AuthMeApiV1DashboardAuthMeGet200JSONResponseBody) MergeMeResponse(v MeResponse) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsAwsMeResponse returns the union data inside the AuthMeApiV1DashboardAuthMeGet200JSONResponseBody as a AwsMeResponse
+func (t AuthMeApiV1DashboardAuthMeGet200JSONResponseBody) AsAwsMeResponse() (AwsMeResponse, error) {
+	var body AwsMeResponse
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromAwsMeResponse overwrites any union data inside the AuthMeApiV1DashboardAuthMeGet200JSONResponseBody as the provided AwsMeResponse
+func (t *AuthMeApiV1DashboardAuthMeGet200JSONResponseBody) FromAwsMeResponse(v AwsMeResponse) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeAwsMeResponse performs a merge with any union data inside the AuthMeApiV1DashboardAuthMeGet200JSONResponseBody, using the provided AwsMeResponse
+func (t *AuthMeApiV1DashboardAuthMeGet200JSONResponseBody) MergeAwsMeResponse(v AwsMeResponse) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t AuthMeApiV1DashboardAuthMeGet200JSONResponseBody) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *AuthMeApiV1DashboardAuthMeGet200JSONResponseBody) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
 // AsRawManifestResponse returns the union data inside the RegisterRawManifestApiV1EdgeRawManifestsPost409JSONResponseBody as a RawManifestResponse
 func (t RegisterRawManifestApiV1EdgeRawManifestsPost409JSONResponseBody) AsRawManifestResponse() (RawManifestResponse, error) {
 	var body RawManifestResponse
@@ -1196,19 +1278,19 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 // The interface specification for the client above.
 type ClientInterface interface {
 
-	// ActivateConfirmActivateConfirmPostWithBody Activate Confirm
+	// ActivateConfirmApiV1ActivateConfirmPostWithBody Activate Confirm
 	//
 	// Takes any type of body and a specified content type.
 	//
-	// Corresponds with POST /activate/confirm (the `ActivateConfirmActivateConfirmPost` operationId).
-	ActivateConfirmActivateConfirmPostWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// Corresponds with POST /api/v1/activate/confirm (the `ActivateConfirmApiV1ActivateConfirmPost` operationId).
+	ActivateConfirmApiV1ActivateConfirmPostWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ActivateConfirmActivateConfirmPost Activate Confirm
+	// ActivateConfirmApiV1ActivateConfirmPost Activate Confirm
 	//
 	// Takes a body of the `application/json` content type.
 	//
-	// Corresponds with POST /activate/confirm (the `ActivateConfirmActivateConfirmPost` operationId).
-	ActivateConfirmActivateConfirmPost(ctx context.Context, body ActivateConfirmActivateConfirmPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// Corresponds with POST /api/v1/activate/confirm (the `ActivateConfirmApiV1ActivateConfirmPost` operationId).
+	ActivateConfirmApiV1ActivateConfirmPost(ctx context.Context, body ActivateConfirmApiV1ActivateConfirmPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostWithBody Revoke Billing Account
 	//
@@ -1439,6 +1521,11 @@ type ClientInterface interface {
 	// Corresponds with GET /api/v1/dashboard/faturamento/by-establishment (the `GetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGet` operationId).
 	GetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGet(ctx context.Context, params *GetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGetParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// MembershipsApiV1DashboardMembershipsGet Memberships
+	//
+	// Corresponds with GET /api/v1/dashboard/memberships (the `MembershipsApiV1DashboardMembershipsGet` operationId).
+	MembershipsApiV1DashboardMembershipsGet(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetOverviewApiV1DashboardOverviewGet Get Overview
 	//
 	// Corresponds with GET /api/v1/dashboard/overview (the `GetOverviewApiV1DashboardOverviewGet` operationId).
@@ -1446,7 +1533,7 @@ type ClientInterface interface {
 
 	// ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGet Read Serving Document
 	//
-	// Transmite o documento serving concedido, sem fallback e sem URL assinada.
+	// Entrega o documento serving concedido: stream local ou envelope aws com URL assinada.
 	//
 	// Corresponds with GET /api/v1/dashboard/serving/{dataset_name}/{document_name} (the `ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGet` operationId).
 	ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGet(ctx context.Context, datasetName string, documentName string, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1638,13 +1725,13 @@ type ClientInterface interface {
 	ProvisionCertRotateProvisionCertRotatePost(ctx context.Context, body ProvisionCertRotateProvisionCertRotatePostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
-// ActivateConfirmActivateConfirmPostWithBody Activate Confirm
+// ActivateConfirmApiV1ActivateConfirmPostWithBody Activate Confirm
 //
 // Takes any type of body and a specified content type.
 //
-// Corresponds with POST /activate/confirm (the `ActivateConfirmActivateConfirmPost` operationId).
-func (c *Client) ActivateConfirmActivateConfirmPostWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewActivateConfirmActivateConfirmPostRequestWithBody(c.Server, contentType, body)
+// Corresponds with POST /api/v1/activate/confirm (the `ActivateConfirmApiV1ActivateConfirmPost` operationId).
+func (c *Client) ActivateConfirmApiV1ActivateConfirmPostWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewActivateConfirmApiV1ActivateConfirmPostRequestWithBody(c.Server, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1655,13 +1742,13 @@ func (c *Client) ActivateConfirmActivateConfirmPostWithBody(ctx context.Context,
 	return c.Client.Do(req)
 }
 
-// ActivateConfirmActivateConfirmPost Activate Confirm
+// ActivateConfirmApiV1ActivateConfirmPost Activate Confirm
 //
 // Takes a body of the `application/json` content type.
 //
-// Corresponds with POST /activate/confirm (the `ActivateConfirmActivateConfirmPost` operationId).
-func (c *Client) ActivateConfirmActivateConfirmPost(ctx context.Context, body ActivateConfirmActivateConfirmPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewActivateConfirmActivateConfirmPostRequest(c.Server, body)
+// Corresponds with POST /api/v1/activate/confirm (the `ActivateConfirmApiV1ActivateConfirmPost` operationId).
+func (c *Client) ActivateConfirmApiV1ActivateConfirmPost(ctx context.Context, body ActivateConfirmApiV1ActivateConfirmPostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewActivateConfirmApiV1ActivateConfirmPostRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -2211,6 +2298,21 @@ func (c *Client) GetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGet(
 	return c.Client.Do(req)
 }
 
+// MembershipsApiV1DashboardMembershipsGet Memberships
+//
+// Corresponds with GET /api/v1/dashboard/memberships (the `MembershipsApiV1DashboardMembershipsGet` operationId).
+func (c *Client) MembershipsApiV1DashboardMembershipsGet(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewMembershipsApiV1DashboardMembershipsGetRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // GetOverviewApiV1DashboardOverviewGet Get Overview
 //
 // Corresponds with GET /api/v1/dashboard/overview (the `GetOverviewApiV1DashboardOverviewGet` operationId).
@@ -2228,7 +2330,7 @@ func (c *Client) GetOverviewApiV1DashboardOverviewGet(ctx context.Context, param
 
 // ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGet Read Serving Document
 //
-// Transmite o documento serving concedido, sem fallback e sem URL assinada.
+// Entrega o documento serving concedido: stream local ou envelope aws com URL assinada.
 //
 // Corresponds with GET /api/v1/dashboard/serving/{dataset_name}/{document_name} (the `ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGet` operationId).
 func (c *Client) ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGet(ctx context.Context, datasetName string, documentName string, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -2689,19 +2791,19 @@ func (c *Client) ProvisionCertRotateProvisionCertRotatePost(ctx context.Context,
 	return c.Client.Do(req)
 }
 
-// NewActivateConfirmActivateConfirmPostRequest calls the generic ActivateConfirmActivateConfirmPost builder with application/json body
-func NewActivateConfirmActivateConfirmPostRequest(server string, body ActivateConfirmActivateConfirmPostJSONRequestBody) (*http.Request, error) {
+// NewActivateConfirmApiV1ActivateConfirmPostRequest calls the generic ActivateConfirmApiV1ActivateConfirmPost builder with application/json body
+func NewActivateConfirmApiV1ActivateConfirmPostRequest(server string, body ActivateConfirmApiV1ActivateConfirmPostJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
 	bodyReader = bytes.NewReader(buf)
-	return NewActivateConfirmActivateConfirmPostRequestWithBody(server, "application/json", bodyReader)
+	return NewActivateConfirmApiV1ActivateConfirmPostRequestWithBody(server, "application/json", bodyReader)
 }
 
-// NewActivateConfirmActivateConfirmPostRequestWithBody constructs an http.Request for the ActivateConfirmActivateConfirmPost method, with any body, and a specified content type
-func NewActivateConfirmActivateConfirmPostRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+// NewActivateConfirmApiV1ActivateConfirmPostRequestWithBody constructs an http.Request for the ActivateConfirmApiV1ActivateConfirmPost method, with any body, and a specified content type
+func NewActivateConfirmApiV1ActivateConfirmPostRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -2709,7 +2811,7 @@ func NewActivateConfirmActivateConfirmPostRequestWithBody(server string, content
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/activate/confirm")
+	operationPath := fmt.Sprintf("/api/v1/activate/confirm")
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -3780,6 +3882,33 @@ func NewGetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGetRequest(se
 	return req, nil
 }
 
+// NewMembershipsApiV1DashboardMembershipsGetRequest constructs an http.Request for the MembershipsApiV1DashboardMembershipsGet method
+func NewMembershipsApiV1DashboardMembershipsGetRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/dashboard/memberships")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewGetOverviewApiV1DashboardOverviewGetRequest constructs an http.Request for the GetOverviewApiV1DashboardOverviewGet method
 func NewGetOverviewApiV1DashboardOverviewGetRequest(server string, params *GetOverviewApiV1DashboardOverviewGetParams) (*http.Request, error) {
 	var err error
@@ -4522,19 +4651,19 @@ func WithBaseURL(baseURL string) ClientOption {
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
 
-	// ActivateConfirmActivateConfirmPostWithBodyWithResponse Activate Confirm
+	// ActivateConfirmApiV1ActivateConfirmPostWithBodyWithResponse Activate Confirm
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
-	// Corresponds with POST /activate/confirm (the `ActivateConfirmActivateConfirmPost` operationId).
-	ActivateConfirmActivateConfirmPostWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ActivateConfirmActivateConfirmPostResponse, error)
+	// Corresponds with POST /api/v1/activate/confirm (the `ActivateConfirmApiV1ActivateConfirmPost` operationId).
+	ActivateConfirmApiV1ActivateConfirmPostWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ActivateConfirmApiV1ActivateConfirmPostResponse, error)
 
-	// ActivateConfirmActivateConfirmPostWithResponse Activate Confirm
+	// ActivateConfirmApiV1ActivateConfirmPostWithResponse Activate Confirm
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
-	// Corresponds with POST /activate/confirm (the `ActivateConfirmActivateConfirmPost` operationId).
-	ActivateConfirmActivateConfirmPostWithResponse(ctx context.Context, body ActivateConfirmActivateConfirmPostJSONRequestBody, reqEditors ...RequestEditorFn) (*ActivateConfirmActivateConfirmPostResponse, error)
+	// Corresponds with POST /api/v1/activate/confirm (the `ActivateConfirmApiV1ActivateConfirmPost` operationId).
+	ActivateConfirmApiV1ActivateConfirmPostWithResponse(ctx context.Context, body ActivateConfirmApiV1ActivateConfirmPostJSONRequestBody, reqEditors ...RequestEditorFn) (*ActivateConfirmApiV1ActivateConfirmPostResponse, error)
 
 	// RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostWithBodyWithResponse Revoke Billing Account
 	//
@@ -4791,6 +4920,13 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /api/v1/dashboard/faturamento/by-establishment (the `GetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGet` operationId).
 	GetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGetWithResponse(ctx context.Context, params *GetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGetParams, reqEditors ...RequestEditorFn) (*GetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGetResponse, error)
 
+	// MembershipsApiV1DashboardMembershipsGetWithResponse Memberships
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/dashboard/memberships (the `MembershipsApiV1DashboardMembershipsGet` operationId).
+	MembershipsApiV1DashboardMembershipsGetWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*MembershipsApiV1DashboardMembershipsGetResponse, error)
+
 	// GetOverviewApiV1DashboardOverviewGetWithResponse Get Overview
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -4800,7 +4936,7 @@ type ClientWithResponsesInterface interface {
 
 	// ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGetWithResponse Read Serving Document
 	//
-	// Transmite o documento serving concedido, sem fallback e sem URL assinada.
+	// Entrega o documento serving concedido: stream local ou envelope aws com URL assinada.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -5002,7 +5138,7 @@ type ClientWithResponsesInterface interface {
 	ProvisionCertRotateProvisionCertRotatePostWithResponse(ctx context.Context, body ProvisionCertRotateProvisionCertRotatePostJSONRequestBody, reqEditors ...RequestEditorFn) (*ProvisionCertRotateProvisionCertRotatePostResponse, error)
 }
 
-type ActivateConfirmActivateConfirmPostResponse struct {
+type ActivateConfirmApiV1ActivateConfirmPostResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
@@ -5012,22 +5148,22 @@ type ActivateConfirmActivateConfirmPostResponse struct {
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r ActivateConfirmActivateConfirmPostResponse) GetJSON200() *ActivateConfirmResponse {
+func (r ActivateConfirmApiV1ActivateConfirmPostResponse) GetJSON200() *ActivateConfirmResponse {
 	return r.JSON200
 }
 
 // GetJSON422 returns the response for an HTTP 422 `application/json` response
-func (r ActivateConfirmActivateConfirmPostResponse) GetJSON422() *HTTPValidationError {
+func (r ActivateConfirmApiV1ActivateConfirmPostResponse) GetJSON422() *HTTPValidationError {
 	return r.JSON422
 }
 
 // GetBody returns the raw response body bytes
-func (r ActivateConfirmActivateConfirmPostResponse) GetBody() []byte {
+func (r ActivateConfirmApiV1ActivateConfirmPostResponse) GetBody() []byte {
 	return r.Body
 }
 
 // Status returns HTTPResponse.Status
-func (r ActivateConfirmActivateConfirmPostResponse) Status() string {
+func (r ActivateConfirmApiV1ActivateConfirmPostResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -5035,7 +5171,7 @@ func (r ActivateConfirmActivateConfirmPostResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r ActivateConfirmActivateConfirmPostResponse) StatusCode() int {
+func (r ActivateConfirmApiV1ActivateConfirmPostResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -5043,7 +5179,7 @@ func (r ActivateConfirmActivateConfirmPostResponse) StatusCode() int {
 }
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r ActivateConfirmActivateConfirmPostResponse) ContentType() string {
+func (r ActivateConfirmApiV1ActivateConfirmPostResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -5972,11 +6108,11 @@ type AuthMeApiV1DashboardAuthMeGetResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
-	JSON200 *MeResponse
+	JSON200 *AuthMeApiV1DashboardAuthMeGet200JSONResponseBody
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r AuthMeApiV1DashboardAuthMeGetResponse) GetJSON200() *MeResponse {
+func (r AuthMeApiV1DashboardAuthMeGetResponse) GetJSON200() *AuthMeApiV1DashboardAuthMeGet200JSONResponseBody {
 	return r.JSON200
 }
 
@@ -6051,6 +6187,47 @@ func (r GetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGetResponse) 
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGetResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type MembershipsApiV1DashboardMembershipsGetResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *[]MembershipResponse
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r MembershipsApiV1DashboardMembershipsGetResponse) GetJSON200() *[]MembershipResponse {
+	return r.JSON200
+}
+
+// GetBody returns the raw response body bytes
+func (r MembershipsApiV1DashboardMembershipsGetResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r MembershipsApiV1DashboardMembershipsGetResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r MembershipsApiV1DashboardMembershipsGetResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r MembershipsApiV1DashboardMembershipsGetResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -6859,30 +7036,30 @@ func (r ProvisionCertRotateProvisionCertRotatePostResponse) ContentType() string
 	return ""
 }
 
-// ActivateConfirmActivateConfirmPostWithBodyWithResponse Activate Confirm
+// ActivateConfirmApiV1ActivateConfirmPostWithBodyWithResponse Activate Confirm
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
-// Corresponds with POST /activate/confirm (the `ActivateConfirmActivateConfirmPost` operationId).
-func (c *ClientWithResponses) ActivateConfirmActivateConfirmPostWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ActivateConfirmActivateConfirmPostResponse, error) {
-	rsp, err := c.ActivateConfirmActivateConfirmPostWithBody(ctx, contentType, body, reqEditors...)
+// Corresponds with POST /api/v1/activate/confirm (the `ActivateConfirmApiV1ActivateConfirmPost` operationId).
+func (c *ClientWithResponses) ActivateConfirmApiV1ActivateConfirmPostWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ActivateConfirmApiV1ActivateConfirmPostResponse, error) {
+	rsp, err := c.ActivateConfirmApiV1ActivateConfirmPostWithBody(ctx, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseActivateConfirmActivateConfirmPostResponse(rsp)
+	return ParseActivateConfirmApiV1ActivateConfirmPostResponse(rsp)
 }
 
-// ActivateConfirmActivateConfirmPostWithResponse Activate Confirm
+// ActivateConfirmApiV1ActivateConfirmPostWithResponse Activate Confirm
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
-// Corresponds with POST /activate/confirm (the `ActivateConfirmActivateConfirmPost` operationId).
-func (c *ClientWithResponses) ActivateConfirmActivateConfirmPostWithResponse(ctx context.Context, body ActivateConfirmActivateConfirmPostJSONRequestBody, reqEditors ...RequestEditorFn) (*ActivateConfirmActivateConfirmPostResponse, error) {
-	rsp, err := c.ActivateConfirmActivateConfirmPost(ctx, body, reqEditors...)
+// Corresponds with POST /api/v1/activate/confirm (the `ActivateConfirmApiV1ActivateConfirmPost` operationId).
+func (c *ClientWithResponses) ActivateConfirmApiV1ActivateConfirmPostWithResponse(ctx context.Context, body ActivateConfirmApiV1ActivateConfirmPostJSONRequestBody, reqEditors ...RequestEditorFn) (*ActivateConfirmApiV1ActivateConfirmPostResponse, error) {
+	rsp, err := c.ActivateConfirmApiV1ActivateConfirmPost(ctx, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseActivateConfirmActivateConfirmPostResponse(rsp)
+	return ParseActivateConfirmApiV1ActivateConfirmPostResponse(rsp)
 }
 
 // RevokeBillingAccountApiV1AdminBillingBillingAccountIdRevokePostWithBodyWithResponse Revoke Billing Account
@@ -7326,6 +7503,19 @@ func (c *ClientWithResponses) GetFaturamentoChartApiV1DashboardFaturamentoByEsta
 	return ParseGetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGetResponse(rsp)
 }
 
+// MembershipsApiV1DashboardMembershipsGetWithResponse Memberships
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/dashboard/memberships (the `MembershipsApiV1DashboardMembershipsGet` operationId).
+func (c *ClientWithResponses) MembershipsApiV1DashboardMembershipsGetWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*MembershipsApiV1DashboardMembershipsGetResponse, error) {
+	rsp, err := c.MembershipsApiV1DashboardMembershipsGet(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseMembershipsApiV1DashboardMembershipsGetResponse(rsp)
+}
+
 // GetOverviewApiV1DashboardOverviewGetWithResponse Get Overview
 //
 // Returns a wrapper object for the known response body format(s).
@@ -7341,7 +7531,7 @@ func (c *ClientWithResponses) GetOverviewApiV1DashboardOverviewGetWithResponse(c
 
 // ReadServingDocumentApiV1DashboardServingDatasetNameDocumentNameGetWithResponse Read Serving Document
 //
-// Transmite o documento serving concedido, sem fallback e sem URL assinada.
+// Entrega o documento serving concedido: stream local ou envelope aws com URL assinada.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -7704,15 +7894,15 @@ func (c *ClientWithResponses) ProvisionCertRotateProvisionCertRotatePostWithResp
 	return ParseProvisionCertRotateProvisionCertRotatePostResponse(rsp)
 }
 
-// ParseActivateConfirmActivateConfirmPostResponse parses an HTTP response from a ActivateConfirmActivateConfirmPostWithResponse call
-func ParseActivateConfirmActivateConfirmPostResponse(rsp *http.Response) (*ActivateConfirmActivateConfirmPostResponse, error) {
+// ParseActivateConfirmApiV1ActivateConfirmPostResponse parses an HTTP response from a ActivateConfirmApiV1ActivateConfirmPostWithResponse call
+func ParseActivateConfirmApiV1ActivateConfirmPostResponse(rsp *http.Response) (*ActivateConfirmApiV1ActivateConfirmPostResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &ActivateConfirmActivateConfirmPostResponse{
+	response := &ActivateConfirmApiV1ActivateConfirmPostResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -8367,7 +8557,7 @@ func ParseAuthMeApiV1DashboardAuthMeGetResponse(rsp *http.Response) (*AuthMeApiV
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest MeResponse
+		var dest AuthMeApiV1DashboardAuthMeGet200JSONResponseBody
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -8405,6 +8595,32 @@ func ParseGetFaturamentoChartApiV1DashboardFaturamentoByEstablishmentGetResponse
 			return nil, err
 		}
 		response.JSON422 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseMembershipsApiV1DashboardMembershipsGetResponse parses an HTTP response from a MembershipsApiV1DashboardMembershipsGetWithResponse call
+func ParseMembershipsApiV1DashboardMembershipsGetResponse(rsp *http.Response) (*MembershipsApiV1DashboardMembershipsGetResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &MembershipsApiV1DashboardMembershipsGetResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []MembershipResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
 
 	}
 

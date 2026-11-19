@@ -28,6 +28,10 @@ profile.
 
 ## 2. Governing designs and precedence
 
+[Ownership amendment](2026-11-07-prod-delivery-external-ownership-amendment.md) governs the
+2026-11-07 external producer assignments, DNS/CA ownership and execution gates, superseding
+conflicting ownership statements in §§3.1, 5 and 13. Other resource/domain contracts remain.
+
 This document composes, rather than replaces:
 
 - `2026-08-16-parquet-data-plane-orchestration-design.md`;
@@ -59,9 +63,9 @@ endpoint.
 
 - CND-020 through CND-025 are integrated and the exact `develop` SHA passes the
   Phase 2 gate;
-- the OpenTofu module can validate without application runtime resources;
-- shared state, KMS, GitHub OIDC and budget controls from
-  `personal-infra-live` exist;
+- offline/mock validation needs no live resources; real release still requires shared contracts;
+- `personal-infra-live` owns only Budget/freeze/backend, not DNS or other shared resources;
+- #60/PEN IANA blocks production certificate issuance/rollout, not the ACM mock contract;
 - the expected CnesData monthly base/max cost remains inside the USD 8 product
   envelope and the aggregate base remains below USD 15.
 
@@ -124,39 +128,48 @@ origin port. Fargate has no load balancer and no idle service.
 | Step Functions/ECS/ECR | CnesData OpenTofu | On-demand processing |
 | Cognito | CnesData OpenTofu | Selected generic OIDC issuer |
 | Athena workgroup | CnesData OpenTofu | Manual bounded analytics |
-| Tunnel/API DNS | `personal-infra-live` | Shared edge and routing |
+| Tunnel/API DNS | External operator (unassigned) | Handoff required before any real change |
 | VPS baseline/Nginx/deployer | `infra-ansible` via live inventory | Host runtime boundary |
 | Application images/manifests | CnesData CI | Tested immutable release |
 
-No two OpenTofu states manage the same resource. Product outputs expose only
-the CloudFront distribution domain, API loopback contract and required DNS
-validation values to the shared edge change.
+No two states manage the same resource. Product exports CloudFront domain/ID, ACM records,
+public runtime env and API loopback. External DNS ownership/configuration remain unresolved.
+Active continuation: [static-web composition](2026-10-31-static-web-composition-amendment.md).
 
 ## 6. Static frontend
 
 ### 6.1 Origin and distribution
 
-- one private S3 web bucket in `us-east-2`;
-- S3 Block Public Access enabled at account and bucket level;
-- CloudFront Origin Access Control with a bucket policy limited to the exact
-  distribution;
-- CloudFront Free flat-rate plan, with no automatic upgrade;
-- one dedicated, CloudFront-scoped AWS WAF web ACL in `us-east-1`, required by
-  that plan and not shared with LimnoPulse;
-- ACM certificate in `us-east-1`, validated through Cloudflare DNS;
-- `cnesdata.com.br` as a DNS-only Cloudflare CNAME to CloudFront;
-- TLS redirect and a modern security policy;
-- compression enabled;
-- no S3 website endpoint and no public object ACL.
-
-Before DNS cutover, the account-level gate proves Free-plan eligibility and
-available quota. A separate manual, idempotent Pricing Plan Manager API step in
-`us-east-1` binds this exact distribution and WAF to an exact `FREE`
-subscription, then verifies `ACTIVE`. The current AWS provider has no supported
-subscription resource, so this step is outside OpenTofu state but inside the
-signed deployment evidence and subsequent drift checks. Failure stops rollout;
-it never selects pay-as-you-go or a paid tier implicitly.
-
+One private S3 bucket(us-east-2); account/bucket Block Public Access; exact-distribution CloudFront
+Origin Access Control policy; ownership/versioning; no public object ACL/S3 website endpoint.
+CloudFront Free flat-rate, no auto-upgrade/implicit pay-as-you-go/paid tier; required dedicated WAF
+(CloudFront scope, us-east-1), unshared with LimnoPulse; ACM(us-east-1), Cloudflare DNS validation.
+cnesdata.com.br DNS-only Cloudflare CNAME to CloudFront; TLS redirect/modern TLS policy/compression.
+Free eligibility/quota gate before DNS cutover. Separate manual idempotent Pricing Plan Manager API
+in us-east-1 binds exact distribution+WAF to FREE; verifies ACTIVE. AWS provider has no supported
+subscription resource: outside OpenTofu state; signed deploy evidence/drift checks. Failure stops.
+From 2026-10-29: retain SSE-S3 AES256 for deterministic dashboard/public config (§6.2); no secrets
+is binding; published content/inventory unproven pending release evidence. Avoid CMK policy/cost
+dependency within the existing envelope. Real AWS-0132 HIGH exception; owner repository account
+VINIClUS; expires 2027-02-03 00:00 UTC; only this file/resource:
+infra/opentofu/modules/static-web/main.tf; aws_s3_bucket_server_side_encryption_configuration.this.
+main.tf SHA256: 259e0c206a165c4bfe828d8265d33d3c44de1e133f94e8f9c5c3bbee100e0253 after the #476
+re-review (2026-11-14, Free eligibility: managed CachingOptimized, viewer-response headers Function,
+custom cache/response headers policies removed; Trivy 0.74.0 no-ignore CRITICAL/HIGH: only AWS-0132
+on this resource, raw SHA256 952fa9b9c43c85d0b7507fcfedf8610e8e491272d095327e7177d4ad53f199b9;
+.trivyignore.yaml at root: 0 findings). Previous main.tf SHA256:
+93cc7515f9276a0ac28331258c2ae16c72f4cf029c7f71c5f00e14c38375e701 after the #473 re-review
+(2026-11-13, static-web-gc Enabled; Trivy 0.74.0 no-ignore CRITICAL/HIGH: only AWS-0132 on this
+resource, raw SHA256 da275307fa14972f0eca1286116d7450a121a554becb1a08950ca53f2c8561aa;
+.trivyignore.yaml at root: 0 findings); D11 reviewed
+b94212cb1c9d65c04e02f7cb6550b108f8b3ced71613c28ace7c3eaec3ce8e17. Original raw:
+task-9-static-web-provider-gates-ready/trivy-raw.json SHA256:
+d147bfe272c2a4a7c05b89cb20a69777e9202e49af2c0b52a3978fdec4cfef06; report SHA256:
+49bbdc5e8188dab1fd6408b718213a0d1917c3e7a8ffe59ef67bfe544731dafa. No customer-controlled key policy,
+revocation/rotation boundary; file scope covers future resources. Re-review before reliance on new
+resources/content, encryption/access/scanner/financial change/expiry. CI selects .trivyignore.yaml:
+exact-file static entry, independent legacy scope/expiry; no global AWS-0132. No spend/cloud change/
+live-content acceptance/CI/deploy/issue-completion approval.
 ### 6.2 Release layout and cache policy
 
 The dashboard build is deterministic and contains no secret. It receives only
@@ -246,8 +259,8 @@ The application remains the authority for:
 
 ## 8. Authentication and demo tenancy
 
-Production sets `PROFILE=aws` and `AUTH_MODE=oidc`. Cognito Lite is the selected
-issuer preset, but application/domain interfaces remain provider-neutral.
+Production sets `PROFILE=aws` and `AUTH_MODE=oidc`. Cognito Essentials is the selected
+issuer preset (owner decision 2026-10-25); application/domain interfaces remain provider-neutral.
 
 The deployment creates:
 
@@ -276,8 +289,8 @@ to send the `access_token`; the verifier remains provider-neutral.
 Authorization Code + PKCE requires the AWS-managed prefix domain. Its public
 dashboard configuration and OpenTofu outputs include `COGNITO_DOMAIN` plus the
 absolute `COGNITO_AUTHORIZE_URL`, `COGNITO_TOKEN_URL` and `COGNITO_LOGOUT_URL`
-for `/oauth2/authorize`, `/oauth2/token` and `/logout`. Cognito Lite uses these
-standard endpoints without depending on managed login v2 branding or features.
+for `/oauth2/authorize`, `/oauth2/token` and `/logout`. These endpoints use
+managed login v2 with Cognito-provided branding; resource binding preserves the API audience.
 
 Tokens establish issuer, audience and subject only. Tenant membership is
 resolved server-side through canonical DynamoDB keys. A tenant claim, header,
@@ -309,6 +322,12 @@ Required deployment controls:
 API/processor roles receive only required table/index actions. GitHub has no direct
 writes; promotion's operator strongly reads fence/semaphore but updates only the
 separate fence item. Demo seed uses another role; semaphore writes are denied.
+
+Exception A1 (#499): `mode_seed` writes only the insert-only synthetic seed items and raw
+objects of `prod-canary-<canary_id>`; `mode_dispatch` writes the synthetic control, tickets,
+per-dispatch bindings and native dispatch/semaphore/quota items of that tenant only. Neither
+writes `TENANT#_GLOBAL`, the fence item or membership. The normal dispatcher never adopts a
+synthetic record: the reserved prefix is refused before reserve, admission or start.
 
 ## 10. Data, serving and audit buckets
 
@@ -455,6 +474,11 @@ VPS.
   `.env` file is created.
 - Cognito identifiers, bucket names and API URLs are configuration, not secret
   values.
+- Mode canaries (#499) use four nullable product identities (`mode_seed`,
+  `mode_dispatch`, `mode_audit_launch`, `mode_observe`), assumed only through exact
+  `mc-<code>-<digest>` sessions of the prepared owner; only `mode_dispatch` and
+  `mode_audit_launch` may call `ecs:RunTask`, on exact revisions. Production runtime roles stay
+  cross-tenant: the gate, not IAM, restricts the synthetic tenant.
 
 OpenTofu provisions a `us-east-2` Roles Anywhere trust anchor from an external,
 offline CA public PEM and a profile; AWS Private CA is prohibited by the cost

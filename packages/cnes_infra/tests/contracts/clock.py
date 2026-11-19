@@ -35,6 +35,7 @@ from cnes_domain.control_plane.queries import (
     RawManifestChainQuery,
 )
 from cnes_domain.control_plane.transitions import transition_run
+from packages.cnes_infra.tests.contracts.outbox_memory import MemoryOutbox
 
 _NOW = datetime(2026, 7, 15, 12, tzinfo=UTC)
 _TENANT = "354130"
@@ -112,11 +113,11 @@ def _assert_unit_rejected(
     action: Callable[[], Any]) -> None:
     before = (
         adapter.list_run_units(_TENANT, "run-a"), adapter.get_run(_TENANT, "run-a"),
-        adapter.pending_outbox(100))
+        adapter.read_outbox_page(None, 100).events)
     _expect_error(expected, action)
     after = (
         adapter.list_run_units(_TENANT, "run-a"), adapter.get_run(_TENANT, "run-a"),
-        adapter.pending_outbox(100))
+        adapter.read_outbox_page(None, 100).events)
     assert after == before
 
 
@@ -125,11 +126,11 @@ def _assert_job_rejected(
     action: Callable[[], Any]) -> None:
     query = RawManifestChainQuery(RawIdentity(_TENANT, "CNES", "ST", "2026-07"), 10)
     before = (
-        adapter.get_job(_TENANT, "job-a"), adapter.pending_outbox(100),
+        adapter.get_job(_TENANT, "job-a"), adapter.read_outbox_page(None, 100).events,
         adapter.query_raw_manifest_chain(query))
     _expect_error(expected, action)
     after = (
-        adapter.get_job(_TENANT, "job-a"), adapter.pending_outbox(100),
+        adapter.get_job(_TENANT, "job-a"), adapter.read_outbox_page(None, 100).events,
         adapter.query_raw_manifest_chain(query))
     assert after == before
 
@@ -170,7 +171,7 @@ def _assert_job_failures(adapter: Any, clock: MutableClock) -> None:
     failed = adapter.fail_job(_fail_job("worker-b", 2, "retry"), failed_event)
     assert (failed.state, failed.error_code, failed.lease_owner, failed.lease_until) == (
         JobState.FAILED_RETRYABLE, "retry", None, None)
-    assert adapter.pending_outbox(100).count(failed_event) == 1
+    assert adapter.read_outbox_page(None, 100).events.count(failed_event) == 1
     assert failed in adapter.list_claimable_jobs(_TENANT, "agent-a", 10)
     final_claim = adapter.claim_job(_claim_job("job-a", "worker-c", clock))
     assert final_claim is not None
@@ -180,7 +181,7 @@ def _assert_job_failures(adapter: Any, clock: MutableClock) -> None:
     assert (final.state, final.error_code, final.lease_owner, final.lease_until) == (
         JobState.FAILED_FINAL, "permanent", None, None)
     assert adapter.get_job(_TENANT, "job-a") == final
-    assert adapter.pending_outbox(100).count(final_event) == 1
+    assert adapter.read_outbox_page(None, 100).events.count(final_event) == 1
 
 
 def _event(event_id, now=_NOW, aggregate_id=None, tenant_id=_TENANT) -> OutboxEvent:
@@ -253,7 +254,7 @@ def _store_record(adapter: Any, record: RawManifestRecord, clock: MutableClock) 
                            record.file_subtype, record.competencia)
     assert adapter.query_latest_succeeded_job(
         LatestSucceededJobQuery(identity, record.agent_id)) == completed
-    assert adapter.pending_outbox(100).count(event) == 1
+    assert adapter.read_outbox_page(None, 100).events.count(event) == 1
 
 
 def _run(
@@ -329,7 +330,7 @@ def _assert_committed_unit(adapter: Any, dispatch: Any, claimed: Any) -> None:
     )
     assert completed.output_manifests == command.output_manifests
     assert adapter.list_run_units(_TENANT, "run-a")[0] == completed
-    assert adapter.pending_outbox(100).count(event) == 1
+    assert adapter.read_outbox_page(None, 100).events.count(event) == 1
 
 
 def _assert_retryable_unit_failure(adapter: Any, clock: MutableClock, base: Any) -> None:
@@ -344,7 +345,7 @@ def _assert_retryable_unit_failure(adapter: Any, clock: MutableClock, base: Any)
     assert (failed.state, failed.lease_owner, failed.lease_until) == (
         RunUnitState.FAILED_RETRYABLE, None, None)
     assert adapter.list_run_units(_TENANT, "run-a")[0] == failed
-    assert adapter.pending_outbox(100).count(event) == 1
+    assert adapter.read_outbox_page(None, 100).events.count(event) == 1
     reclaimed = _claim_unit(adapter, clock, dispatch.dispatch_id, "worker-c")
     assert reclaimed is not None
     final_command = command.model_copy(update={
@@ -355,11 +356,12 @@ def _assert_retryable_unit_failure(adapter: Any, clock: MutableClock, base: Any)
     assert (final.state, final.error_code, final.lease_owner, final.lease_until) == (
         RunUnitState.FAILED_FINAL, "permanent", None, None)
     assert adapter.list_run_units(_TENANT, "run-a")[0] == final
-    assert adapter.pending_outbox(100).count(final_event) == 1
+    assert adapter.read_outbox_page(None, 100).events.count(final_event) == 1
 
 
-class _HarnessState:
+class _HarnessState(MemoryOutbox):
     def __init__(self, clock: MutableClock, mutation: str | None = None) -> None:
+        super().__init__()
         self.clock = clock
         self.mutation = mutation
         self.memberships: dict[tuple[str, str], Any] = {}
@@ -374,7 +376,6 @@ class _HarnessState:
         self.versions: dict[tuple[str, str, str], Any] = {}
         self.pointers: dict[tuple[str, str, str], Any] = {}
         self.access_requests: dict[tuple[str, str], Any] = {}
-        self.outbox: dict[str, Any] = {}
 
     def put_tenant(self, tenant: Any) -> None:
         self.tenants[tenant.tenant_id] = tenant
@@ -455,14 +456,6 @@ class _HarnessState:
     def decide_access_request(self, request: Any, event: Any) -> Any:
         self.put_access_request(request, event)
         return request
-
-    def pending_outbox(self, limit: int) -> tuple[Any, ...]:
-        values = sorted(self.outbox.values(), key=lambda item: (item.created_at, item.event_id))
-        return tuple(event for event in values if event.delivered_at is None)[:limit]
-
-    def mark_outbox_delivered(self, event_id: str, delivered_at: datetime) -> None:
-        event = self.outbox[event_id]
-        self.outbox[event_id] = event.model_copy(update={"delivered_at": delivered_at})
 
     def get_active_run_dispatch(self, tenant_id: str, run_id: str) -> Any | None:
         dispatch = self.dispatches.get((tenant_id, run_id))

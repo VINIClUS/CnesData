@@ -21,7 +21,12 @@ from cnes_domain.ports.processing import ExecutionPolicyConfig
 from cnes_domain.profiles import ProfileNotImplemented, RuntimeProfile, parse_profile
 from cnes_infra.audit.local_sink import LocalAuditSink
 from cnes_infra.auth.dynamodb_memberships import DynamoDBMembershipCandidates
-from cnes_infra.aws import AwsRuntimeSettings, build_aws_runtime, create_aws_clients
+from cnes_infra.aws import (
+    AwsRuntimeConfigurationError,
+    AwsRuntimeSettings,
+    create_aws_clients,
+)
+from cnes_infra.aws.runtime import build_aws_processor_core, build_dispatch_admission
 from cnes_infra.billing import (
     LOCAL_BILLING_SETTINGS,
     BillingGateResources,
@@ -33,7 +38,12 @@ from cnes_infra.billing import (
 from cnes_infra.billing.dynamodb_catalog import DynamoBillingCatalog
 from cnes_infra.control_plane.sqlite_adapter import SQLiteControlPlane
 from cnes_infra.executor.local_pool import LocalWorkerPool
-from cnes_infra.executor.step_functions import StepFunctionsExecutor, validate_state_machine
+from cnes_infra.executor.step_functions import (
+    ProductionNetworkPolicy,
+    StepFunctionsExecutor,
+    validate_production_state_machine,
+    validate_state_machine,
+)
 from cnes_infra.object_store import FilesystemObjectStore
 
 if TYPE_CHECKING:
@@ -53,7 +63,8 @@ if TYPE_CHECKING:
         StartRunExecution,
     )
     from cnes_domain.profiles import ProfileSettings
-    from cnes_infra.aws import AwsClients, AwsRuntimeComponents
+    from cnes_infra.aws import AwsClients
+    from cnes_infra.aws.runtime import AwsProcessorCore
 
     class _RawQueryControlPlane(ControlPlanePort, TypedRawQueryPort, Protocol):
         pass
@@ -112,7 +123,7 @@ class RuntimeComponents:
     control_plane: ControlPlanePort
     object_store: ObjectStorePort
     executor: ProcessorExecutorPort
-    audit_sink: AuditSinkPort
+    audit_sink: AuditSinkPort | None
     raw_ingestion: RawIngestionService
     source_catalog: SourceCatalog
     run_planning: RunPlanningService
@@ -223,7 +234,7 @@ def build_runtime(
     settings = AwsRuntimeSettings.from_mapping(values)
     clients = create_aws_clients(settings, session)
     billing = BillingSettings.from_mapping(values)
-    core = build_aws_runtime(settings, clients, _utc_now, billing)
+    core = build_aws_processor_core(settings, clients, _utc_now, billing)
     return _build_aws_api_runtime(
         settings, clients, core, _AwsBilling(billing, execution_started),
     )
@@ -231,7 +242,7 @@ def build_runtime(
 
 def _build_aws_api_runtime(
     settings: AwsRuntimeSettings, clients: AwsClients,
-    core: AwsRuntimeComponents, billing: _AwsBilling,
+    core: AwsProcessorCore, billing: _AwsBilling,
 ) -> RuntimeComponents:
     _validate_runtime(settings, clients)
     executor = StepFunctionsExecutor(clients.step_functions, settings.state_machine_arn)
@@ -251,7 +262,7 @@ def _build_aws_api_runtime(
     gates = api_billing_gates(billing.settings, _gate_resources(settings, clients))
     return RuntimeComponents(
         control_plane=core.control_plane, object_store=core.object_store, executor=executor,
-        audit_sink=core.audit_sink, raw_ingestion=raw_ingestion, source_catalog=source_catalog,
+        audit_sink=None, raw_ingestion=raw_ingestion, source_catalog=source_catalog,
         run_planning=run_planning, services=_aws_api_services(settings, clients, core, gates),
         run_authorization=RunAuthorizationService(gates.gate, core.control_plane, run_planning),
         billing_gates=gates,
@@ -259,7 +270,7 @@ def _build_aws_api_runtime(
 
 
 def _aws_api_services(
-    settings: AwsRuntimeSettings, clients: AwsClients, core: AwsRuntimeComponents,
+    settings: AwsRuntimeSettings, clients: AwsClients, core: AwsProcessorCore,
     gates: ApiBillingGates,
 ) -> AwsApiServices:
     candidates = DynamoDBMembershipCandidates(clients.dynamodb, settings.control_plane_table)
@@ -288,9 +299,20 @@ def _notify_accepted(run_planning: RunPlanningService, record: RawManifestRecord
 
 
 def _validate_runtime(settings: AwsRuntimeSettings, clients: AwsClients) -> None:
-    validate_state_machine(
+    if not settings.production_policy:
+        validate_state_machine(
+            clients.step_functions, settings.state_machine_arn,
+            settings.processor_container_name, settings.processor_lease_seconds,
+        )
+        return
+    if settings.security_group_id is None:
+        raise AwsRuntimeConfigurationError("production_security_group_required")
+    validate_production_state_machine(
         clients.step_functions, settings.state_machine_arn,
-        settings.processor_container_name, settings.processor_lease_seconds,
+        ProductionNetworkPolicy(
+            settings.processor_container_name, settings.processor_lease_seconds,
+            settings.public_subnet_ids, settings.security_group_id,
+        ),
     )
 
 
@@ -303,7 +325,7 @@ def _gate_resources(settings: AwsRuntimeSettings, clients: AwsClients) -> Billin
 
 def _execution_config(
     settings: AwsRuntimeSettings, clients: AwsClients,
-    core: AwsRuntimeComponents, billing: _AwsBilling,
+    core: AwsProcessorCore, billing: _AwsBilling,
 ) -> ExecutionPolicyConfig:
     return ExecutionPolicyConfig(
         settings.processor_max_concurrency, settings.processor_lease_seconds,
@@ -311,6 +333,7 @@ def _execution_config(
             billing.settings, core.control_plane, _gate_resources(settings, clients),
             billing.execution_started,
         ),
+        build_dispatch_admission(settings, clients, core.control_plane),
     )
 
 

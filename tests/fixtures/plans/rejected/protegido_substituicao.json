@@ -1,0 +1,47 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.13.2",
+  "variables": {},
+  "resource_changes": [
+    {
+      "address": "module.data_buckets.aws_s3_bucket.audit",
+      "mode": "managed",
+      "type": "aws_s3_bucket",
+      "name": "audit",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "delete",
+          "create"
+        ],
+        "before": {
+          "bucket": "example-audit"
+        },
+        "after": {
+          "bucket": "example-audit"
+        },
+        "after_unknown": {}
+      }
+    },
+    {
+      "address": "module.control_plane.aws_dynamodb_table.control_plane",
+      "mode": "managed",
+      "type": "aws_dynamodb_table",
+      "name": "control_plane",
+      "provider_name": "registry.opentofu.org/hashicorp/aws",
+      "change": {
+        "actions": [
+          "create",
+          "delete"
+        ],
+        "before": {
+          "name": "example"
+        },
+        "after": {
+          "name": "example"
+        },
+        "after_unknown": {}
+      }
+    }
+  ]
+}

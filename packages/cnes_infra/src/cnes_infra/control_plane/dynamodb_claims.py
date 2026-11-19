@@ -315,7 +315,9 @@ class DynamoDBClaims(DynamoDBHost):
         if (
             run.state is not RunState.PROCESSING
             or dispatch.dispatch_id != command.dispatch_id
-            or dispatch.state not in {DispatchState.RESERVED, DispatchState.STARTED}
+            or dispatch.state not in {
+                DispatchState.RESERVED, DispatchState.STARTING, DispatchState.STARTED
+            }
             or dispatch.lease_until <= command.now
             or command.unit_id not in dispatch.unit_ids
             or not self._unit_is_claimable(unit, command.now)

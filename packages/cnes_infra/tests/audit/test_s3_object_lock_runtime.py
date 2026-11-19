@@ -11,6 +11,7 @@ from unittest.mock import Mock
 import pytest
 from botocore.exceptions import ClientError
 
+from cnes_domain.control_plane.outbox import OutboxCursor, OutboxPage
 from cnes_domain.outbox_dispatcher import dispatch_once
 from cnes_domain.ports.control_plane import ControlPlanePort
 from cnes_infra.audit.s3_object_lock_sink import S3ObjectLockAuditSink
@@ -81,7 +82,8 @@ def test_erro_aws_mantem_evento_pendente() -> None:
     sink = S3ObjectLockAuditSink(client, "audit-bucket", retention_days=365)
     event = audit_event("evt-01", created_at=NOW)
     control_plane = Mock(spec=ControlPlanePort)
-    control_plane.pending_outbox.return_value = [event]
+    control_plane.read_outbox_page.return_value = OutboxPage((event,), None, OutboxCursor(1, None))
+    control_plane.get_outbox_event.return_value = event
 
     with pytest.raises(ClientError, match="AccessDenied"):
         sink.append(event)

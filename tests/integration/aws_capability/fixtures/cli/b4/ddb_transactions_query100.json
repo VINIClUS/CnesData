@@ -1,0 +1,145 @@
+{"steps":[
+{"request":["dynamodb","query","us-east-2",
+{
+  "TableName": "cnesdata-cap-a1b2c3d4",
+  "KeyConditionExpression": "#pk=:pk",
+  "ExpressionAttributeNames": {
+    "#pk": "pk"
+  },
+  "ExpressionAttributeValues": {
+    ":pk": {
+      "S": "cap#a1b2c3d4#tx100"
+    }
+  },
+  "ConsistentRead": true,
+  "Limit": 60
+}],
+"reply":{"exit":0,"data":{"Items":[
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#000"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#001"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#002"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#003"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#004"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#005"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#006"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#007"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#008"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#009"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#010"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#011"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#012"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#013"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#014"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#015"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#016"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#017"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#018"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#019"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#020"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#021"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#022"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#023"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#024"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#025"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#026"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#027"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#028"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#029"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#030"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#031"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#032"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#033"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#034"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#035"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#036"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#037"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#038"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#039"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#040"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#041"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#042"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#043"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#044"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#045"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#046"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#047"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#048"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#049"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#050"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#051"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#052"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#053"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#054"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#055"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#056"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#057"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#058"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#059"},"version":{"N":"1"}}
+],"Count":60,"Private":"R1_PRIVATE_CANARY",
+"LastEvaluatedKey":{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#059"}}}}},
+{"request":["dynamodb","query","us-east-2",
+{
+  "TableName": "cnesdata-cap-a1b2c3d4",
+  "KeyConditionExpression": "#pk=:pk",
+  "ExpressionAttributeNames": {
+    "#pk": "pk"
+  },
+  "ExpressionAttributeValues": {
+    ":pk": {
+      "S": "cap#a1b2c3d4#tx100"
+    }
+  },
+  "ConsistentRead": true,
+  "Limit": 60,
+  "ExclusiveStartKey": {
+    "pk": {
+      "S": "cap#a1b2c3d4#tx100"
+    },
+    "sk": {
+      "S": "item#059"
+    }
+  }
+}],
+"reply":{"exit":0,"data":{"Items":[
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#060"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#061"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#062"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#063"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#064"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#065"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#066"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#067"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#068"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#069"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#070"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#071"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#072"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#073"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#074"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#075"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#076"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#077"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#078"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#079"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#080"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#081"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#082"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#083"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#084"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#085"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#086"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#087"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#088"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#089"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#090"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#091"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#092"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#093"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#094"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#095"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#096"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#097"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#098"},"version":{"N":"1"}},
+{"pk":{"S":"cap#a1b2c3d4#tx100"},"sk":{"S":"item#099"},"version":{"N":"1"}}
+],"Count":40,"Private":"R1_PRIVATE_CANARY"}}}
+]}

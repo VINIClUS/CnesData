@@ -1,0 +1,34 @@
+{
+  "competencia": "2026-01",
+  "expectations": {
+    "gold_row_count": 7
+  },
+  "file_subtype": "CNES_VINCULO",
+  "files": {
+    "cnes-local-v1.parquet": {
+      "manifest_id": "fixture-cnes-local-v1",
+      "origin": "docs/fixtures/data-plane/cnes-local-v1.parquet",
+      "row_count": 5,
+      "schema_version": "cnes-profissional-v1",
+      "sha256": "4bf011da987e2b6d0666a10c97cdd37626ca9b123050c9ce77e155e7197237fb",
+      "size": 5078,
+      "source_type": "CNES_LOCAL"
+    },
+    "cnes-nacional-v1.parquet": {
+      "manifest_id": "fixture-cnes-nacional-v1",
+      "origin": "docs/fixtures/data-plane/cnes-nacional-v1.parquet",
+      "row_count": 5,
+      "schema_version": "cnes-profissional-v1",
+      "sha256": "30a60a84af9b06c568fe6170ce72365ee33cb1a706f130cc5bc7e197aef348ec",
+      "size": 5123,
+      "source_type": "CNES_NACIONAL"
+    }
+  },
+  "schema": "cnesdata.mode-canary-fixtures/v1",
+  "synthetic_proof": {
+    "CNES": "1234567",
+    "CNS": "999000000000[0-9]{3}",
+    "CPF": "9000000000[0-9]",
+    "NOME_PROFISSIONAL": "PROFISSIONAL TESTE [0-9]{3}"
+  }
+}

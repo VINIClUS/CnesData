@@ -25,6 +25,7 @@ from cnes_domain.control_plane.transitions import (
     transition_run,
     transition_run_unit,
 )
+from cnes_domain.orchestration.mode_canary import is_mode_canary_namespace
 from cnes_infra.billing.settings import LOCAL_BILLING_SETTINGS, BillingSettings
 from cnes_infra.control_plane.dynamodb_billing import DynamoBillingMixin
 from cnes_infra.control_plane.dynamodb_claims import DynamoDBClaims
@@ -43,6 +44,8 @@ from cnes_infra.control_plane.dynamodb_codec import (
     raw_manifest_actions,
 )
 from cnes_infra.control_plane.dynamodb_dispatch import DynamoDBDispatch
+from cnes_infra.control_plane.dynamodb_environment_gate import DynamoDBEnvironmentGate
+from cnes_infra.control_plane.dynamodb_execution_quota import DynamoDBExecutionQuota
 from cnes_infra.control_plane.dynamodb_keys import (
     dependency_marker_key,
     entity_key,
@@ -79,10 +82,18 @@ if TYPE_CHECKING:
 _NONTERMINAL_UNITS = {RunUnitState.PENDING, RunUnitState.LEASED, RunUnitState.FAILED_RETRYABLE}
 
 
+def _recoverable(run: Run, now: datetime) -> bool:
+    return (
+        run.state in _RECOVERABLE
+        and run.created_at <= now
+        and not is_mode_canary_namespace(run.tenant_id)
+    )
+
+
 class DynamoDBControlPlane(
     DynamoBillingMixin, DynamoBilledTenantMixin, DynamoEdgeRegistrationMixin,
     DeprecatedRawQueryMixin, DynamoDBQueries, DynamoDBClaims, DynamoDBDispatch,
-    DynamoDBPublication
+    DynamoDBPublication, DynamoDBEnvironmentGate, DynamoDBExecutionQuota
 ):
     """Persiste o plano de controle em uma tabela DynamoDB."""
     def __init__(
@@ -308,9 +319,7 @@ class DynamoDBControlPlane(
         """Lista runs recuperáveis no instante informado."""
         valid = self._query(
             "gsi4", "RUN_RECOVERABLE",
-            CandidateQuery(
-                Run, lambda run: run.state in _RECOVERABLE and run.created_at <= now, limit
-            ),
+            CandidateQuery(Run, lambda run: _recoverable(run, now), limit),
         )
         ordered = sorted(valid, key=lambda run: (run.created_at, run.tenant_id, run.run_id))
         return tuple(ordered[:limit])

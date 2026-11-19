@@ -189,6 +189,48 @@
         "title": "AgentWhoamiResponse",
         "type": "object"
       },
+      "AwsMeResponse": {
+        "properties": {
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "issuer": {
+            "title": "Issuer",
+            "type": "string"
+          },
+          "subject": {
+            "title": "Subject",
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject",
+          "issuer",
+          "email",
+          "display_name"
+        ],
+        "title": "AwsMeResponse",
+        "type": "object"
+      },
       "BillingAccountCreate": {
         "additionalProperties": false,
         "properties": {
@@ -943,6 +985,29 @@
           "has_pending_request"
         ],
         "title": "MeResponse",
+        "type": "object"
+      },
+      "MembershipResponse": {
+        "properties": {
+          "municipality_name": {
+            "title": "Municipality Name",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "municipality_name",
+          "role"
+        ],
+        "title": "MembershipResponse",
         "type": "object"
       },
       "OverviewResponse": {
@@ -1859,9 +1924,9 @@
   },
   "openapi": "3.1.0",
   "paths": {
-    "/activate/confirm": {
+    "/api/v1/activate/confirm": {
       "post": {
-        "operationId": "activate_confirm_activate_confirm_post",
+        "operationId": "activate_confirm_api_v1_activate_confirm_post",
         "requestBody": {
           "content": {
             "application/json": {
@@ -2892,7 +2957,15 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MeResponse"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/MeResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/AwsMeResponse"
+                    }
+                  ],
+                  "title": "Response Auth Me Api V1 Dashboard Auth Me Get"
                 }
               }
             },
@@ -2966,6 +3039,31 @@
         ]
       }
     },
+    "/api/v1/dashboard/memberships": {
+      "get": {
+        "operationId": "memberships_api_v1_dashboard_memberships_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MembershipResponse"
+                  },
+                  "title": "Response Memberships Api V1 Dashboard Memberships Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Memberships",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
     "/api/v1/dashboard/overview": {
       "get": {
         "operationId": "get_overview_api_v1_dashboard_overview_get",
@@ -3017,7 +3115,7 @@
     },
     "/api/v1/dashboard/serving/{dataset_name}/{document_name}": {
       "get": {
-        "description": "Transmite o documento serving concedido, sem fallback e sem URL assinada.",
+        "description": "Entrega o documento serving concedido: stream local ou envelope aws com URL assinada.",
         "operationId": "read_serving_document_api_v1_dashboard_serving__dataset_name___document_name__get",
         "parameters": [
           {
