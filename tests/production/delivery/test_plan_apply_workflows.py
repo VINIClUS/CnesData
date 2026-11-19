@@ -181,8 +181,10 @@ def test_validacao_publica_precede_reusable_e_id_token(mode):
         "expected_source_sha",
         "purpose",
     }
-    assert gate["uses"].endswith("@97f8e7e086e3f107401b5eb35ff4017dde21ff34")
-    assert "secrets" not in gate
+    assert gate["uses"].endswith("@6cb0bb2f46007c3679d64f62106ee02bf8758c5d")
+    assert gate["secrets"] == {
+        "CNESDATA_DELIVERY_GOVERNANCE": "${{ secrets.CNESDATA_DELIVERY_GOVERNANCE }}"
+    }
 
 
 @pytest.mark.parametrize("mode", ["plan", "apply"])
@@ -192,7 +194,7 @@ def test_guard_do_caller_executa_contexto_exato_antes_do_checkout(mode, case):
     env = dict(
         os.environ,
         GITHUB_REPOSITORY="VINIClUS/CnesData",
-        GITHUB_REF="refs/heads/develop",
+        GITHUB_REF="refs/heads/main",
         GITHUB_SHA="a" * 40,
         GITHUB_EVENT_NAME="workflow_dispatch",
         EXPECTED_SOURCE_SHA="a" * 40,
@@ -200,7 +202,7 @@ def test_guard_do_caller_executa_contexto_exato_antes_do_checkout(mode, case):
     if case == "fork":
         env["GITHUB_REPOSITORY"] = "other/CnesData"
     elif case == "branch":
-        env["GITHUB_REF"] = "refs/heads/main"
+        env["GITHUB_REF"] = "refs/heads/develop"
     elif case == "source":
         env["EXPECTED_SOURCE_SHA"] = "b" * 40
     bash = which("bash")
@@ -317,7 +319,7 @@ def test_cli_liberado_autentica_e_emite_os_oito_inputs(mode, monkeypatch, tmp_pa
         value.pop(key)
     for key, item in {
         "GITHUB_REPOSITORY": "VINIClUS/CnesData",
-        "GITHUB_REF": "refs/heads/develop",
+        "GITHUB_REF": "refs/heads/main",
         "GITHUB_EVENT_NAME": "workflow_dispatch",
         "GITHUB_RUN_ID": "900",
         "GITHUB_RUN_ATTEMPT": "2",
