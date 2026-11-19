@@ -1,11 +1,11 @@
 # Artifact interface v1 for PROD-DELIVERY-002; this workflow is the producer authority.
-# Select a successful push run on develop by exact head_sha, run.id and run.attempt.
+# Select a successful push run on main by exact head_sha, run.id and run.attempt.
 # Download artifacts from that run only; never use deploy-* images or rebuild a candidate.
 # Names are stable; all paths below are relative to each downloaded artifact root.
 # production-oci-<central_api|data_processor>: image.tar (docker save, linux/amd64),
 # image.id (local Docker identity), sbom.cdx.json (CycloneDX), scan.json,
 # source.sha, run.id, run.attempt, SHA256SUMS (all payload files, sha256sum -c).
-# production-published-<app> (push/develop only): manifest.json with schema_version=1,
+# production-published-<app> (push/main only): manifest.json with schema_version=1,
 # source_sha, run_id, run_attempt, image, digest (registry manifest sha256), config_digest,
 # image_archive_sha256, sbom_sha256; plus manifest.sha256. Registry tags are transport only.
 # Consumers match config_digest to scan.json.Metadata.ImageID, hashes to the OCI artifact,
@@ -30,7 +30,7 @@ on:
   pull_request:
   workflow_dispatch:
   push:
-    branches: [develop]
+    branches: [main]
 
 permissions:
   contents: read
@@ -296,7 +296,7 @@ jobs:
           retention-days: 30
 
   oci-publish:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [oci-build, dashboard, delivery-contracts, opentofu-policy-cost]
     runs-on: ubuntu-latest
     timeout-minutes: 15

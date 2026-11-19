@@ -5,7 +5,7 @@ name: promote-production
   workflow_dispatch:
     inputs:
       source_sha:
-        description: SHA completo da release, contido em develop
+        description: SHA completo da release, contido em main
         required: true
         type: string
       plan_evidence_id:
@@ -34,7 +34,7 @@ concurrency:
 
 jobs:
   preamble:
-    if: github.ref == 'refs/heads/develop' && github.sha == inputs.source_sha
+    if: github.ref == 'refs/heads/main' && github.sha == inputs.source_sha
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -48,7 +48,7 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.13"
-      - name: Recusar SHA fora de develop e check obrigatório não verde
+      - name: Recusar SHA fora de main e check obrigatório não verde
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
@@ -56,7 +56,7 @@ jobs:
           EVIDENCE: ${{ runner.temp }}/preamble.json
         run: |
           set -euo pipefail
-          compare="$(gh api "repos/$REPOSITORY/compare/$SOURCE_SHA...develop")"
+          compare="$(gh api "repos/$REPOSITORY/compare/$SOURCE_SHA...main")"
           checks="$(gh api --paginate --slurp \
             "repos/$REPOSITORY/commits/$SOURCE_SHA/check-runs?per_page=100" \
             | jq '{total_count: .[0].total_count, check_runs: [.[].check_runs[]]}')"
@@ -85,7 +85,7 @@ jobs:
       contents: read
       checks: read
       id-token: write
-    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-host-deploy-gate.yml@938fc8962b982054bddadeaf7a4de40de9b36a71
+    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-host-deploy-gate.yml@6cb0bb2f46007c3679d64f62106ee02bf8758c5d
     with:
       plan_evidence_id: ${{ inputs.plan_evidence_id }}
       plan_evidence_digest: ${{ inputs.plan_evidence_digest }}

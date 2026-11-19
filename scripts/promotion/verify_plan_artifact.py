@@ -24,7 +24,7 @@ from scripts.promotion._plan_contract import closed, validate_reference
 
 type Node = dict[str, Any]
 REPOSITORY = "VINIClUS/CnesData"
-PRODUCER_SHA = "97f8e7e086e3f107401b5eb35ff4017dde21ff34"
+PRODUCER_SHA = "6cb0bb2f46007c3679d64f62106ee02bf8758c5d"
 PRODUCER_READY = True
 CONTRACT = {
     "contract_repository": REPOSITORY,
@@ -144,14 +144,14 @@ def _source(request: Node, api: Any) -> None:
         and run["run_attempt"] == request["run_attempt"]
         and run["repository"]["full_name"] == REPOSITORY
         and run["head_sha"] == source
-        and run["head_branch"] == "develop"
+        and run["head_branch"] == "main"
         and run["event"] == "workflow_dispatch"
         and run["path"].split("@")[0] == f".github/workflows/infra-{request['mode']}.yml",
         "caller=source",
     )
-    compare = api.get(REPOSITORY, f"compare/{source}...develop")
-    require(compare["status"] in {"ahead", "identical"}, "source=not_develop")
-    rules = api.get(REPOSITORY, "rules/branches/develop")
+    compare = api.get(REPOSITORY, f"compare/{source}...main")
+    require(compare["status"] in {"ahead", "identical"}, "source=not_main")
+    rules = api.get(REPOSITORY, "rules/branches/main")
     required = {
         check["context"]
         for rule in rules
@@ -439,7 +439,7 @@ def main() -> None:
         require(PRODUCER_READY, "producer=p1_p2_integrated_pin_pending")
         require(
             os.environ["GITHUB_REPOSITORY"] == REPOSITORY
-            and os.environ["GITHUB_REF"] == "refs/heads/develop"
+            and os.environ["GITHUB_REF"] == "refs/heads/main"
             and os.environ["GITHUB_EVENT_NAME"] == "workflow_dispatch",
             "caller=context",
         )
