@@ -1,9 +1,9 @@
 """SQLite control-plane adapter."""
+
 from __future__ import annotations
 
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -19,12 +19,14 @@ from cnes_domain.control_plane.entities import (
     Tenant,
 )
 from cnes_domain.control_plane.enums import AgentState, JobState
-from cnes_domain.control_plane.errors import Conflict, NotFound
+from cnes_domain.control_plane.errors import Conflict
 from cnes_domain.control_plane.errors import ControlPlaneErrorCode as ErrorCode
 from cnes_infra.control_plane import (
     sqlite_claims,
+    sqlite_dispatch_start,
     sqlite_idempotency,
     sqlite_job,
+    sqlite_outbox,
     sqlite_publication,
 )
 from cnes_infra.control_plane.edge_registration import SQLiteEdgeRegistrationMixin
@@ -42,12 +44,15 @@ from cnes_infra.control_plane.sqlite_tenants import SQLiteBilledTenantMixin
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
+    from datetime import datetime
 
     from cnes_domain.control_plane.commands import (
         BeginIdempotency,
         BindRunDispatch,
         CancelJob,
+        CancelReservedRunDispatch,
         ClaimJob,
+        ClaimRunDispatchStart,
         ClaimRunUnit,
         CommitRunUnit,
         CompleteJob,
@@ -70,6 +75,7 @@ if TYPE_CHECKING:
         RunDispatch,
         RunUnit,
     )
+    from cnes_domain.control_plane.outbox import OutboxCursor, OutboxPage
     from cnes_domain.control_plane.queries import (
         LatestSucceededJobQuery,
         RawManifestChainQuery,
@@ -77,6 +83,8 @@ if TYPE_CHECKING:
     )
 
 _BUSY_TIMEOUT_MS = 5000
+
+
 class _SQLiteBusyError(RuntimeError):
     pass
 
@@ -107,10 +115,16 @@ def _fetch_all[Model: BaseModel](
 
 _is_network_filesystem = is_network_filesystem
 
+
 class SQLiteControlPlane(
-    SQLiteBillingMixin, SQLiteBilledTenantMixin, SQLiteEdgeRegistrationMixin,
-    SQLiteRawRegistrationQueries, DeprecatedRawQueryMixin):
+    SQLiteBillingMixin,
+    SQLiteBilledTenantMixin,
+    SQLiteEdgeRegistrationMixin,
+    SQLiteRawRegistrationQueries,
+    DeprecatedRawQueryMixin,
+):
     """Persiste o plano de controle em um arquivo SQLite local."""
+
     def __init__(self, database_path: Path, clock: Callable[[], datetime]) -> None:
         self._database_path = Path(database_path)
         self._clock = clock
@@ -234,6 +248,7 @@ class SQLiteControlPlane(
     def get_job(self, tenant_id: str, job_id: str) -> Job | None:
         with self.read_connection() as connection:
             return self.get_job_record(connection, tenant_id, job_id)
+
     def put_job_record(self, connection: sqlite3.Connection, job: Job) -> None:
         connection.execute(
             "INSERT INTO jobs (tenant_id, job_id, agent_id, source_type, file_subtype, "
@@ -257,6 +272,7 @@ class SQLiteControlPlane(
                 serialize_model(job),
             ),
         )
+
     def put_outbox_event(
         self, connection: sqlite3.Connection, event: OutboxEvent, tenant_id: str,
     ) -> None:
@@ -281,8 +297,10 @@ class SQLiteControlPlane(
                 serialize_model(event),
             ),
         )
+
     def create_job(self, job: Job, event: OutboxEvent) -> Job:
         return sqlite_job.create_job(self, job, event)
+
     def list_claimable_jobs(
         self, tenant_id: str, agent_id: str, limit: int
     ) -> tuple[Job, ...]:
@@ -340,33 +358,19 @@ class SQLiteControlPlane(
     def fail_job(self, command: FailJob, event: OutboxEvent) -> Job:
         return sqlite_claims.fail_job(self, command, event)
 
-    def pending_outbox(self, limit: int) -> tuple[OutboxEvent, ...]:
-        with self.read_connection() as connection:
-            return _fetch_all(
-                connection,
-                "SELECT data FROM outbox_events WHERE delivered_at IS NULL "
-                "ORDER BY created_at, event_id LIMIT ?",
-                (limit,),
-                OutboxEvent,
-            )
+    def read_outbox_page(self, cursor: OutboxCursor | None, limit: int) -> OutboxPage:
+        return sqlite_outbox.read_outbox_page(self, cursor, limit)
+
+    def advance_outbox_cursor(
+        self, expected: OutboxCursor | None, next_cursor: OutboxCursor | None,
+    ) -> bool:
+        return sqlite_outbox.advance_outbox_cursor(self, expected, next_cursor)
+
+    def get_outbox_event(self, event_id: str) -> OutboxEvent | None:
+        return sqlite_outbox.get_outbox_event(self, event_id)
 
     def mark_outbox_delivered(self, event_id: str, delivered_at: datetime) -> None:
-        if delivered_at.tzinfo is None or delivered_at.utcoffset() != timedelta(0):
-            raise ValueError("datetime_not_utc")
-        with self.write_transaction() as connection:
-            event = _fetch_one(
-                connection,
-                "SELECT data FROM outbox_events WHERE event_id = ?",
-                (event_id,),
-                OutboxEvent,
-            )
-            if event is None:
-                raise NotFound(ErrorCode.OUTBOX_EVENT_MISSING)
-            delivered = event.model_copy(update={"delivered_at": delivered_at})
-            connection.execute(
-                "UPDATE outbox_events SET delivered_at = ?, data = ? WHERE event_id = ?",
-                (delivered_at.isoformat(), serialize_model(delivered), event_id),
-            )
+        sqlite_outbox.mark_outbox_delivered(self, event_id, delivered_at)
 
     def query_latest_succeeded_job(self, query: LatestSucceededJobQuery) -> Job | None:
         return sqlite_publication.query_latest_succeeded_job(self, query)
@@ -441,14 +445,26 @@ class SQLiteControlPlane(
     def reserve_run_dispatch(self, command: ReserveRunDispatch) -> RunDispatch:
         return sqlite_claims.reserve_run_dispatch(self, command)
 
+    def claim_run_dispatch_start(self, command: ClaimRunDispatchStart) -> RunDispatch | None:
+        return sqlite_dispatch_start.claim_start(self, command)
+
+    def cancel_reserved_run_dispatch(
+        self,
+        command: CancelReservedRunDispatch,
+    ) -> RunDispatch | None:
+        return sqlite_dispatch_start.cancel_reserved(self, command)
+
     def bind_run_dispatch(self, command: BindRunDispatch) -> RunDispatch:
-        return sqlite_claims.bind_run_dispatch(self, command)
+        return sqlite_dispatch_start.bind_run_dispatch(self, command)
 
     def finish_run_dispatch(self, command: FinishRunDispatch) -> RunDispatch:
-        return sqlite_claims.finish_run_dispatch(self, command)
+        return sqlite_dispatch_start.finish_run_dispatch(self, command)
+
+    def get_run_dispatch(self, tenant_id: str, run_id: str) -> RunDispatch | None:
+        return sqlite_dispatch_start.get_run_dispatch(self, tenant_id, run_id)
 
     def get_active_run_dispatch(self, tenant_id: str, run_id: str) -> RunDispatch | None:
-        return sqlite_claims.get_active_run_dispatch(self, tenant_id, run_id)
+        return sqlite_dispatch_start.get_active_run_dispatch(self, tenant_id, run_id)
 
     def begin_idempotency(self, command: BeginIdempotency) -> IdempotencyOutcome:
         return sqlite_idempotency.begin_idempotency(self, command)

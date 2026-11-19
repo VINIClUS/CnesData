@@ -1,0 +1,500 @@
+# Floci e checks de capacidade na AWS real (PROD-013)
+
+Camada extra de emulação (Floci, MIT) para Cognito, DynamoDB, S3 Object Lock e IAM/STS com
+enforcement. Não substitui o `dynamodb-local` nem o `localstack` do profile `aws-test` (AWS-014,
+CND-025). Os mesmos cenários rodam depois como checks efêmeros na AWS real (PR 13b); a matriz
+abaixo registra onde o emulador diverge.
+
+## Rodar a suíte Floci
+
+```bash
+docker compose --profile floci up -d --wait floci
+FLOCI_ENDPOINT_URL=http://127.0.0.1:4577 uv run --no-build pytest -rs -m floci tests/integration/floci
+docker compose --profile floci down -v
+```
+
+- Serviço `floci`: `floci/floci:2.2.0` fixado por digest, só em `127.0.0.1:4577` (nunca colide
+  com o LocalStack em 4566), `FLOCI_STORAGE_MODE=memory`, sem socket Docker e sem volume.
+  `FLOCI_BASE_URL=http://127.0.0.1:4577` é o que issuer, JWKS e URLs assinadas embutem.
+  `FLOCI_SERVICES_IAM_ENFORCEMENT_ENABLED=true` e `FLOCI_AUTH_VALIDATE_SIGNATURES=true`.
+- Healthcheck: o script da própria imagem (`/usr/local/bin/healthcheck.sh`), que faz
+  `GET /_floci/health` por `/dev/tcp` em bash, porque a imagem ubi9-micro não tem `curl`. O boot
+  leva ~15 s (o Floci tenta o socket Docker ausente antes de ficar pronto). A fixture `floci`
+  ainda exige `version=2.2.0` e `cognito-idp`, `dynamodb`, `iam` e `s3` em `running`.
+- Sem o emulador, os testes **falham** com `floci_unready endpoint=… problem=…`; nunca pulam. A
+  suíte rápida exclui o marcador com `and not floci`.
+- Projeto compose: o padrão é o nome do diretório; use `-p <nome>` para não tocar outra stack.
+- Trocar o digest exige rodar a suíte: teste `test_floci_*` que quebrar indica mudança de
+  comportamento do emulador; atualize a matriz no mesmo PR.
+
+## Regras de isolamento
+
+- Endpoint só de `FLOCI_ENDPOINT_URL` (padrão `http://127.0.0.1:4577`). `AWS_ENDPOINT_URL` e
+  `DYNAMODB_ENDPOINT_URL` são ignorados. Host fora de loopback, credencial na URL, caminho ou
+  esquema diferente de http/https falham fechado (`floci_endpoint=rejected reason=…`).
+- Sessão botocore dedicada (`tests/integration/floci/_floci.py`): `AWS_PROFILE`,
+  `AWS_CONFIG_FILE` e `AWS_SHARED_CREDENTIALS_FILE` não são lidos, a cadeia de credenciais é vazia
+  (sem env nem IMDS), proxies do ambiente são ignorados e não há retry. Cada cliente recebe
+  credenciais explícitas: `test`/`test` (chave que o Floci documenta como bypass do enforcement)
+  faz o papel de operador; usuários e roles criados no emulador exercitam as matrizes.
+  `test_isolation.py` prova isso com perfil, config, credenciais e proxy hostis no ambiente.
+- HTTP de discovery, JWKS e PKCE usa `httpx` com `trust_env=False`.
+- Nomes `cnesdata-cap-<uuid8>`; teardown por `ExitStack` (teste ou módulo). COMPLIANCE usa
+  janelas de 2 a 10 s para a limpeza esperar o vencimento e apagar tudo.
+
+## CI
+
+Job `floci-integration` em `.github/workflows/python-quality.yml`: `ubuntu-latest`,
+`permissions: contents: read`, sem `secrets`, `id-token` ou `environment`. Ordem: contrato
+(`tests/scripts/test_ci_floci.py`), `up -d --wait floci`, suíte com `--junitxml=floci.xml`, falha
+se `skipped > 0` e `down -v` sob `if: always()`. Herda os gatilhos do workflow; PR que muda só o
+`docker-compose.yml` não o dispara, então rode-o por `workflow_dispatch` depois de trocar o digest.
+
+## Checks na AWS real (PR 13b)
+
+Executar pela AWS CLI autorizada, em `us-east-2`, sem `apply` de produção. Recursos efêmeros
+entram no envelope de USD 8 do produto; inventário final deve estar vazio.
+
+1. **Identificação.** Run id `<uuid8>`; nomes `cnesdata-cap-<uuid8>[-sufixo]`; tags
+   `Project=CnesData`, `Purpose=aws-capability`, `Run=<uuid8>` e `ExpiresAt=<epoch do deadline>`
+   (formato `.15g`) onde o serviço aceita tag; a fonte de verdade é `_safety.tags`.
+2. **Inventário inicial.** Listar em DynamoDB, S3, IAM (roles) e Cognito (pools) apenas
+   `cnesdata-cap-*` e os ids criados pelo próprio journal da execução; registrar as contagens.
+3. **Cenários.** Espelhar o módulo aprovado: Essentials, managed login v2, branding padrão,
+   client público, code/PKCE, scopes e callbacks exatos. A decisão D-B foi fixada pelo dono em
+   2026-10-25; não rebaixar para UI1 nem ampliar flows para acomodar helpers do emulador.
+   Usar navegador descartável se o login exigir JS; conferir `aud` do access token e sua
+   preservação após refresh, além de issuer/JWKS HTTPS reais. Manter códigos e senhas em memória.
+4. **Object Lock só GOVERNANCE**, com retenção curta, removida no teardown com
+   `x-amz-bypass-governance-retention`. COMPLIANCE nunca; por isso o `S3ObjectLockAuditSink`
+   (COMPLIANCE fixo) só é exercitado no Floci.
+5. **Teardown na mesma execução:** domínio Cognito e pool; versões S3 e bucket; desligar
+   `DeletionProtection` e apagar a tabela; chaves, políticas inline e usuários; políticas inline e
+   roles.
+6. **Inventário final vazio.** Repetir a listagem; qualquer `cnesdata-cap-*` remanescente reprova
+   o check. Preparar journal e janitor independente com deadline antes de criar recursos;
+   `finally` sozinho não cobre interrupção abrupta ou perda do worker.
+7. **Redação da evidência.** Registrar só status, códigos de erro, contagens e claims não
+   sensíveis (`token_use`, `scope`, presença de `aud`). Trocar account ID, ARNs, IDs de pool e
+   client e domínios por `<conta>`, `<arn>`, `<pool>`. Nunca registrar access key, secret, session
+   token, senha, JWT, código de autorização ou URL assinada.
+
+### Rodar um perfil
+
+Da raiz do repositório, com sessão temporária no ambiente (ver credenciais abaixo):
+
+```bash
+uv run python -m tests.integration.aws_capability.lifecycle run \
+  --account <conta> --region us-east-2 --run-id <uuid8> --deadline <epoch> \
+  --journal-dir <diretório privado> --retention GOVERNANCE --allow-governance-bypass \
+  --probe <perfil>
+```
+
+- **Perfis com probe concluído:** `ddb-transactions`, `ddb-conditions`, `ddb-ttl-gsi`,
+  `ddb-throughput`, `iam-trust`, `iam-leadingkeys`, `iam-s3`, `cognito-resource-server`, `cognito-login`, `s3-hold`, `s3-retention` e
+  `fargate-write`. Os placeholders
+  `cognito-pkce-negatives` e `cognito-sdk` deixaram de existir: seus checks usam códigos e refresh
+  token do mesmo login do `cognito-login`.
+- **Deadline:** no máximo a janela de trabalho do perfil à frente (180 s por padrão; `ddb-throughput`
+  usa 140 s, `iam-leadingkeys` 330 s, `iam-s3` 425 s, `fargate-write` 540 s e `cognito-login` 1100 s); `<uuid8>` são
+  8 hex minúsculos novos a cada execução.
+- **Credenciais:** somente sessão temporária de role assumida em `AWS_ACCESS_KEY_ID`,
+  `AWS_SECRET_ACCESS_KEY` e `AWS_SESSION_TOKEN`. Nunca root, nunca CI. O comando recusa
+  (`profile_credentials_forbidden`, `session_credentials_required`) se `AWS_PROFILE` ou
+  `AWS_DEFAULT_PROFILE` existir ou se faltar qualquer uma das três variáveis. O operador só
+  precisa ler e escrever em `cnesdata-cap-*`; o inventário só descreve `cnesdata-cap-*` e ids
+  do journal da execução.
+- **Entradas do operador (perfis com IAM, ex.: `s3-retention`):** `CAP_OPERATOR_ROLE_ARN`
+  (`arn:aws:iam::<conta>:role/cnesdata-cap/cnesdata-cap-operator-<8hex>`, igual ao role da sessão
+  em `get-caller-identity`) e `CAP_PERMISSIONS_BOUNDARY_ARN`
+  (`arn:aws:iam::<conta>:policy/cnesdata-cap/cnesdata-cap-boundary-<8hex>`). Faltando ou fora do
+  formato, o comando recusa antes de qualquer chamada. O supervisor herda o ambiente; um
+  `janitor` manual do mesmo perfil precisa das duas variáveis.
+- **Permissões extras do operador:** `iam:GetRole` também em `arn:aws:iam::<conta>:role/cnesdata-cap-*`
+  sem path, além do ARN com `/cnesdata-cap/`; para role inexistente o IAM autoriza pelo ARN sem
+  path e responde `AccessDenied` em vez de `NoSuchEntity`, e o cleanup não prova a ausência.
+  Negações de `head-object` chegam como `403` (sem corpo) e o controle positivo as repete.
+- **Janela de cleanup:** cada chamada da AWS CLI custa cerca de 1,2 a 1,4 s (início do processo).
+  `cleanup_seconds` dos perfis usa esse custo medido: 240 s em `cognito-resource-server` e
+  `s3-retention`, 360 s em `cognito-login`, 150 s nos três `ddb-*` (inclui a espera por `DELETING`), 120 s em `s3-hold`;
+  a janela de trabalho é `Profile.window` (padrão 180 s). No modelo com 1,3 s por chamada, `s3-hold`
+  gasta cerca de 38 s e `s3-retention` cerca de 156 s de cleanup (29 e 120 chamadas), com a
+  janela medida na primeira execução real.
+- **`ddb-throughput` (evidência do #379):** cria a tabela do control-plane (pk/sk, `gsi1`..`gsi6`,
+  sob demanda) com `OnDemandThroughput` 100 leituras / 25 escritas na tabela e em cada GSI, espera
+  `ACTIVE` e lê os tetos de volta (divergência reprova o probe). Depois observa, sem afirmar:
+  uma `TransactWriteItems` de 100 puts (`tx_code`, `tx_reason_codes` como mapa código para
+  contagem), quatro `BatchWriteItem` de 25 puts (`batch_N_code`, `batch_N_unprocessed`, que vale 25
+  quando a chamada falha; `batch_accepted_items`, `batch_elapsed_seconds`,
+  `batch_rate_items_per_second`) e um `Scan` `COUNT` consistente (`readback_code`,
+  `readback_count`). Throttle é observação; `AccessDeniedException` e falha de transporte reprovam.
+  A AWS CLI roda com `AWS_MAX_ATTEMPTS=1`, então nada é reenviado. Janela 140 s; limites
+  128 chamadas, reserva 64, `cleanup_seconds` 150.
+- **`iam-trust`:** dois roles no mesmo run (`cnesdata-cap-<run>` = R, trust no operador, e
+  `cnesdata-cap-<run>-r2` = R2, trust em R), ambos com boundary e `MaxSessionDuration` 3600. R ganha
+  a inline `cap-assume` (`sts:AssumeRole` em `role/cnesdata-cap/cnesdata-cap-<run>*`). Chaves
+  observadas: `assume_seconds`, `chain_seconds`, `self_assume`, `duration_3601`,
+  `duration_3601_category` (`role_chaining`, `max_session_duration`, `other` ou `none`),
+  `session_tags_before`, `source_identity_before`, `session_tags_after`,
+  `session_tags_ready_seconds`, `source_identity_after`, `source_identity_ready_seconds`. Cada
+  negação só é gravada ao lado de um sucesso da mesma ação pelo mesmo principal: operador assume R
+  antes de `duration_3601`, `session_tags_before` e `source_identity_before`; a sessão de R assume
+  R2 antes de `self_assume`; o trust ampliado (mesmo principal, só ganha `sts:TagSession` e
+  `sts:SetSourceIdentity`) faz o par A/B dos passos de tags e `SourceIdentity`. Controles passam
+  por `retry_denied` (12 tentativas, 2 s). Tags de sessão e `SourceIdentity` são constantes
+  sintéticas, nunca evidenciadas além de ok/código. Janela 180 s; limites 176 chamadas, reserva 104,
+  `cleanup_seconds` 150. Ações novas do operador: `iam:UpdateAssumeRolePolicy`,
+  `sts:TagSession`, `sts:SetSourceIdentity`, `dynamodb:BatchWriteItem`, `dynamodb:Scan` e
+  `dynamodb:PutItem` (a transação é avaliada por item); o boundary precisa cobrir também o ARN de R
+  para `sts:AssumeRole`.
+- **`iam-leadingkeys` (evidência do #379):** tabela do control-plane (pk/sk, `gsi1`..`gsi6`) mais dois
+  roles, `cnesdata-cap-<run>-audit` e `cnesdata-cap-<run>-api`, ambos com boundary, trust exato no
+  operador e `MaxSessionDuration` 3600. Cada role ganha uma inline que espelha `task-roles.tf`
+  (`audit`: Query no ARN do `gsi6` com `LeadingKeys` `OUTBOX#PENDING`, GetItem/UpdateItem na tabela
+  com `TENANT#_GLOBAL` e `OUTBOX#CURSOR`; `api`: Query no `gsi1` com `USER#*`, GetItem na tabela com
+  `TENANT#*`; mesmos operadores e `Null`); só os ARNs mudam. Depois de tabela e GSIs `ACTIVE` o
+  operador grava cinco itens sintéticos. Regra de evidência: toda negação de condição ou de recurso
+  só é gravada depois de um sucesso da mesma ação, pela mesma sessão, com uma única troca (a chave,
+  o índice ou a tabela), e o controle passa por `retry_denied` (12 tentativas, 2 s;
+  `AccessDeniedException` do DynamoDB conta como negação de propagação). Ações que a policy nunca
+  concede (`PutItem`, `DeleteItem` e `Scan` do audit, em chave permitida) ganham o sufixo
+  `_ungranted` e vêm logo depois de um `GetItem` verde novo. Chaves: `assume_audit_seconds`,
+  `audit_get_ready_seconds`, `audit_get_other`, `audit_update_ready_seconds`,
+  `audit_update_tenant`, `audit_update_attempts`, `audit_query_ready_seconds`,
+  `audit_query_other_key`, `audit_query_gsi1`, `audit_query_table`, `audit_put_item_ungranted`,
+  `audit_delete_item_ungranted`, `audit_scan_ungranted`, `tx_allowed_code`, `tx_allowed_category`,
+  `tx_mixed_code`, `tx_mixed_category` (`TransactWriteItems` só observada: código e categoria
+  `not_authorized`, `transaction_canceled`, `other` ou `none`), `assume_api_seconds`,
+  `api_get_ready_seconds`, `api_get_other`, `api_query_ready_seconds`, `api_query_admin`,
+  `api_query_gsi6`. As negações de recurso usam `OUTBOX#PENDING` (audit) e `USER#1` (api) para que
+  só o índice (ou a tabela) mude. Janela 330 s; limites 270 chamadas, reserva 150,
+  `cleanup_seconds` 285, dimensionados pelo ciclo simulado do pior caso (1,3 s por chamada mais
+  pausas, vezes 1,2). Ações novas do operador: `dynamodb:PutItem` e `sts:AssumeRole` nos dois
+  roles; o boundary precisa cobrir `dynamodb:Query` nos ARNs `.../index/*` e `GetItem`/`UpdateItem`
+  na tabela, além do `AssumeRole`.
+- **`iam-s3` (prefixos e retenção com sessões de role):** bucket Object Lock (B1, só GOVERNANCE,
+  toda retenção até 10 min) e os roles `-audit`, `-unit`, `-recovery` e `-api` (boundary, trust
+  exato no operador, `MaxSessionDuration` 3600), cada um com a inline que espelha o S3 de
+  `task-roles.tf`, só com o ARN do bucket trocado:
+  - `audit`: `GetBucketObjectLockConfiguration` no bucket e `PutObject`, `PutObjectRetention`,
+    `GetObject`, `GetObjectRetention` em `audit/*`;
+  - `unit`: `GetObject` em Data5 (`raw/*`, `tmp/*`, `normalized/*`, `reconciliation/*`,
+    `serving/*`), `PutObject` em Publish4 (Data5 sem `raw/*`) e `ListBucket` com `s3:prefix` Data5;
+  - `recovery`: `GetObject` e `PutObject` em Publish4 e `ListBucket` com `s3:prefix` Publish4;
+  - `api`: `GetObject` em `reconciliation/*` e `serving/*` e `ListBucket` com `s3:prefix` desses
+    dois prefixos.
+
+  `tests/production/infra/test_s3_capability_mirrors.py` prende os espelhos de unit, recovery e api
+  às policies renderizadas pelo plano (statements do data bucket, em ordem, ARN trocado); qualquer
+  statement nova do data bucket em `task-roles.tf` quebra o teste. O operador semeia `serving/x`,
+  `serving/blocked/x`, `raw/x`, `reconciliation/x`, `tmp/x` e `normalized/x`. `GetObject` é
+  checado com `head-object` (negação chega como `403`); `get-object` exige arquivo de saída e o
+  transporte não persiste respostas. A decisão 404/403 para chave ausente é a mesma nas duas
+  chamadas (amendment #441). Ordem: audit, unit, recovery, api; o A/B de bucket policy fica no fim
+  do api, então nenhuma bucket policy existe durante as leituras de chave ausente. Mesma regra de
+  evidência do `iam-leadingkeys`: toda negação fica
+  depois de um sucesso retentado da mesma ação, pela mesma sessão, com uma única troca (a chave, o
+  prefixo ou a data da retenção); ações nunca concedidas ganham `_ungranted` e vêm logo depois de
+  um `head-object` verde da mesma sessão. O delete ungranted do audit mira `audit/a`, sem
+  retenção, para que a negação só possa vir da falta da ação. Chaves: `assume_audit_seconds`,
+  `audit_put_ready_seconds`, `audit_put_lock` (PutObject com GOVERNANCE a 300 s),
+  `audit_lock_config`, `audit_retention_extend_ready_seconds` (estende a 540 s, o controle),
+  `audit_retention_shorten` (encurta a 360 s sem bypass), `audit_get_ready_seconds`,
+  `audit_get_raw`, `audit_get_missing` (observação: sem `ListBucket` o ausente é `403`),
+  `audit_get_retention`, `audit_delete_version_ungranted`, `audit_list_ungranted`,
+  `assume_unit_seconds`, `unit_get_ready_seconds`, `unit_get_missing_<prefixo>` para cada prefixo
+  Data5, `assume_recovery_seconds`, `recovery_get_ready_seconds`, `recovery_get_missing_<prefixo>`
+  para cada prefixo Publish4, `recovery_get_missing_raw` (contraste: `raw/` fora do `ListBucket`
+  do recovery, esperado `403`), `assume_api_seconds`, `api_get_ready_seconds`, `api_get_missing`
+  (`serving/`), `api_get_missing_reconciliation`, `api_get_raw`, `api_list_ready_seconds`,
+  `api_list_raw`,
+  `api_put_object_ungranted`, `blocked_before`, `policy_put_attempts`, `blocked_after`,
+  `blocked_flip_seconds`, `serving_after_flip`. Se o `PutObject` com lock for negado, as três
+  chaves de retenção valem `skipped`. Cleanup: versões retidas saem com bypass; depois a bucket
+  policy (`delete-bucket-policy`, só neste perfil, `NoSuchBucketPolicy` conta como ok) e o bucket;
+  os roles saem com suas policies. Janela 425 s; limites 550 chamadas, reserva 380,
+  `cleanup_seconds` 630, do ciclo simulado do pior caso (1,3 s por chamada mais pausas, vezes
+  1,2) com lag de cleanup: até 4 leituras do bucket e de cada role ainda visíveis depois da
+  remoção (5 sondagens por recurso). Pior caso medido: trabalho 157 chamadas e 346,1 s (x1,2 =
+  415,3 s); cleanup 366 chamadas e 511,8 s (x1,2 = 614,2 s). Típico: trabalho 96 chamadas e
+  144,8 s (x1,2 = 173,8 s); cleanup 330 chamadas e 429,0 s (x1,2 = 514,8 s). O boundary precisa
+  cobrir `s3:GetObject`, `PutObject`, `PutObjectRetention`,
+  `GetObjectRetention` e `ListBucket` no bucket do run.
+- **Bucket policy A/B (dentro do `iam-s3`, depois da matriz do api):** (A) o api lê
+  `serving/blocked/x` e recebe 200, sem bucket policy (`blocked_before`, controle obrigatório).
+  O operador então grava uma única statement `Deny` de `s3:GetObject` com `Principal.AWS` igual ao
+  ARN completo do role api (com `/cnesdata-cap/`) e `Resource`
+  `arn:aws:s3:::<bucket>/serving/blocked/*`; nunca `NotPrincipal`, nunca `Principal: "*"`. O IAM
+  pode recusar um principal recém-criado (`MalformedPolicy`); o put repete até 4 vezes, 2 s entre
+  elas (`policy_put_attempts`). (B) o api repete a leitura de `serving/blocked/x` até receber
+  negação, no máximo 12 leituras com 2 s de pausa; `blocked_after` guarda o código final e
+  `blocked_flip_seconds` a propagação. Nunca virar é observação (`blocked_after` fica `ok`), não
+  queda. Por fim `serving/x` segue legível (`serving_after_flip`, controle obrigatório depois da
+  virada). A bucket policy é a única policy removida pelo ensaio, e só pelo cleanup, antes do
+  bucket; o `Deny` nomeia só o role api e não alcança o operador.
+- **`cognito-login` (login gerenciado v2 com um login humano):** um pool (ESSENTIALS, MFA off,
+  senha de 14 caracteres com as quatro classes, e-mail como username, sem diferenciar caixa),
+  o resource server `https://api.cnesdata.com.br` com o escopo `api.access`, o client público do
+  módulo (sem secret, só `code`, `ALLOW_REFRESH_TOKEN_AUTH`, `PreventUserExistenceErrors`
+  `ENABLED`, revogação ligada; callback `http://localhost:53682/callback` e logout
+  `http://localhost:53682/`), domain `cnesdata-cap-<run>` com `ManagedLoginVersion=2`, branding com
+  `UseCognitoProvidedValues` e um usuário `cap-<run>@example.invalid` (`MessageAction=SUPPRESS`,
+  senha permanente aleatória). O teste de drift compara esses campos com `main.tf`; as únicas
+  diferenças são callback, logout e o prefixo do domain. `DeletionProtection` segue o B1 (ativa na
+  criação, desligada pela limpeza antes de apagar o pool).
+  - **Gate DNS (antes do primeiro lookup recursivo do domain):** um NXDOMAIN obtido antes de o nome
+    existir fica em cache negativo pelo SOA da zona (TTL 900 s) no roteador, no resolver público e no
+    systemd-resolved, e a prontidão estoura; foi o que travou o ensaio de 02/11/2026. Por isso o nome
+    novo só vai aos NS autoritativos, sem recursão:
+    - antes de criar os filhos, o probe pede o NS de `auth.<região>.amazoncognito.com` ao resolver do
+      `/etc/resolv.conf` (a zona já existe), resolve os hosts em IPv4 e prova cada NS com uma consulta
+      sem recursão a um nome aleatório inexistente, que precisa voltar NXDOMAIN com `aa`;
+    - falha grava `dns_gate` (`no_resolver`, `no_nameservers`, `unaddressed` ou `unverified`), e
+      nenhum filho é criado;
+    - na prontidão, cada tentativa consulta só os NS ainda pendentes; um NS confirma com NOERROR,
+      `aa` e um A do nome exato em duas tentativas seguidas (resposta negativa zera, timeout não
+      conta), e o GET do authorize só sai com todos confirmados;
+    - UDP/53 em IPv4, 1 s de timeout por consulta; cada consulta e cada resolução de host consomem
+      o orçamento. O primeiro lookup recursivo só acontece com o nome já publicado, então o
+      resolver local deve voltar a servir sem trocar o DNS da máquina; o próximo ensaio real confirma.
+  - **Passo humano:** depois que todos os NS confirmam e o login gerenciado responde 200 (até 36
+    tentativas no total, 5 s entre elas), o probe
+    grava `<journal-dir>/<run>.login` (modo 0600, atômico) com três linhas `url=`, `username=` e
+    `password=` e abre o listener em `127.0.0.1` e `::1`, porta 53682. O operador lê o arquivo e
+    passa a URL e as credenciais ao humano na conversa. O humano abre a URL no navegador da mesma
+    máquina do listener, entra uma vez (os authorizes seguintes são silenciosos pelo cookie do login
+    gerenciado) e avisa quando aparecer a página final. Espera de até 600 s; estouro grava
+    `login=timeout`, apaga o arquivo e segue para a limpeza. O arquivo também some quando a cadeia
+    termina, em toda limpeza e no início do janitor, mesmo com journal corrompido. Nunca vai ao
+    journal, à evidência, ao stdout ou a logs.
+  - **Cadeia:** quatro authorizes (A com `resource` e escopos completos, B sem `resource`, C e D para
+    os negativos), cada um com `state` e verifier PKCE S256 próprios. `state` divergente grava
+    `login=state_mismatch` e o código não é usado. Os códigos ficam só em memória e são trocados
+    logo depois da cadeia.
+  - **Chaves:** `discovery_status`, `discovery_issuer_ok`, `discovery_jwks_https`, `dns_gate` (`ok`
+    ou o código da falha), `dns_nameservers` (contagem), `domain_published` (segundos até o gate
+    abrir ou `timeout`), `domain_published_polls` (tentativa em que abriu; 36 se não abriu),
+    `domain_ready` (segundos ou `timeout`), `domain_ready_polls` (tentativas totais, DNS e HTTP),
+    `login` (`ok`, `timeout`, `state_mismatch`,
+    `callback_error`, `missing_code`), `listener` (`unavailable` quando a porta ou o IPv6 não abrem; nesse caso nada é criado), `login_error` (só no `callback_error`, código OAuth curto), `login_seconds`, `a_status`, `a_error`, `a_token_use`, `a_scope_api`,
+    `a_client_id_ok`, `a_aud` (a origem da API, `absent` ou `other`), `a_claims` (só nomes),
+    `a_verifier` (`ok` ou o código do `OidcVerifier`), `a_id_aud_is_client`, `refresh_*`
+    (endpoint de token), `sdk_refresh`, `sdk_refresh_aud`, `sdk_refresh_verifier`
+    (`InitiateAuth REFRESH_TOKEN_AUTH`, só observados), `b_*` (código sem `resource`),
+    `neg_wrong_verifier_*`, `neg_right_after_wrong_*` e `neg_right_after_wrong_consumed`,
+    `neg_redirect_*`, `neg_reuse_*` e `sdk_password_auth` (código de `USER_PASSWORD_AUTH`).
+    Nenhum token, código, verifier, state, id, usuário, senha, URL com query, conteúdo de JWKS,
+    endereço de NS ou nome de domínio.
+  - **Janela e limites:** janela 1100 s; 512 chamadas, reserva 256, `cleanup_seconds` 360, de modo
+    que janela mais limpeza ficam abaixo de 2400 s. As chamadas HTTP e as consultas DNS consomem o
+    mesmo orçamento. Modelo: 1,3 s por chamada da CLI ou de HTTP, 0,5 s por consulta DNS
+    respondida e 1 s por consulta perdida; os segundos abaixo são do ciclo simulado, e o teste
+    exige vezes 1,2 dentro da janela:
+    - típico: 49 chamadas de trabalho (20 da CLI, 12 de HTTP, 17 de DNS) em 122 s;
+    - lento (domain pronto na 32a tentativa, login em 580 s): 76 chamadas em 827 s;
+    - pior caso (36 tentativas, login em 592 s): 80 chamadas em 867 s;
+    - DNS tardio (publicação em 150 s): 137 chamadas em 276 s;
+    - DNS com perda (um NS publica em 60 s, metade das consultas perdidas): 65 chamadas em 186 s;
+    - pior caso com DNS (publicação em 200 s, metade das consultas perdidas, login em 592 s): 151
+      chamadas em 869 s, ou 1043 s vezes 1,2;
+    - limpeza: 142 chamadas em 185 s em todos.
+  - **O primeiro ensaio real decide:** a ordem de remoção domain, branding, client, server, usuário e
+    pool (o brief pedia branding antes do domain; ambas mantêm domain antes do pool e branding antes
+    do client, e o janitor repete em falha alta); o branding criado logo após o domain; se um
+    verifier errado consome o código; se o refresh mantém `aud`. O listener abre antes de qualquer
+    recurso, e arquivos temporários `.handoff-<run>-*` também são removidos pela limpeza.
+  - **Ações do operador:** nenhuma fora do escopo já concedido: `cognito-idp:Create*`, `Delete*`,
+    `Update*`, `Describe*`, `List*` e `Admin*` por `ResourceTag` em `userpool/*`, `ListUserPools` e
+    `DescribeUserPoolDomain` sem escopo. Usadas: `CreateUserPool`, `CreateResourceServer`,
+    `CreateUserPoolClient`, `CreateUserPoolDomain`, `CreateManagedLoginBranding`, `AdminCreateUser`,
+    `AdminSetUserPassword`, `DescribeUserPool`, `DescribeResourceServer`,
+    `DescribeUserPoolClient`, `DescribeUserPoolDomain`,
+    `DescribeManagedLoginBrandingByClient`, `AdminGetUser`, `ListTagsForResource`,
+    `ListUserPools`, `ListUserPoolClients`, `ListResourceServers`, `ListUsers`, `UpdateUserPool`,
+    `DeleteManagedLoginBranding`, `DeleteUserPoolDomain`, `DeleteUserPoolClient`,
+    `AdminDeleteUser`, `DeleteResourceServer` e `DeleteUserPool`. `InitiateAuth` e os endpoints
+    OAuth do domain não são autenticados e não precisam de IAM. A ordem de remoção é domain,
+    branding, client, server, usuário, pool.
+- **Saída:** uma linha JSON em stdout com `status`, `reason`, `remaining` (serviço e nome) e
+  `evidence` (`initial_counts`, `probe`, `counts`, `final_counts_all_cap`). Exit 0 só com
+  `succeeded`; o IAM do próprio operador (`/cnesdata-cap/`) aparece na contagem global bruta.
+- **Supervisor:** o `run` inicia o `monitor` em sessão própria e só cria recursos depois do ack.
+  O monitor repete o ciclo a cada segundo; se o worker morrer (ex.: `kill -9`) ou o deadline
+  passar, ele roda o janitor sob o lock do journal e para no `deadline + cleanup + margem`.
+- **Fim anormal:** o resultado do janitor do supervisor vai ao pipe do worker, que pode já ter
+  morrido. Após `kill -9` ou `incomplete`, espere `deadline + cleanup + 15 s`, rode o janitor
+  manual e use o JSON dele como evidência final.
+- **Recuperação manual:** com o mesmo `--journal-dir`, `--run-id` e `--deadline`, rode
+  `... lifecycle janitor` (mesmos argumentos, sem `--worker-pid`); `waiting/cleanup_owned`
+  indica outro dono do lock.
+- **Redação:** a saída traz só códigos, contagens e booleanos; ARNs, IDs, tokens e payloads nunca
+  são impressos. O JSON de cada chamada vai a um arquivo 0600 efêmero (`/dev/shm` quando
+  existe) removido ao fim da chamada, nunca em argv nem stdin.
+
+### Perfil `fargate-write` (evidência do #384)
+
+Prova se `user=app` escreve em `/tmp`, `/logs` e `/data` numa task Fargate com a definição espelhada
+de `infra/opentofu/modules/processing/ecs.tf` (`tests/production/infra/test_fargate_task_mirror.py`
+compara o payload com o plano).
+
+- **Rodar:** o mesmo comando de "Rodar um perfil" com `--probe fargate-write`, mais as duas
+  entradas do operador e `CAP_FARGATE_IMAGE` (referência local da imagem, ex.:
+  `cnesdata-cap-processor:current-develop`). Formato fechado, validado só no `run`, antes de montar
+  qualquer porta (`fargate_image_invalid`): `nome[:tag]` ou `nome@sha256:<64 hex>`, com host e
+  caminho opcionais, minúsculo, sem espaço, esquema, usuário nem metacaractere. `janitor` e
+  `monitor` não leem a variável. Docker local precisa estar disponível; o push usa
+  `docker login --password-stdin` com `DOCKER_CONFIG` temporário em `/dev/shm`, sem `AWS_*` no
+  ambiente, e o token do ECR nunca aparece em argv, journal, evidência, repr nem traceback.
+  `SIGKILL` entre o login e o `finally` deixa o token (validade de 12 h) em
+  `/dev/shm/cnesdata-cap-docker-*`: apague à mão. O `docker rmi` tira a tag do ECR; se o prazo acabar
+  no push ou o `rmi` falhar, ela fica, sem aviso. Imagem por ID, sem outra tag, sai do Docker local.
+- **Raízes e ordem de criação:** ECR (`IMMUTABLE`), log group (retenção 1 dia), roles `-exec` e
+  `-task`, security group na VPC default (egress só TCP 443, sem ingress) e cluster ECS. Remoção
+  na ordem do inventário: ECS (para tasks, desregistra e apaga as revisões do run, apaga o
+  cluster), logs, ECR (`force`), IAM e por último o security group, que repete só
+  `DependencyViolation` (até 18 tentativas, pausa de 4 s) e para antes de consumir o tempo da
+  prova final; esgotado, o resultado é `incomplete` com o grupo em `remaining`.
+- **Prova de vazio:** além das contagens por serviço, `evidence.task_definition_revisions` lê as
+  revisões `ACTIVE` e `INACTIVE` do run depois do último `delete-task-definitions`. Contar nomes de
+  família não serve: após o delete a família segue listada como `INACTIVE` sem nenhuma revisão.
+  Se a contagem não zera, a prova final desregistra e apaga as revisões do run e reconta, mesmo
+  sem cluster. Revisão remanescente dá `incomplete/cleanup_failed`, e o `janitor` tenta de novo.
+  `DELETE_IN_PROGRESS` fica fora da contagem: a exclusão é assíncrona e não tem custo. "Vazio"
+  vale para o run; `final_counts_all_cap` pode incluir recursos de outro run.
+- **Janela e limites:** janela 540 s; `Limits(300 chamadas, reserva de cleanup 150, 8 páginas, 2
+  tentativas, 300 s de cleanup)`. Pelo harness real, o `run` inteiro levou 465 s. Nos protótipos:
+  push 79 a 88 s, task do probe 52 s, `recover-once` 62 a 73 s e ciclo de 288 s. O modelo com 1,3 s
+  por chamada dá, no pior cenário, 85 chamadas e 414 s de trabalho e 133 chamadas e 221 s de
+  cleanup; o teste exige vezes 1,2 dentro da janela e tetos absolutos derivados de 288 s.
+- **Ler RED e GREEN:** `evidence.probe.all_writable` é `false` (RED) quando algum mount falha ou o
+  `tempfile` não resolve em `/tmp`, e `true` (GREEN) quando os três aceitam escrita. Sem `VOLUME`:
+  `/tmp`, `/logs` e `/data` vêm `uid=0 gid=0 modo 0o755` com `EACCES` e `tempfile` dá
+  `FileNotFoundError`. Com `VOLUME`: `/logs` e `/data` vêm `uid=999 gid=999 0o755` com `ok`, `/tmp`
+  vem `uid=0 gid=0 0o1777` com `ok` (root:root 1777 é o correto) e `tempfile` é `ok:/tmp`. Nos dois:
+  `user=app`, `uid=999`, `root_write=EROFS` e plataforma 1.4.0. RED é observação e o status segue
+  `succeeded`; só falha de infraestrutura reprova. `recovery_exit_code=1` com
+  `processor_entrypoint_failed` e `ProcessorExecutionUnavailable` ocorre nas duas imagens, então o
+  `recover-once` não separa RED de GREEN; quem separa são os campos de escrita do probe.
+  `recovery_disk_denials` não prova escrita: a leitura para no primeiro lote de log, e o RED, sem
+  escrita em nenhum mount, também dá 0.
+- **Fato da plataforma:** bind mount do Fargate nasce `root:root 0755` sem `VOLUME` no caminho.
+- **Permissões do operador (além das de IAM dos outros perfis):** ECR `Create/DeleteRepository`,
+  `DescribeRepositories`, `DescribeImages`, `ListImages`, `BatchDeleteImage`, `TagResource`,
+  `ListTagsForResource`, `PutImage`, `InitiateLayerUpload`, `UploadLayerPart`,
+  `CompleteLayerUpload`, `BatchCheckLayerAvailability`, `GetDownloadUrlForLayer` e `BatchGetImage`
+  em `repository/cnesdata-cap-*`, mais `GetAuthorizationToken` sem escopo; Logs
+  `CreateLogGroup`, `DeleteLogGroup`, `PutRetentionPolicy`, `ListTagsForResource`,
+  `GetLogEvents` em `log-group:cnesdata-cap-*[:*]` (mais `TagResource`) e `DescribeLogGroups` sem escopo; ECS
+  `CreateCluster`, `DeleteCluster`, `DescribeClusters`, `TagResource`, `ListTagsForResource`, `RunTask`,
+  `StopTask`, `DescribeTasks` e `ListTasks` em `cluster/task/task-definition` `cnesdata-cap-*`, mais
+  `RegisterTaskDefinition`, `DeregisterTaskDefinition`, `DeleteTaskDefinitions`,
+  `ListTaskDefinitions` e `ListClusters` sem escopo; `iam:PassRole` dos roles `cnesdata-cap-*`
+  para `ecs-tasks.amazonaws.com`; EC2 `DescribeVpcs`, `DescribeSubnets`,
+  `DescribeSecurityGroups` e `DescribeNetworkInterfaces`, `CreateSecurityGroup` e `CreateTags`, e
+  `Delete/Authorize/RevokeSecurityGroupEgress` por tag `Purpose=aws-capability`.
+- **Boundary dos roles da task:** `create_role` anexa o boundary do operador aos roles `-exec` e
+  `-task`. O boundary precisa permitir `ecr:BatchGetImage`, `ecr:GetDownloadUrlForLayer`,
+  `ecr:BatchCheckLayerAvailability` em `repository/cnesdata-cap-*`, `ecr:GetAuthorizationToken`
+  sem escopo e `logs:CreateLogStream`/`logs:PutLogEvents` em `log-group:cnesdata-cap-*:log-stream:*`;
+  o fake só avalia a política inline, então a falta de qualquer uma só aparece no ensaio real, como
+  `failed/operation_failed` com `probe` vazio: o worker não repassa o motivo fechado do probe.
+- **Root recusado:** a identidade do `run` e do `janitor` exige sessão assumida do role do operador;
+  qualquer outro chamador, inclusive root, termina em `operator_mismatch` depois de uma única
+  chamada `sts get-caller-identity` e antes de criar ou ler qualquer recurso.
+- **Ambiente e custos do ensaio:** testado com aws-cli 2.35.20. A primeira task da conta cria o
+  service-linked role `AWSServiceRoleForECS`, que não é removido pelo cleanup e permanece depois
+  do inventário vazio. O profile `local` do compose cria volumes anônimos por causa do `VOLUME`;
+  `docker compose down -v` os remove.
+- **Operações com saída vazia:** `logs create-log-group` e `logs put-retention-policy` respondem
+  vazio com sucesso (conferido offline com `aws <serviço> <operação> help`); `delete-*` já contava
+  como sucesso vazio, inclusive `ec2 delete-security-group`.
+
+## Matriz de divergências
+
+Floci 2.2.0 observado pela suíte (cada linha tem teste). A coluna AWS traz o resultado dos
+perfis de `tests/integration/aws_capability` em `us-east-2` (rodadas de 2026-11-01 a
+2026-11-03), com o perfil entre crases. Toda rodada terminou sem recurso `cnesdata-cap-*` além
+da própria identidade temporária; resíduos de reboot ou de cleanup incompleto saíram antes do run
+seguinte, pelo janitor ou pelo operador escopado. A identidade temporária durou no máximo 1 h e
+foi apagada, Object Lock ficou só em GOVERNANCE e não houve `apply`. Texto entre parênteses em
+linha não exercitada é a expectativa pela documentação AWS. As três linhas SigV4 do IAM/STS
+(assinatura, sessão sem token ou com token forjado e chave inativa) ficam cobertas pelo
+comportamento documentado da AWS, não por execução, por decisão do dono em 2026-11-02.
+
+### Cognito (`test_cognito_jwt.py`)
+
+| Cenário | Floci | AWS (us-east-2) | Impacto | Mitigação |
+|---|---|---|---|---|
+| `aud` do access token (SDK e PKCE) | ausente; ID token traz `aud=client_id` | `cognito-login`: com `resource`, `aud` = resource pedido; sem `resource`, ausente, e o `OidcVerifier` recusa (`audience`); ID token com `aud=client_id` | `OidcVerifier` exige `aud`: recusa access token | check real com `resource`; D-B |
+| `resource` (RFC 8707) no authorize/token | ignorado em silêncio; escopos iguais | `cognito-login` (Essentials, managed login v2): honrado no code + PKCE, com o escopo da API; refresh por HTTP e por SDK (`REFRESH_TOKEN_AUTH`) preserva `aud` | binding não é provado pelo emulador | check real de code e refresh |
+| issuer e `jwks_uri` | `http://127.0.0.1:4577/<pool>` | `cognito-login`: discovery 200, issuer confere, `jwks_uri` HTTPS | `OidcVerifier` recusa `jwks_uri` http | teste reescreve só o esquema via `MockTransport` |
+| domínio de prefixo | `ACTIVE`, não roteado; discovery segue em `/cognito-idp/oauth2/*` | `cognito-login`: `/oauth2/*` servido no domínio de prefixo; publicado em 17,3 s e pronto em 19,0 s, com o gate DNS nos NS autoritativos antes do primeiro lookup | URL do login gerenciado difere | `HostedUi(base_url, path_prefix)` |
+| login gerenciado | form HTML com `_csrf` + cookie `XSRF-TOKEN`; senha errada = 400 | `cognito-login`: managed login v2 no navegador, login humano feito pelo dono (75,9 s); senha errada não exercitada | helper HTML não espelha produção | navegador descartável se houver JS |
+| PKCE e callback | só S256; verifier errado consome o código; código não reutilizável; callback exato | `cognito-login` (só S256 exercitado): verifier errado 400 `invalid_request` e consome o código (o certo logo depois dá 400 `invalid_grant`); reuso do código 400 `invalid_grant`; redirect divergente 400 `unauthorized_client`; fora do PKCE, `USER_PASSWORD_AUTH` (flow não habilitado) dá `InvalidParameterException` | nenhum | — |
+
+### DynamoDB (`test_dynamodb_semantics.py`)
+
+| Cenário | Floci | AWS (us-east-2) | Impacto | Mitigação |
+|---|---|---|---|---|
+| transações | 100 aceitas; 101 `ValidationException`; chave duplicada rejeitada; `CancellationReasons` por item; `ClientRequestToken` idempotente e `IdempotentParameterMismatch` | `ddb-transactions` e `ddb-conditions`: 100 aceitas (readback 100); 101 `ValidationException`; chave duplicada `ValidationException` sem `CancellationReasons` (readback 0); cancelamento por condição com motivos por item (`ConditionalCheckFailed` só no item que falhou); replay de `ClientRequestToken` não reaplica; mesmo token com outros parâmetros `IdempotentParameterMismatchException` | nenhum | — |
+| condição e CAS | `ConditionalCheckFailed`; `ALL_OLD` devolve o item | `ddb-conditions`: CAS com versão velha `ConditionalCheckFailedException` (versões 1 e 2); `ALL_OLD` não exercitado | nenhum | — |
+| TTL na leitura | expirado some de GetItem consistente, Query, GSI e Scan antes da varredura de 60 s | `ddb-ttl-gsi`: item expirado segue visível em GetItem consistente, Query e Scan; leitura no GSI não exercitada | teste que lê expirado diverge | filtrar `expires_at` na leitura; TTL só coleta lixo |
+| TTL nas condições | expirado oculto ainda conta para `attribute_(not_)exists` | não exercitado (leitura e condição veem o item) | ler e depois gravar condicional discorda no Floci | condicionar sobre `expires_at` |
+| consistência de GSI | imediata | `ddb-ttl-gsi`: inclusão e remoção do item esparso vistas na 1ª consulta; sem atraso observado, mas a garantia documentada segue eventual | atraso de GSI não reproduz | dublê `StaleQueryClient` da AWS-014 |
+| GSI `ConsistentRead` | `ValidationException` | `ddb-ttl-gsi`: `ValidationException` | nenhum | — |
+| PITR | habilita e descreve 35 dias; restore não testado | não exercitado | nenhum | — |
+| `DeletionProtection` | bloqueia `DeleteTable` (`ValidationException`) | não exercitado como negação; os perfis `ddb-*` criam a tabela protegida e o teardown desliga a proteção antes de apagar | nenhum | — |
+| `OnDemandThroughput` | aceito e descrito; teto 5/5 não segura 100 escritas | `ddb-throughput`: teto 100/25 aceito e lido de volta na tabela e nos seis GSIs; `TransactWriteItems` de 100 puts ok e 4 `BatchWriteItem` de 25 sem `UnprocessedItems` (22,1 itens/s), sem retry; sem throttling observado | teto 100/25 (PROD-INFRA-002) não testável | check real |
+| item > 400 KB | `ValidationException` | não exercitado (igual) | nenhum | — |
+
+### S3 Object Lock (`test_s3_object_lock.py`)
+
+| Cenário | Floci | AWS (us-east-2) | Impacto | Mitigação |
+|---|---|---|---|---|
+| COMPLIANCE | delete de versão negado mesmo com bypass; não encurta nem rebaixa; vencida libera; delete sem versão cria marcador | não testável (D6 proíbe COMPLIANCE) | COMPLIANCE só tem evidência no Floci | GOVERNANCE na 13b |
+| GOVERNANCE sem bypass | delete e encurtamento negados | `s3-retention`: delete da versão retida e encurtamento `AccessDenied`, extensão ok; `iam-s3`: role audit também não encurta | nenhum | — |
+| `s3:BypassGovernanceRetention` | não avaliado: sem permissão ou com Deny explícito o cabeçalho basta | `s3-retention`: role sem a permissão recebe `AccessDenied` mesmo com o cabeçalho de bypass; o operador, com a permissão, apaga | alto: gate de bypass não testável | check real; audit em COMPLIANCE e dispatch sem delete |
+| delete de versão | autorizado por `s3:DeleteObject`; `s3:DeleteObjectVersion` sozinha é negada | `s3-retention`: role com `s3:DeleteObject` e sem `s3:DeleteObjectVersion` recebe `AccessDenied`; com `s3:DeleteObjectVersion`, apaga versão não retida | política de delete não validável | check real |
+| cabeçalhos de lock sem `s3:PutObjectRetention` | aceitos | `s3-retention`: `AccessDenied`; upload sem lock da mesma sessão ok | política da role de dispatch não validável | check real |
+| legal hold | bloqueia delete, mesmo com bypass, até `OFF` | `s3-hold`: com hold `ON`, delete de versão `AccessDenied` com e sem bypass; com `OFF`, apaga | nenhum | — |
+| sobrescrita | nova versão; a retida continua; retenção da versão nova = `{}` | `s3-retention`: nova versão criada; retenção da versão nova `NoSuchObjectLockConfiguration` | baixo: `S3ObjectStore` trata ausência como insuficiente | — |
+| retenção padrão do bucket | GOVERNANCE aplicada a objeto novo | não exercitado (igual) | nenhum | — |
+| versionamento em bucket com lock | suspensão aceita | `s3-retention`: suspensão `InvalidBucketState` | médio | não suspender; check real |
+| lock em bucket sem Object Lock | cabeçalhos aceitos e aplicados | não exercitado (`InvalidRequest`) | médio: bucket mal configurado passa | sink valida `ObjectLockEnabled` no boot |
+| `S3ObjectLockAuditSink` | COMPLIANCE até `created_at + dias`; reenvio idempotente; divergente = `Conflict`; bucket sem lock recusado | não testável (COMPLIANCE) | evidência só no Floci | — |
+
+### IAM/STS com enforcement (`test_iam_sts.py`, `test_iam_permission_matrix.py`)
+
+| Cenário | Floci | AWS (us-east-2) | Impacto | Mitigação |
+|---|---|---|---|---|
+| trust exato | principal nomeado assume; outro é negado | `iam-trust`: operador assume R e R assume R2 (trust só em R); R não assume R (`AccessDenied`, mesmo com esse Allow de identidade) | nenhum | — |
+| `sts:AssumeRole` na identidade | exige Allow com `Resource: "*"`; sem política ou com o ARN da role, nega | `iam-trust`: Allow de identidade com prefixo de ARN dos roles do run (`role/cnesdata-cap/<nome>*`), sem `Resource: "*"`, basta para R assumir R2; sem política de identidade não exercitado (mesma conta: ARN exato no trust basta) | políticas reais não validáveis | check real |
+| `DurationSeconds` > `MaxSessionDuration` | 3601 e 43200 aceitos com máximo 3600 | `iam-trust` (operador → R, encadeado) e ensaio avulso (usuário IAM → operador, sem encadeamento): 3601 com máximo 3600 dá `ValidationError` (`max_session_duration`) | limite de 3600 s não testável | check real |
+| session tags e `SourceIdentity` | aceitos sem `sts:TagSession`/`sts:SetSourceIdentity` no trust | `iam-trust`: `AccessDenied` sem `sts:TagSession` e sem `sts:SetSourceIdentity` no trust; ok depois de ampliar (tags em 10,5 s, `SourceIdentity` em 1,1 s) | médio | check real |
+| propagação IAM | imediata | eventual: 1ª chamada liberada em 7,6 a 11,5 s no S3 (`s3-retention`, `iam-s3`) e em 11,2 a 11,3 s no DynamoDB (`iam-leadingkeys`); trust ampliado em 10,5 s (`iam-trust`); Deny de bucket policy efetivo em 1,3 s (`iam-s3`) | corrida de propagação não reproduz | esperar/retentar na 13b |
+| chave `test` | ignora enforcement e bucket policy | — (só emulador) | por design | operador dos testes |
+| chave desconhecida | rejeitada por DynamoDB, S3 e IAM; `GetCallerIdentity` responde root | não exercitado (`InvalidClientTokenId`) | baixo | — |
+| assinatura SigV4 | verificada só no S3; segredo errado aceito em DynamoDB e STS | não executado; coberto pela documentação AWS (decisão do dono): assinatura que não confere é recusada com 403 `SignatureDoesNotMatch` ([SigV4](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_sigv-troubleshooting.html)) | alto: posse do segredo não é testável fora do S3 | check real |
+| sessão sem token ou com token forjado | aceita fora do S3 | não executado; coberto pela documentação AWS (decisão do dono): credencial temporária exige o session token em `X-Amz-Security-Token` ([STS](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_temp_use-resources.html)) e token inválido dá `InvalidClientTokenId` ([CLI](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-troubleshooting.html)) | alto | check real |
+| chave inativa | aceita fora do S3 | não executado; coberto pela documentação AWS (decisão do dono): chave `Inactive` não serve para chamadas de API ([IAM](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html)) | alto: revogação e fail-closed (spec ops §6) não testáveis | check real |
+| dispatch: GetItem/UpdateItem por `LeadingKeys` | outbox e cursor permitidos; fence, semáforo e run negados | `iam-leadingkeys`, role audit (espelho de `task-roles.tf`, mesma policy): GetItem `TENANT#_GLOBAL` e UpdateItem `OUTBOX#CURSOR` ok; GetItem `OTHER#1` e UpdateItem `TENANT#x` e `ENV#prod#ATTEMPTS` `AccessDeniedException`; chaves de fence, semáforo e run não exercitadas | nenhum | — |
+| dispatch: PutItem, DeleteItem, Scan, Query na base | negados | `iam-leadingkeys`: PutItem, DeleteItem e Scan `AccessDeniedException` logo depois de um GetItem ok; Query na tabela base com `OUTBOX#PENDING` `AccessDeniedException` | nenhum | — |
+| Query no GSI exato (ARN `…/index/gsi6`) | negada: o Floci avalia o ARN da tabela | `iam-leadingkeys`: permitida com `OUTBOX#PENDING`; outra chave no `gsi6` `AccessDeniedException` | política "exact-GSI" não validável | check real |
+| Query de índice pelo ARN da tabela | permitida; `LeadingKeys` = partição do índice; `gsi1` também liberado | `iam-leadingkeys`: a mesma chave no `gsi1` e na tabela base `AccessDeniedException`; role api: `USER#1` no `gsi1` ok, `ADMIN#1` e `gsi6` negados | alto: over-permit no emulador | check real |
+| transações | `TransactWriteItems` avaliada como ação única, sem `LeadingKeys`: dispatch não transaciona nem na partição permitida; Deny por `LeadingKeys` não bloqueia | `iam-leadingkeys`: só com Updates permitidos ok; um Update em `OTHER#1` nega a transação inteira (`AccessDeniedException`, `not_authorized`), porque `LeadingKeys` é avaliado por item | alto: guardrail contornável no emulador | check real |
+| S3 por prefixo | dispatch grava, lê e estende retenção só em `audit/*`, sem delete, bypass, list, `raw/` ou `serving/`; API lê só `serving/*`, sem escrita; URL assinada 200 em `serving/`, 403 em `raw/` | `iam-s3`: audit grava com GOVERNANCE, faz HEAD, lê a retenção e a estende em `audit/*` (`GetObject` só por HEAD); HEAD `raw/x` 403; chave ausente em `audit/` 403 (sem `ListBucket`); delete de versão e ListObjectsV2 `AccessDenied`. Api: HEAD `serving/x` ok; chave ausente em `serving/` 404 (`ListBucket` com `s3:prefix`); `raw/x` 403; list em `serving/` ok e em `raw/` `AccessDenied`; PutObject `AccessDenied`. Unit (Data5) e recovery (Publish4): chave ausente 404 em cada prefixo de `GetObject` da role, depois de um HEAD ok no mesmo prefixo; recovery em `raw/` 403 (fora do `ListBucket`); api em `reconciliation/` 404 (critério 3 da #441). URL assinada não exercitada | nenhum | — |
+| bucket policy | avaliada: Deny explícito vence Allow de identidade; Allow só na bucket policy concede | `iam-s3`: Deny de `s3:GetObject` em `serving/blocked/*` para o ARN exato do role api vence o Allow de identidade e vira 403 em 1,3 s; `serving/x` segue ok; Allow só na bucket policy não exercitado | a doc do Floci dizia "não suportado"; não se confirma | — |
+
+### Linhas sem execução na AWS
+
+- **Sem execução, cobertas pela documentação AWS (decisão do dono):** assinatura SigV4, sessão sem
+  token ou com token forjado, chave inativa.
+- **Não testáveis por D6:** COMPLIANCE e `S3ObjectLockAuditSink`.
+- **Não exercitadas:**
+  - Cognito: login gerenciado com senha errada; PKCE `plain`;
+  - DynamoDB: TTL nas condições; leitura de item expirado no GSI; `ALL_OLD`; PITR; `DeleteTable`
+    com `DeletionProtection` ativa; item > 400 KB;
+  - S3: retenção padrão do bucket; lock em bucket sem Object Lock; URL assinada; Allow só na
+    bucket policy;
+  - IAM/STS: `sts:AssumeRole` sem política de identidade; chave desconhecida; chaves de fence,
+    semáforo e run do dispatch.

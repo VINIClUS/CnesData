@@ -1,0 +1,344 @@
+{
+  "provenance": {
+    "source": "task-3-services-b1-source-cognito.txt",
+    "sha256": "ee91799490a4530490b18a6ea56b64956090077c704dc4b343c653631f36ec0f",
+    "operations": [
+      "DescribeUserPool",
+      "ListTagsForResource",
+      "DescribeUserPoolClient"
+    ],
+    "proof": "UserPoolId and ClientId required locally; optional response members in AWS model"
+  },
+  "resource": {
+    "service": "cognito",
+    "resource_id": "{\"child_id\":{\"client_id\":\"4m7k8syntheticclient\"},\"kind\":\"cognito.client\",\"parent_id\":\"us-east-2_X9opaqueQ\",\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1}",
+    "name": "cnesdata-cap-a1b2c3d4"
+  },
+  "replies": {
+    "root": {
+      "UserPool": {
+        "Id": "us-east-2_X9opaqueQ",
+        "Name": "cnesdata-cap-a1b2c3d4",
+        "Arn": "arn:aws:cognito-idp:us-east-2:111111111111:userpool/us-east-2_X9opaqueQ"
+      }
+    },
+    "tags": {
+      "Tags": {
+        "Project": "CnesData",
+        "Purpose": "aws-capability",
+        "Run": "a1b2c3d4",
+        "ExpiresAt": "1060"
+      }
+    },
+    "client": {
+      "UserPoolClient": {
+        "UserPoolId": "us-east-2_X9opaqueQ",
+        "ClientId": "4m7k8syntheticclient"
+      }
+    }
+  },
+  "expected": {
+    "account": "111111111111",
+    "region": "us-east-2",
+    "tags": {
+      "Project": "CnesData",
+      "Purpose": "aws-capability",
+      "Run": "a1b2c3d4",
+      "ExpiresAt": "1060"
+    },
+    "trace": [
+      [
+        "cognito-idp",
+        "describe-user-pool",
+        "us-east-2",
+        {
+          "UserPoolId": "us-east-2_X9opaqueQ"
+        }
+      ],
+      [
+        "cognito-idp",
+        "list-tags-for-resource",
+        "us-east-2",
+        {
+          "ResourceArn": "arn:aws:cognito-idp:us-east-2:111111111111:userpool/us-east-2_X9opaqueQ"
+        }
+      ],
+      [
+        "cognito-idp",
+        "describe-user-pool-client",
+        "us-east-2",
+        {
+          "UserPoolId": "us-east-2_X9opaqueQ",
+          "ClientId": "4m7k8syntheticclient"
+        }
+      ]
+    ]
+  },
+  "invalid_clients": {
+    "ClientId_0": {
+      "UserPoolClient": {
+        "UserPoolId": "us-east-2_X9opaqueQ",
+        "ClientId": "otherclient"
+      }
+    },
+    "ClientId_1": {
+      "UserPoolClient": {
+        "UserPoolId": "us-east-2_X9opaqueQ",
+        "ClientId": null
+      }
+    },
+    "ClientId_2": {
+      "UserPoolClient": {
+        "UserPoolId": "us-east-2_X9opaqueQ",
+        "ClientId": 7
+      }
+    },
+    "ClientId_3": {
+      "UserPoolClient": {
+        "UserPoolId": "us-east-2_X9opaqueQ",
+        "ClientId": true
+      }
+    },
+    "ClientId_4": {
+      "UserPoolClient": {
+        "UserPoolId": "us-east-2_X9opaqueQ",
+        "ClientId": ""
+      }
+    },
+    "ClientId_missing": {
+      "UserPoolClient": {
+        "UserPoolId": "us-east-2_X9opaqueQ"
+      }
+    },
+    "UserPoolId_0": {
+      "UserPoolClient": {
+        "UserPoolId": "us-east-2_other",
+        "ClientId": "4m7k8syntheticclient"
+      }
+    },
+    "UserPoolId_1": {
+      "UserPoolClient": {
+        "UserPoolId": null,
+        "ClientId": "4m7k8syntheticclient"
+      }
+    },
+    "UserPoolId_2": {
+      "UserPoolClient": {
+        "UserPoolId": 7,
+        "ClientId": "4m7k8syntheticclient"
+      }
+    },
+    "UserPoolId_3": {
+      "UserPoolClient": {
+        "UserPoolId": true,
+        "ClientId": "4m7k8syntheticclient"
+      }
+    },
+    "UserPoolId_4": {
+      "UserPoolClient": {
+        "UserPoolId": "",
+        "ClientId": "4m7k8syntheticclient"
+      }
+    },
+    "UserPoolId_missing": {
+      "UserPoolClient": {
+        "ClientId": "4m7k8syntheticclient"
+      }
+    },
+    "missing_wrapper": {
+      "ClientId": "4m7k8syntheticclient",
+      "UserPoolId": "us-east-2_X9opaqueQ"
+    },
+    "empty": {},
+    "empty_client": {
+      "UserPoolClient": {}
+    },
+    "null_client": {
+      "UserPoolClient": null
+    },
+    "list_client": {
+      "UserPoolClient": []
+    },
+    "string_client": {
+      "UserPoolClient": "private"
+    }
+  },
+  "invalid_envelopes": {
+    "malformed": "{",
+    "duplicate_top": "{\"child_id\":{\"client_id\":\"4m7k8syntheticclient\"},\"kind\":\"cognito.client\",\"parent_id\":\"us-east-2_X9opaqueQ\",\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1,\"v\":1}",
+    "duplicate_child": "{\"child_id\":{\"client_id\":\"4m7k8syntheticclient\",\"client_id\":\"4m7k8syntheticclient\"},\"kind\":\"cognito.client\",\"parent_id\":\"us-east-2_X9opaqueQ\",\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1}",
+    "extra": "{\"child_id\":{\"client_id\":\"4m7k8syntheticclient\"},\"extra\":1,\"kind\":\"cognito.client\",\"parent_id\":\"us-east-2_X9opaqueQ\",\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1}",
+    "bool_version": "{\"child_id\":{\"client_id\":\"4m7k8syntheticclient\"},\"kind\":\"cognito.client\",\"parent_id\":\"us-east-2_X9opaqueQ\",\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":true}",
+    "float_version": "{\"child_id\":{\"client_id\":\"4m7k8syntheticclient\"},\"kind\":\"cognito.client\",\"parent_id\":\"us-east-2_X9opaqueQ\",\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1.0}",
+    "unknown_version": "{\"child_id\":{\"client_id\":\"4m7k8syntheticclient\"},\"kind\":\"cognito.client\",\"parent_id\":\"us-east-2_X9opaqueQ\",\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":2}",
+    "wrong_run": "{\"child_id\":{\"client_id\":\"4m7k8syntheticclient\"},\"kind\":\"cognito.client\",\"parent_id\":\"us-east-2_X9opaqueQ\",\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"e5f6a7b8\",\"service\":\"cognito\",\"v\":1}",
+    "wrong_service": "{\"child_id\":{\"client_id\":\"4m7k8syntheticclient\"},\"kind\":\"cognito.client\",\"parent_id\":\"us-east-2_X9opaqueQ\",\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"service\":\"s3\",\"v\":1}",
+    "wrong_kind": "{\"child_id\":{\"client_id\":\"4m7k8syntheticclient\"},\"kind\":\"cognito.server\",\"parent_id\":\"us-east-2_X9opaqueQ\",\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1}",
+    "child_extra": "{\"child_id\":{\"client_id\":\"4m7k8syntheticclient\",\"extra\":1},\"kind\":\"cognito.client\",\"parent_id\":\"us-east-2_X9opaqueQ\",\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1}",
+    "child_empty": "{\"child_id\":{},\"kind\":\"cognito.client\",\"parent_id\":\"us-east-2_X9opaqueQ\",\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1}",
+    "child_string": "{\"child_id\":\"client\",\"kind\":\"cognito.client\",\"parent_id\":\"us-east-2_X9opaqueQ\",\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1}",
+    "client_empty": "{\"child_id\":{\"client_id\":\"\"},\"kind\":\"cognito.client\",\"parent_id\":\"us-east-2_X9opaqueQ\",\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1}",
+    "client_null": "{\"child_id\":{\"client_id\":null},\"kind\":\"cognito.client\",\"parent_id\":\"us-east-2_X9opaqueQ\",\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1}",
+    "client_int": "{\"child_id\":{\"client_id\":7},\"kind\":\"cognito.client\",\"parent_id\":\"us-east-2_X9opaqueQ\",\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1}",
+    "root_empty": "{\"child_id\":{\"client_id\":\"4m7k8syntheticclient\"},\"kind\":\"cognito.client\",\"parent_id\":\"us-east-2_X9opaqueQ\",\"root_id\":\"\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1}",
+    "root_null": "{\"child_id\":{\"client_id\":\"4m7k8syntheticclient\"},\"kind\":\"cognito.client\",\"parent_id\":\"us-east-2_X9opaqueQ\",\"root_id\":null,\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1}",
+    "root_int": "{\"child_id\":{\"client_id\":\"4m7k8syntheticclient\"},\"kind\":\"cognito.client\",\"parent_id\":\"us-east-2_X9opaqueQ\",\"root_id\":7,\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1}",
+    "parent_other": "{\"child_id\":{\"client_id\":\"4m7k8syntheticclient\"},\"kind\":\"cognito.client\",\"parent_id\":\"us-east-2_other\",\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1}",
+    "parent_null": "{\"child_id\":{\"client_id\":\"4m7k8syntheticclient\"},\"kind\":\"cognito.client\",\"parent_id\":null,\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1}",
+    "nested_parent": "{\"child_id\":{\"client_id\":\"4m7k8syntheticclient\"},\"kind\":\"cognito.client\",\"parent_id\":\"{\\\"child_id\\\":{\\\"client_id\\\":\\\"4m7k8syntheticclient\\\"},\\\"kind\\\":\\\"cognito.client\\\",\\\"parent_id\\\":\\\"us-east-2_X9opaqueQ\\\",\\\"root_id\\\":\\\"us-east-2_X9opaqueQ\\\",\\\"run\\\":\\\"a1b2c3d4\\\",\\\"service\\\":\\\"cognito\\\",\\\"v\\\":1}\",\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1}",
+    "nested_root": "{\"child_id\":{\"client_id\":\"4m7k8syntheticclient\"},\"kind\":\"cognito.client\",\"parent_id\":\"us-east-2_X9opaqueQ\",\"root_id\":{\"child_id\":{\"client_id\":\"4m7k8syntheticclient\"},\"kind\":\"cognito.client\",\"parent_id\":\"us-east-2_X9opaqueQ\",\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1},\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1}",
+    "missing_child_id": "{\"kind\":\"cognito.client\",\"parent_id\":\"us-east-2_X9opaqueQ\",\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1}",
+    "missing_kind": "{\"child_id\":{\"client_id\":\"4m7k8syntheticclient\"},\"parent_id\":\"us-east-2_X9opaqueQ\",\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1}",
+    "missing_parent_id": "{\"child_id\":{\"client_id\":\"4m7k8syntheticclient\"},\"kind\":\"cognito.client\",\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1}",
+    "missing_root_id": "{\"child_id\":{\"client_id\":\"4m7k8syntheticclient\"},\"kind\":\"cognito.client\",\"parent_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1}",
+    "missing_run": "{\"child_id\":{\"client_id\":\"4m7k8syntheticclient\"},\"kind\":\"cognito.client\",\"parent_id\":\"us-east-2_X9opaqueQ\",\"root_id\":\"us-east-2_X9opaqueQ\",\"service\":\"cognito\",\"v\":1}",
+    "missing_service": "{\"child_id\":{\"client_id\":\"4m7k8syntheticclient\"},\"kind\":\"cognito.client\",\"parent_id\":\"us-east-2_X9opaqueQ\",\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"v\":1}",
+    "missing_v": "{\"child_id\":{\"client_id\":\"4m7k8syntheticclient\"},\"kind\":\"cognito.client\",\"parent_id\":\"us-east-2_X9opaqueQ\",\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\"}",
+    "null": "null",
+    "list": "[]",
+    "string": "\"envelope\"",
+    "child_list": "{\"child_id\":[],\"kind\":\"cognito.client\",\"parent_id\":\"us-east-2_X9opaqueQ\",\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1}",
+    "root_bool": "{\"child_id\":{\"client_id\":\"4m7k8syntheticclient\"},\"kind\":\"cognito.client\",\"parent_id\":\"us-east-2_X9opaqueQ\",\"root_id\":true,\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1}",
+    "parent_empty": "{\"child_id\":{\"client_id\":\"4m7k8syntheticclient\"},\"kind\":\"cognito.client\",\"parent_id\":\"\",\"root_id\":\"us-east-2_X9opaqueQ\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1}"
+  },
+  "errors": {
+    "not_found": [
+      254,
+      "",
+      "{\"Code\":\"ResourceNotFoundException\",\"Message\":\"R1_PRIVATE_CANARY\"}"
+    ],
+    "denied": [
+      254,
+      "",
+      "{\"Code\":\"NotAuthorizedException\",\"Message\":\"R1_PRIVATE_CANARY\"}"
+    ],
+    "http403": [
+      254,
+      "",
+      "{\"Code\":\"403\",\"Message\":\"R1_PRIVATE_CANARY\"}"
+    ],
+    "http404": [
+      254,
+      "",
+      "{\"Code\":\"404\",\"Message\":\"R1_PRIVATE_CANARY\"}"
+    ],
+    "wrong_wire": [
+      254,
+      "",
+      "{\"Code\":\"ResourceNotFound\",\"Message\":\"R1_PRIVATE_CANARY\"}"
+    ],
+    "local_not_found": [
+      252,
+      "",
+      "{\"Code\":\"ResourceNotFoundException\",\"Message\":\"R1_PRIVATE_CANARY\"}"
+    ],
+    "json": [
+      0,
+      "R1_PRIVATE_CANARY",
+      ""
+    ],
+    "empty": [
+      0,
+      "{}",
+      ""
+    ],
+    "empty_stdout": [
+      0,
+      "",
+      ""
+    ],
+    "bad_stderr": [
+      254,
+      "",
+      "R1_PRIVATE_CANARY"
+    ]
+  },
+  "opaque_pool": {
+    "resource": {
+      "service": "cognito",
+      "resource_id": "{\"child_id\":{\"client_id\":\"4m7k8syntheticclient\"},\"kind\":\"cognito.client\",\"parent_id\":\"us-east-2_AnotherOpaqueQ9\",\"root_id\":\"us-east-2_AnotherOpaqueQ9\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1}",
+      "name": "cnesdata-cap-a1b2c3d4"
+    },
+    "root": {
+      "UserPool": {
+        "Id": "us-east-2_AnotherOpaqueQ9",
+        "Name": "cnesdata-cap-a1b2c3d4",
+        "Arn": "arn:aws:cognito-idp:us-east-2:111111111111:userpool/us-east-2_AnotherOpaqueQ9"
+      }
+    },
+    "client": {
+      "UserPoolClient": {
+        "UserPoolId": "us-east-2_AnotherOpaqueQ9",
+        "ClientId": "4m7k8syntheticclient"
+      }
+    },
+    "trace": [
+      [
+        "cognito-idp",
+        "describe-user-pool",
+        "us-east-2",
+        {
+          "UserPoolId": "us-east-2_AnotherOpaqueQ9"
+        }
+      ],
+      [
+        "cognito-idp",
+        "list-tags-for-resource",
+        "us-east-2",
+        {
+          "ResourceArn": "arn:aws:cognito-idp:us-east-2:111111111111:userpool/us-east-2_AnotherOpaqueQ9"
+        }
+      ],
+      [
+        "cognito-idp",
+        "describe-user-pool-client",
+        "us-east-2",
+        {
+          "UserPoolId": "us-east-2_AnotherOpaqueQ9",
+          "ClientId": "4m7k8syntheticclient"
+        }
+      ]
+    ]
+  },
+  "private_ids": {
+    "resource": {
+      "service": "cognito",
+      "resource_id": "{\"child_id\":{\"client_id\":\"r1privatecanary\"},\"kind\":\"cognito.client\",\"parent_id\":\"us-east-2_R1PRIVATECANARY\",\"root_id\":\"us-east-2_R1PRIVATECANARY\",\"run\":\"a1b2c3d4\",\"service\":\"cognito\",\"v\":1}",
+      "name": "cnesdata-cap-a1b2c3d4"
+    },
+    "root": {
+      "UserPool": {
+        "Id": "us-east-2_R1PRIVATECANARY",
+        "Name": "cnesdata-cap-a1b2c3d4",
+        "Arn": "arn:aws:cognito-idp:us-east-2:111111111111:userpool/us-east-2_R1PRIVATECANARY"
+      }
+    },
+    "trace": [
+      [
+        "cognito-idp",
+        "describe-user-pool",
+        "us-east-2",
+        {
+          "UserPoolId": "us-east-2_R1PRIVATECANARY"
+        }
+      ],
+      [
+        "cognito-idp",
+        "list-tags-for-resource",
+        "us-east-2",
+        {
+          "ResourceArn": "arn:aws:cognito-idp:us-east-2:111111111111:userpool/us-east-2_R1PRIVATECANARY"
+        }
+      ],
+      [
+        "cognito-idp",
+        "describe-user-pool-client",
+        "us-east-2",
+        {
+          "UserPoolId": "us-east-2_R1PRIVATECANARY",
+          "ClientId": "r1privatecanary"
+        }
+      ]
+    ]
+  }
+}

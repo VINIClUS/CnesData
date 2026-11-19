@@ -1,0 +1,314 @@
+{
+    "unit": {
+        "name": "processor",
+        "image": "<redigido>",
+        "cpu": 0,
+        "portMappings": [],
+        "essential": true,
+        "command": [],
+        "environment": [
+            {
+                "name": "AWS_ENVIRONMENT",
+                "value": "<redigido>"
+            },
+            {
+                "name": "AWS_SECURITY_GROUP_ID",
+                "value": "<redigido>"
+            },
+            {
+                "name": "AWS_REGION",
+                "value": "<redigido>"
+            },
+            {
+                "name": "BILLING_MODE",
+                "value": "<redigido>"
+            },
+            {
+                "name": "AWS_CONTROL_PLANE_TABLE",
+                "value": "<redigido>"
+            },
+            {
+                "name": "AWS_PUBLIC_SUBNET_IDS",
+                "value": "<redigido>"
+            },
+            {
+                "name": "PYTHONDONTWRITEBYTECODE",
+                "value": "<redigido>"
+            },
+            {
+                "name": "TMPDIR",
+                "value": "<redigido>"
+            },
+            {
+                "name": "AWS_PROCESSOR_LEASE_SECONDS",
+                "value": "<redigido>"
+            },
+            {
+                "name": "AWS_STATE_MACHINE_ARN",
+                "value": "<redigido>"
+            },
+            {
+                "name": "PROFILE",
+                "value": "<redigido>"
+            },
+            {
+                "name": "AWS_PROCESSOR_CONTAINER_NAME",
+                "value": "<redigido>"
+            },
+            {
+                "name": "AWS_PROCESSOR_MAX_CONCURRENCY",
+                "value": "<redigido>"
+            },
+            {
+                "name": "AWS_PRODUCTION_POLICY",
+                "value": "<redigido>"
+            },
+            {
+                "name": "AWS_DATA_BUCKET",
+                "value": "<redigido>"
+            }
+        ],
+        "mountPoints": [
+            {
+                "sourceVolume": "tmp",
+                "containerPath": "/tmp",
+                "readOnly": false
+            },
+            {
+                "sourceVolume": "logs",
+                "containerPath": "/logs",
+                "readOnly": false
+            },
+            {
+                "sourceVolume": "data",
+                "containerPath": "/data",
+                "readOnly": false
+            }
+        ],
+        "volumesFrom": [],
+        "linuxParameters": {
+            "capabilities": {
+                "add": [],
+                "drop": [
+                    "ALL"
+                ]
+            }
+        },
+        "user": "app",
+        "privileged": false,
+        "readonlyRootFilesystem": true,
+        "logConfiguration": {
+            "logDriver": "awslogs",
+            "options": {
+                "awslogs-group": "<redigido>",
+                "awslogs-region": "us-east-2",
+                "awslogs-stream-prefix": "unit"
+            }
+        },
+        "systemControls": []
+    },
+    "recovery": {
+        "name": "processor",
+        "image": "<redigido>",
+        "cpu": 0,
+        "portMappings": [],
+        "essential": true,
+        "command": [
+            "recover-once"
+        ],
+        "environment": [
+            {
+                "name": "AWS_ENVIRONMENT",
+                "value": "<redigido>"
+            },
+            {
+                "name": "AWS_SECURITY_GROUP_ID",
+                "value": "<redigido>"
+            },
+            {
+                "name": "AWS_REGION",
+                "value": "<redigido>"
+            },
+            {
+                "name": "BILLING_MODE",
+                "value": "<redigido>"
+            },
+            {
+                "name": "AWS_CONTROL_PLANE_TABLE",
+                "value": "<redigido>"
+            },
+            {
+                "name": "AWS_PUBLIC_SUBNET_IDS",
+                "value": "<redigido>"
+            },
+            {
+                "name": "PYTHONDONTWRITEBYTECODE",
+                "value": "<redigido>"
+            },
+            {
+                "name": "TMPDIR",
+                "value": "<redigido>"
+            },
+            {
+                "name": "AWS_PROCESSOR_LEASE_SECONDS",
+                "value": "<redigido>"
+            },
+            {
+                "name": "AWS_STATE_MACHINE_ARN",
+                "value": "<redigido>"
+            },
+            {
+                "name": "PROFILE",
+                "value": "<redigido>"
+            },
+            {
+                "name": "AWS_PROCESSOR_CONTAINER_NAME",
+                "value": "<redigido>"
+            },
+            {
+                "name": "AWS_PROCESSOR_MAX_CONCURRENCY",
+                "value": "<redigido>"
+            },
+            {
+                "name": "AWS_PRODUCTION_POLICY",
+                "value": "<redigido>"
+            },
+            {
+                "name": "AWS_DATA_BUCKET",
+                "value": "<redigido>"
+            },
+            {
+                "name": "AWS_PROCESSOR_RECOVERY_BATCH_SIZE",
+                "value": "<redigido>"
+            }
+        ],
+        "mountPoints": [
+            {
+                "sourceVolume": "tmp",
+                "containerPath": "/tmp",
+                "readOnly": false
+            },
+            {
+                "sourceVolume": "logs",
+                "containerPath": "/logs",
+                "readOnly": false
+            },
+            {
+                "sourceVolume": "data",
+                "containerPath": "/data",
+                "readOnly": false
+            }
+        ],
+        "volumesFrom": [],
+        "linuxParameters": {
+            "capabilities": {
+                "add": [],
+                "drop": [
+                    "ALL"
+                ]
+            }
+        },
+        "user": "app",
+        "privileged": false,
+        "readonlyRootFilesystem": true,
+        "logConfiguration": {
+            "logDriver": "awslogs",
+            "options": {
+                "awslogs-group": "<redigido>",
+                "awslogs-region": "us-east-2",
+                "awslogs-stream-prefix": "recovery"
+            }
+        },
+        "systemControls": []
+    },
+    "audit": {
+        "name": "processor",
+        "image": "<redigido>",
+        "cpu": 0,
+        "portMappings": [],
+        "essential": true,
+        "command": [
+            "dispatch-outbox-once"
+        ],
+        "environment": [
+            {
+                "name": "AWS_ENVIRONMENT",
+                "value": "<redigido>"
+            },
+            {
+                "name": "AWS_AUDIT_BUCKET",
+                "value": "<redigido>"
+            },
+            {
+                "name": "AWS_REGION",
+                "value": "<redigido>"
+            },
+            {
+                "name": "BILLING_MODE",
+                "value": "<redigido>"
+            },
+            {
+                "name": "PROFILE",
+                "value": "<redigido>"
+            },
+            {
+                "name": "AWS_CONTROL_PLANE_TABLE",
+                "value": "<redigido>"
+            },
+            {
+                "name": "AWS_AUDIT_RETENTION_DAYS",
+                "value": "<redigido>"
+            },
+            {
+                "name": "AWS_PRODUCTION_POLICY",
+                "value": "<redigido>"
+            },
+            {
+                "name": "PYTHONDONTWRITEBYTECODE",
+                "value": "<redigido>"
+            },
+            {
+                "name": "TMPDIR",
+                "value": "<redigido>"
+            }
+        ],
+        "mountPoints": [
+            {
+                "sourceVolume": "tmp",
+                "containerPath": "/tmp",
+                "readOnly": false
+            },
+            {
+                "sourceVolume": "logs",
+                "containerPath": "/logs",
+                "readOnly": false
+            },
+            {
+                "sourceVolume": "data",
+                "containerPath": "/data",
+                "readOnly": false
+            }
+        ],
+        "volumesFrom": [],
+        "linuxParameters": {
+            "capabilities": {
+                "add": [],
+                "drop": [
+                    "ALL"
+                ]
+            }
+        },
+        "user": "app",
+        "privileged": false,
+        "readonlyRootFilesystem": true,
+        "logConfiguration": {
+            "logDriver": "awslogs",
+            "options": {
+                "awslogs-group": "<redigido>",
+                "awslogs-region": "us-east-2",
+                "awslogs-stream-prefix": "audit"
+            }
+        },
+        "systemControls": []
+    }
+}

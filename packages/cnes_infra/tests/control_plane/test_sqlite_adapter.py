@@ -65,13 +65,14 @@ def test_cumpre_contrato(case, sqlite_control_plane, clock, monkeypatch) -> None
         reopened = SQLiteControlPlane(sqlite_control_plane._database_path, clock.now)
         reopened.initialize()
         result = reopened.finalize_run_cancellation(command, event)
-        before = (result, reopened.pending_outbox(100))
+        before = (result, reopened.read_outbox_page(None, 100).events)
         with pytest.raises(Conflict, match="run_cancellation_conflict"):
             reopened.finalize_run_cancellation(command.model_copy(
                 update={"canceled_at": clock.now() + timedelta(seconds=1)}), event)
         with pytest.raises(Conflict, match="run_cancellation_conflict"):
             reopened.finalize_run_cancellation(command, event.model_copy(update={"payload": {}}))
-        assert before == (reopened.get_run("354130", "run-a"), reopened.pending_outbox(100))
+        assert before == (reopened.get_run("354130", "run-a"),
+                          reopened.read_outbox_page(None, 100).events)
 def _store_record_with_matching_mode(adapter, record, clock) -> None:
     job_id = f"job-{record.agent_id}-{record.snapshot_id}"
     job = _job(job_id, record.agent_id, record.tenant_id).model_copy(update={
@@ -137,7 +138,7 @@ def test_manifesto_repetido_e_divergente(sqlite_control_plane, clock) -> None:
             tenant_id="354130", job_id=replay.job_id, owner="raw-worker",
             fencing_token=replay.fencing_token, manifest=record),
         _event("completed-replay"))
-    before_outbox = sqlite_control_plane.pending_outbox(100)
+    before_outbox = sqlite_control_plane.read_outbox_page(None, 100).events
     divergent_command = CompleteJob(
         tenant_id="354130", job_id=stale.job_id, owner="raw-worker",
         fencing_token=stale.fencing_token, manifest=divergent)
@@ -145,7 +146,7 @@ def test_manifesto_repetido_e_divergente(sqlite_control_plane, clock) -> None:
         sqlite_control_plane.complete_job(divergent_command, _event("completed-stale"))
     assert replayed.state is JobState.SUCCEEDED
     assert sqlite_control_plane.get_job("354130", stale.job_id) == stale
-    assert sqlite_control_plane.pending_outbox(100) == before_outbox
+    assert sqlite_control_plane.read_outbox_page(None, 100).events == before_outbox
     recovered = sqlite_control_plane.complete_job(
         divergent_command.model_copy(update={"manifest": record}), _event("completed-recovered"))
     assert recovered.result_manifest_id == record.manifest_id
@@ -175,7 +176,7 @@ def test_replay_terminal_exato_e_divergente(sqlite_control_plane, clock, operati
     reopened.initialize()
     assert getattr(reopened, operation)(command, event) == terminal
     assert reopened.get_job("354130", "job-a") == terminal
-    assert reopened.pending_outbox(100).count(event) == 1
+    assert reopened.read_outbox_page(None, 100).events.count(event) == 1
     replay_event = event
     replay_command = command
     if field == "event":
@@ -192,12 +193,12 @@ def test_replay_terminal_exato_e_divergente(sqlite_control_plane, clock, operati
         replay_command = command.model_copy(update={"retryable": False})
     before = (reopened.get_job("354130", "job-a"),
               reopened.list_raw_manifest_chain("354130", "CNES", "ST", "2026-07"),
-              reopened.pending_outbox(100))
+              reopened.read_outbox_page(None, 100).events)
     with pytest.raises(Conflict, match="job_terminal_conflict"):
         getattr(reopened, operation)(replay_command, replay_event)
     assert before == (reopened.get_job("354130", "job-a"),
                       reopened.list_raw_manifest_chain("354130", "CNES", "ST", "2026-07"),
-                      reopened.pending_outbox(100))
+                      reopened.read_outbox_page(None, 100).events)
 def test_seleciona_delta_mais_nova(sqlite_control_plane, clock) -> None:
     base = _raw_record("base-agent-a", "agent-a", 1, clock.now())
     sibling_old = _raw_record(
@@ -252,9 +253,9 @@ def test_persiste_acesso_e_outbox(sqlite_control_plane, clock) -> None:
     assert sqlite_control_plane.decide_access_request(approved, decided) == approved
     assert sqlite_control_plane.get_tenant(tenant.tenant_id) == tenant
     assert sqlite_control_plane.get_access_request(tenant.tenant_id, pending.request_id) == approved
-    assert sqlite_control_plane.pending_outbox(10) == (decided, created)
+    assert sqlite_control_plane.read_outbox_page(None, 10).events == (decided, created)
     sqlite_control_plane.mark_outbox_delivered(decided.event_id, clock.now())
-    assert sqlite_control_plane.pending_outbox(10) == (created,)
+    assert sqlite_control_plane.read_outbox_page(None, 10).events == (created,)
 def test_replays_e_conflitos_de_job(sqlite_control_plane, clock) -> None:
     agent = _agent("agent-a")
     sqlite_control_plane.put_agent(agent)
@@ -265,10 +266,11 @@ def test_replays_e_conflitos_de_job(sqlite_control_plane, clock) -> None:
     reopened.initialize()
     claimed = reopened.claim_job(_claim_job("job-a", "worker-a", clock))
     assert reopened.create_job(job, created) == claimed
-    before = reopened.get_job("354130", "job-a"), reopened.pending_outbox(100)
+    before = reopened.get_job("354130", "job-a"), reopened.read_outbox_page(None, 100).events
     with pytest.raises(Conflict, match="job_creation_conflict"):
         reopened.create_job(job, created.model_copy(update={"payload": {}}))
-    assert (reopened.get_job("354130", "job-a"), reopened.pending_outbox(100)) == before
+    assert (reopened.get_job("354130", "job-a"),
+            reopened.read_outbox_page(None, 100).events) == before
     with pytest.raises(Conflict, match="job_creation_conflict"):
         sqlite_control_plane.create_job(
             job.model_copy(update={"source_type": "SIHD"}), _event("job-conflict"))
@@ -280,7 +282,7 @@ def test_replays_e_conflitos_de_job(sqlite_control_plane, clock) -> None:
         "2026-01-01T00:00:00-03:00")):
         with pytest.raises(ValueError, match="datetime_not_utc"):
             sqlite_control_plane.mark_outbox_delivered(created.event_id, invalid)
-    assert sqlite_control_plane.pending_outbox(100) == (created,)
+    assert sqlite_control_plane.read_outbox_page(None, 100).events == (created,)
 @pytest.mark.parametrize("operation", ["commit_run_unit", "fail_run_unit"])
 def test_rejeita_unidade_terminal(sqlite_control_plane, clock, operation) -> None:
     dispatch = _prepare_unit(sqlite_control_plane, clock)
@@ -312,7 +314,7 @@ def test_rejeita_unidade_terminal(sqlite_control_plane, clock, operation) -> Non
         action(stale, _event("stale-result"))
     assert before_stale == _unit_snapshot(sqlite_control_plane)
 def _unit_snapshot(adapter):
-    return adapter.list_run_units("354130", "run-a"), adapter.pending_outbox(100)
+    return adapter.list_run_units("354130", "run-a"), adapter.read_outbox_page(None, 100).events
 @pytest.mark.parametrize(
     ("operation", "retry", "required", "state"),
     [("commit_run_unit", True, True, RunUnitState.SUCCEEDED),
@@ -363,7 +365,7 @@ def test_cancela_job_leased_e_torna_replay_idempotente(sqlite_control_plane, clo
         reopened.cancel_job(command.model_copy(update={"requested_by": "user-b"}), event)
     with pytest.raises(Conflict, match="job_cancellation_conflict"):
         reopened.cancel_job(command, event.model_copy(update={"payload": {}}))
-    assert sqlite_control_plane.pending_outbox(10) == (event, _event("job-created"))
+    assert sqlite_control_plane.read_outbox_page(None, 10).events == (event, _event("job-created"))
 @pytest.mark.parametrize(
     "state",
     [JobState.PENDING, JobState.FAILED_RETRYABLE, JobState.FAILED_FINAL,
@@ -383,7 +385,7 @@ def test_rejeita_cancelamento_fora_de_leased(sqlite_control_plane, state) -> Non
     with pytest.raises(Conflict, match="job_not_leased"):
         sqlite_control_plane.cancel_job(command, _event("cancel-rejected"))
     assert sqlite_control_plane.get_job("354130", "job-a") == job
-    assert sqlite_control_plane.pending_outbox(10) == ()
+    assert sqlite_control_plane.read_outbox_page(None, 10).events == ()
 def _manifesto_com_identidade(base: RawManifestRecord, field: str) -> RawManifestRecord:
     updates = {
         "tenant_id": {"tenant_id": "other",
@@ -422,7 +424,7 @@ def test_rejeita_manifesto_identidade_divergente(sqlite_control_plane, clock, fi
     assert sqlite_control_plane.get_job("354130", "job-a") == claimed
     assert sqlite_control_plane.list_raw_manifest_chain("354130", "CNES", "ST", "2026-07") == ()
     assert sqlite_control_plane.list_raw_manifest_chain("other", "CNES", "ST", "2026-07") == ()
-    assert sqlite_control_plane.pending_outbox(10) == (created,)
+    assert sqlite_control_plane.read_outbox_page(None, 10).events == (created,)
 @pytest.mark.parametrize("operation", ["job", "transition", "unit", "publication", "access"])
 @pytest.mark.parametrize("invalid", ["delivered", "tenant"])
 def test_evento_invalido_reverte_mutacao(sqlite_control_plane, clock, operation, invalid) -> None:

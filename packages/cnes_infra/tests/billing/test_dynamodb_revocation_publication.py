@@ -51,7 +51,7 @@ def failed_event(**changes: Any) -> Any:
 
 
 def event_ids(env: RevEnv) -> list[str]:
-    return [event.event_id for event in env.plane.pending_outbox(500)]
+    return [event.event_id for event in env.plane.read_outbox_page(None, 500).events]
 
 
 def test_falha_run_publishing_libera_reserva_sem_devolver_run_consumido(env: RevEnv) -> None:

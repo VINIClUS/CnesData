@@ -241,8 +241,8 @@ openid/email/profile plus API scope, resource server and admin-created demo user
 
 - [ ] **Step 2: Write forbidden feature tests**
 
-No custom domain/certificate/DNS, managed-login-v2 dependency, SMS MFA, social IdP or client
-credentials.
+Require Essentials, managed login v2 and Cognito-provided branding (owner decision 2026-10-25).
+No custom domain/certificate/DNS, SMS MFA, social IdP or client credentials.
 
 - [ ] **Step 3: Implement deterministic collision-safe prefix**
 

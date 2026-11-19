@@ -238,6 +238,29 @@ services:
       start_period: 5s
     profiles:
     - aws-test
+  # Extra emulation layer (PROD-013, MIT); it does not replace dynamodb-local/localstack.
+  # Loopback 4577 never collides with LocalStack's 4566. FLOCI_BASE_URL is what the
+  # Cognito issuer/JWKS and presigned URLs embed, so it must be the host-reachable address.
+  floci:
+    image: floci/floci:2.2.0@sha256:e97cd0c1dc2aa14e7697fb5ef5018404c4d6345169dbd276315f0bed2c7b0520
+    environment:
+      FLOCI_DEFAULT_REGION: us-east-2
+      FLOCI_DEFAULT_ACCOUNT_ID: '000000000000'
+      FLOCI_STORAGE_MODE: memory
+      FLOCI_BASE_URL: http://127.0.0.1:4577
+      FLOCI_SERVICES_IAM_ENFORCEMENT_ENABLED: 'true'
+      FLOCI_AUTH_VALIDATE_SIGNATURES: 'true'
+    ports:
+    - "127.0.0.1:4577:4566"
+    # The image ships no curl (ubi9-micro); its own probe reads GET /_floci/health over bash.
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/healthcheck.sh"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 5s
+    profiles:
+    - floci
   central-api-local:
     build:
       context: .

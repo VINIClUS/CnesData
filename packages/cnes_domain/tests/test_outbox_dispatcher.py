@@ -6,6 +6,12 @@ from typing import TYPE_CHECKING, cast
 import pytest
 
 from cnes_domain.control_plane.entities import OutboxEvent
+from cnes_domain.control_plane.outbox import (
+    OutboxCursor,
+    OutboxPage,
+    next_outbox_cursor,
+    validate_outbox_advance,
+)
 from cnes_domain.outbox_dispatcher import DispatchResult, dispatch_once
 
 if TYPE_CHECKING:
@@ -32,6 +38,7 @@ class FakeControlPlane:
         events: tuple[OutboxEvent, ...] = (),
         timeline: list[str] | None = None,
     ) -> None:
+        self.cursor: OutboxCursor | None = None
         self.events = events
         self.timeline = timeline if timeline is not None else []
         self.pending_limits: list[int] = []
@@ -39,13 +46,39 @@ class FakeControlPlane:
         self.mark_failures: dict[str, int] = {}
         self.pending_error: Exception | None = None
 
-    def pending_outbox(self, limit: int) -> tuple[OutboxEvent, ...]:
+    def read_outbox_page(self, cursor: OutboxCursor | None, limit: int) -> OutboxPage:
+        if limit < 1:
+            raise ValueError("limit=invalid")
         self.pending_limits.append(limit)
         self.timeline.append(f"pending:{limit}")
         if self.pending_error is not None:
             raise self.pending_error
-        pending = (event for event in self.events if event.event_id not in self.delivered)
-        return tuple(pending)[:limit]
+        expected = self.cursor if cursor is None else cursor
+        start = 0 if expected is None or expected.position is None else int(expected.position)
+        pending = [
+            (index, event) for index, event in enumerate(self.events)
+            if index >= start and event.event_id not in self.delivered
+        ]
+        selected = pending[:limit]
+        position = str(selected[-1][0] + 1) if len(pending) > limit else None
+        return OutboxPage(
+            tuple(event for _, event in selected), expected, next_outbox_cursor(expected, position),
+        )
+
+    def get_outbox_event(self, event_id: str) -> OutboxEvent | None:
+        event = next((event for event in self.events if event.event_id == event_id), None)
+        if event is not None and event_id in self.delivered:
+            return event.model_copy(update={"delivered_at": self.delivered[event_id]})
+        return event
+
+    def advance_outbox_cursor(
+        self, expected: OutboxCursor | None, next_cursor: OutboxCursor | None,
+    ) -> bool:
+        following = validate_outbox_advance(expected, next_cursor)
+        if expected != self.cursor:
+            return False
+        self.cursor = following
+        return True
 
     def mark_outbox_delivered(self, event_id: str, delivered_at: datetime) -> None:
         self.timeline.append(f"mark:{event_id}")
@@ -142,7 +175,7 @@ def test_falha_da_marcacao_mantem_evento_pendente() -> None:
 
     assert result == DispatchResult(delivered=0, failed=1)
     assert control_plane.delivered == {}
-    assert control_plane.pending_outbox(100) == (make_event("event-1"),)
+    assert control_plane.read_outbox_page(None, 100).events == (make_event("event-1"),)
 
 
 def test_novo_ciclo_repete_append_com_mesmo_event_id() -> None:

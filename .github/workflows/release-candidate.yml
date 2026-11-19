@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       source_sha:
-        description: SHA completo de commit verde contido em develop
+        description: SHA completo de commit verde contido em main
         required: true
         type: string
 
@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   candidate:
-    if: github.ref == 'refs/heads/develop'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

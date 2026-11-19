@@ -1,5 +1,6 @@
 """Settings imutáveis do profile aws."""
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import NamedTuple, Self
@@ -10,6 +11,23 @@ from pydantic import ValidationError
 from cnes_domain.profiles import AuthMode, ProfileSettings, RuntimeProfile, parse_profile
 
 _PROFILE_KEYS = ("PROFILE", "AUTH_MODE", "OIDC_ISSUER")
+_POLICY_FLAGS = {"true": True, "false": False}
+_DEFAULT_ENVIRONMENT = "default"
+_ENVIRONMENT_NAME = re.compile(r"[a-z][a-z0-9-]{0,31}")
+_SUBNET_ID = re.compile(r"subnet-[0-9a-f]{8,17}")
+_SECURITY_GROUP_ID = re.compile(r"sg-[0-9a-f]{8,17}")
+_OIDC_DOMAIN = re.compile(
+    r"https://[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.auth\.us-east-2\.amazoncognito\.com"
+)
+_PRODUCTION_ONLY_KEYS = ("AWS_PUBLIC_SUBNET_IDS", "AWS_SECURITY_GROUP_ID", "OIDC_DOMAIN")
+_PRODUCTION_REGION = "us-east-2"
+_PRODUCTION_LEASE_SECONDS = 3600
+_PRODUCTION_SERVING_TTL_SECONDS = 300
+_PRODUCTION_AUDIT_RETENTION_DAYS = 365
+_PRODUCTION_OIDC_AUDIENCE = "https://api.cnesdata.com.br"
+_PRODUCTION_OIDC_ISSUER = re.compile(
+    r"https://cognito-idp\.us-east-2\.amazonaws\.com/us-east-2_[0-9A-Za-z]+"
+)
 
 
 class AwsRuntimeConfigurationError(ValueError):
@@ -66,6 +84,26 @@ class AwsRuntimeSettings:
     processor_recovery_batch_size: int
     dynamodb_endpoint_url: str | None
     service_endpoint_url: str | None
+    production_policy: bool
+    environment: str
+    public_subnet_ids: tuple[str, ...]
+    security_group_id: str | None
+    oidc_domain: str | None
+
+    @property
+    def oidc_authorize_url(self) -> str | None:
+        """Returns: <oidc_domain>/oauth2/authorize; None fora da política de produção."""
+        return _oidc_endpoint(self.oidc_domain, "/oauth2/authorize")
+
+    @property
+    def oidc_token_url(self) -> str | None:
+        """Returns: <oidc_domain>/oauth2/token; None fora da política de produção."""
+        return _oidc_endpoint(self.oidc_domain, "/oauth2/token")
+
+    @property
+    def oidc_logout_url(self) -> str | None:
+        """Returns: <oidc_domain>/logout; None fora da política de produção."""
+        return _oidc_endpoint(self.oidc_domain, "/logout")
 
     @classmethod
     def from_mapping(cls, values: Mapping[str, str]) -> Self:
@@ -74,8 +112,11 @@ class AwsRuntimeSettings:
         Raises: AwsRuntimeConfigurationError: Quando a configuração é inválida.
         """
         profile = _profile(values)
+        production = production_policy_enabled(values)
+        if not production:
+            _forbid_production_settings(values)
         service_endpoint_url = values.get("AWS_ENDPOINT_URL") or None
-        return cls(
+        settings = cls(
             region=_required(values, "AWS_REGION"),
             control_plane_table=_required(values, "AWS_CONTROL_PLANE_TABLE"),
             data_bucket=_required(values, "AWS_DATA_BUCKET"),
@@ -88,8 +129,27 @@ class AwsRuntimeSettings:
             oidc_audience=_required(values, "OIDC_AUDIENCE"),
             dynamodb_endpoint_url=values.get("DYNAMODB_ENDPOINT_URL") or None,
             service_endpoint_url=service_endpoint_url,
+            production_policy=production,
+            environment=_environment(values, production),
+            public_subnet_ids=_subnet_ids(values),
+            security_group_id=_security_group_id(values),
+            oidc_domain=_oidc_domain(values),
             **{limit.field: _bounded(values, limit) for limit in _LIMITS},
         )
+        if production:
+            _validate_production(settings)
+        return settings
+
+
+def production_policy_enabled(values: Mapping[str, str]) -> bool:
+    """Args: values: Variáveis ambientais disponíveis.
+    Returns: True com AWS_PRODUCTION_POLICY="true"; False com "false" ou ausente.
+    Raises: AwsRuntimeConfigurationError: Valor diferente de "true" e "false".
+    """
+    raw = values.get("AWS_PRODUCTION_POLICY", "false")
+    if raw not in _POLICY_FLAGS:
+        raise AwsRuntimeConfigurationError("production_policy_invalid")
+    return _POLICY_FLAGS[raw]
 
 
 def _profile(values: Mapping[str, str]) -> ProfileSettings:
@@ -141,4 +201,88 @@ def _issuer(raw: str, allow_http: bool) -> str:
     return value.removesuffix("/")
 
 
-__all__ = ["AwsRuntimeConfigurationError", "AwsRuntimeSettings"]
+def _forbid_production_settings(values: Mapping[str, str]) -> None:
+    for key in _PRODUCTION_ONLY_KEYS:
+        if values.get(key):
+            raise AwsRuntimeConfigurationError(f"production_setting_forbidden={key}")
+
+
+def _environment(values: Mapping[str, str], production: bool) -> str:
+    raw = values.get("AWS_ENVIRONMENT")
+    if raw is None:
+        if production:
+            raise AwsRuntimeConfigurationError("environment_required")
+        return _DEFAULT_ENVIRONMENT
+    if not _ENVIRONMENT_NAME.fullmatch(raw):
+        raise AwsRuntimeConfigurationError("environment_invalid")
+    return raw
+
+
+def _subnet_ids(values: Mapping[str, str]) -> tuple[str, ...]:
+    raw = values.get("AWS_PUBLIC_SUBNET_IDS")
+    if not raw:
+        return ()
+    subnet_ids = tuple(raw.split(","))
+    if not all(_SUBNET_ID.fullmatch(subnet_id) for subnet_id in subnet_ids):
+        raise AwsRuntimeConfigurationError("public_subnet_invalid")
+    if subnet_ids != tuple(sorted(set(subnet_ids))):
+        raise AwsRuntimeConfigurationError("public_subnets_not_normalized")
+    return subnet_ids
+
+
+def _security_group_id(values: Mapping[str, str]) -> str | None:
+    raw = values.get("AWS_SECURITY_GROUP_ID")
+    if not raw:
+        return None
+    if not _SECURITY_GROUP_ID.fullmatch(raw):
+        raise AwsRuntimeConfigurationError("security_group_invalid")
+    return raw
+
+
+def _oidc_domain(values: Mapping[str, str]) -> str | None:
+    raw = values.get("OIDC_DOMAIN")
+    if not raw:
+        return None
+    if not _OIDC_DOMAIN.fullmatch(raw):
+        raise AwsRuntimeConfigurationError("oidc_domain_invalid")
+    return raw
+
+
+def _oidc_endpoint(domain: str | None, path: str) -> str | None:
+    return None if domain is None else f"{domain}{path}"
+
+
+def _validate_production(settings: AwsRuntimeSettings) -> None:
+    violations = (
+        (settings.region != _PRODUCTION_REGION, "production_region_must_be_us_east_2"),
+        (settings.processor_max_concurrency != 1, "production_concurrency_must_be_one"),
+        (
+            settings.processor_lease_seconds != _PRODUCTION_LEASE_SECONDS,
+            "production_lease_must_be_3600",
+        ),
+        (
+            settings.serving_url_ttl_seconds != _PRODUCTION_SERVING_TTL_SECONDS,
+            "production_serving_ttl_must_be_300",
+        ),
+        (
+            settings.audit_retention_days != _PRODUCTION_AUDIT_RETENTION_DAYS,
+            "production_audit_retention_must_be_365_days",
+        ),
+        (not settings.public_subnet_ids, "production_subnets_required"),
+        (settings.security_group_id is None, "production_security_group_required"),
+        (
+            settings.oidc_audience != _PRODUCTION_OIDC_AUDIENCE,
+            "production_oidc_audience_must_be_api_origin",
+        ),
+        (
+            _PRODUCTION_OIDC_ISSUER.fullmatch(settings.oidc_issuer) is None,
+            "production_oidc_issuer_must_be_cognito_us_east_2",
+        ),
+        (settings.oidc_domain is None, "production_oidc_domain_required"),
+    )
+    for violated, error in violations:
+        if violated:
+            raise AwsRuntimeConfigurationError(error)
+
+
+__all__ = ["AwsRuntimeConfigurationError", "AwsRuntimeSettings", "production_policy_enabled"]

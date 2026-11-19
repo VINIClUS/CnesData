@@ -23,6 +23,8 @@ from cnes_infra.auth import CertAuthority
 from cnes_infra.auth.errors import OAuthError
 
 _PROXY = "172.20.0.2"
+_LEGACY_AGENT_OID = x509.ObjectIdentifier("1.3.6.1.4.1.99999.1.2")
+_LEGACY_TENANT_OID = x509.ObjectIdentifier("1.3.6.1.4.1.99999.1.1")
 
 
 def _root_ca() -> tuple[bytes, bytes]:
@@ -62,6 +64,30 @@ def _leaf(ca: CertAuthority, machine_id: str = "a1b2c3d4") -> x509.Certificate:
     )
     pem = ca.issue_cert(csr_pem=csr, agent_id="agent-1", tenant_id="354130")
     return x509.load_pem_x509_certificate(pem)
+
+
+def _legacy_leaf(root: tuple[bytes, bytes]) -> x509.Certificate:
+    ca_cert = x509.load_pem_x509_certificate(root[0])
+    ca_key = serialization.load_pem_private_key(root[1], password=None)
+    assert isinstance(ca_key, ec.EllipticCurvePrivateKey)
+    key = ec.generate_private_key(ec.SECP256R1())
+    now = dt.datetime.now(dt.UTC)
+    return (
+        x509.CertificateBuilder()
+        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "a1b2c3d4")]))
+        .issuer_name(ca_cert.subject)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - dt.timedelta(minutes=1))
+        .not_valid_after(now + dt.timedelta(days=1))
+        .add_extension(
+            x509.UnrecognizedExtension(_LEGACY_TENANT_OID, b"354130"), critical=False,
+        )
+        .add_extension(
+            x509.UnrecognizedExtension(_LEGACY_AGENT_OID, b"agent-1"), critical=False,
+        )
+        .sign(ca_key, hashes.SHA256())
+    )
 
 
 def _request(
@@ -187,3 +213,13 @@ def test_edge_identity_rejeita_cert_revogado():
     with pytest.raises(OAuthError) as exc:
         edge_identity_from_cert(_request(ca, _leaf(ca), serial_active=False))
     assert exc.value.code == "cert_revoked"
+
+
+def test_rejeita_cert_legado_do_placeholder_99999_com_401():
+    root = _root_ca()
+    ca = CertAuthority(root_cert_pem=root[0], root_key_pem=root[1])
+    leaf = _legacy_leaf(root)
+    _assert_oauth(_request(ca, leaf), "invalid_token")
+    with pytest.raises(OAuthError) as exc:
+        edge_identity_from_cert(_request(ca, leaf))
+    assert (exc.value.code, exc.value.status_code) == ("invalid_token", 401)

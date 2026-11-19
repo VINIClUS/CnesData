@@ -70,6 +70,22 @@ actions:
       title: Display Name
       type: string
       nullable: true
+- target: $.components.schemas.AwsMeResponse.properties.email
+  remove: true
+- target: $.components.schemas.AwsMeResponse.properties
+  update:
+    email:
+      title: Email
+      type: string
+      nullable: true
+- target: $.components.schemas.AwsMeResponse.properties.display_name
+  remove: true
+- target: $.components.schemas.AwsMeResponse.properties
+  update:
+    display_name:
+      title: Display Name
+      type: string
+      nullable: true
 - target: $.components.schemas.RawManifest.properties.base_snapshot_id
   remove: true
 - target: $.components.schemas.RawManifest.properties

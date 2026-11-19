@@ -1,0 +1,2 @@
+[default]
+credential_process = /usr/bin/timeout 5 /usr/local/bin/cnesdata-aws-credentials /run/credentials/aws-credentials.json

@@ -2,7 +2,7 @@
 
 import logging
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any
 
 import pytest
 
@@ -17,6 +17,7 @@ from cnes_domain.billing.execution_policy import (
     BillingExecutionDependencies,
     BillingExecutionStarted,
     ExecutionBindingPort,
+    apply_execution_binding,
     local_billing_account_id,
 )
 from cnes_domain.billing.models import RunAuthorization
@@ -39,12 +40,19 @@ class FakeControlPlane:
         bind_error: Exception | None = None,
     ) -> None:
         self.dispatch = dispatch
+        self.run = _run()
         self.state = state
         self.bind_error = bind_error
         self.bound: list[RunExecutionBindingCommand] = []
 
     def get_active_run_dispatch(self, tenant_id: str, run_id: str) -> RunDispatch | None:
+        return self.dispatch if self.run.state is RunState.PROCESSING else None
+
+    def get_run_dispatch(self, tenant_id: str, run_id: str) -> RunDispatch | None:
         return self.dispatch
+
+    def get_run(self, tenant_id: str, run_id: str) -> Run | None:
+        return self.run
 
     def get_run_billing_state(self, tenant_id: str, run_id: str) -> RunBillingState | None:
         return self.state
@@ -52,8 +60,9 @@ class FakeControlPlane:
     def bind_run_execution(self, command: RunExecutionBindingCommand) -> RunBillingState:
         if self.bind_error is not None:
             raise self.bind_error
+        self.state = apply_execution_binding(self.state, command)
         self.bound.append(command)
-        return cast("RunBillingState", self.state)
+        return self.state
 
 
 def _run() -> Run:
@@ -108,7 +117,7 @@ def _state(**overrides: Any) -> RunBillingState:
     return RunBillingState(**{**values, **overrides})
 
 
-def _bound_state() -> RunBillingState:
+def _bound_state(**overrides: Any) -> RunBillingState:
     return _state(
         execution_generation=1,
         execution_wave_id=WAVE,
@@ -116,6 +125,7 @@ def _bound_state() -> RunBillingState:
         execution_ref="exec-0",
         execution_unit_ids=("u1",),
         execution_status=DispatchState.STARTED,
+        **overrides,
     )
 
 
@@ -290,6 +300,7 @@ def test_rejeita_identidade_divergente_entre_permit_run_e_request(
         _dispatch(),
         _started_dispatch(dispatch_id=PREVIOUS),
         _started_dispatch(execution_ref="exec-2"),
+        _started_dispatch(execution_ref="exec-other"),
     ],
 )
 def test_rejeita_dispatch_que_nao_esta_iniciado_com_a_referencia(
@@ -300,6 +311,50 @@ def test_rejeita_dispatch_que_nao_esta_iniciado_com_a_referencia(
     with pytest.raises(PermanentBillingError, match="dispatch_not_started"):
         _started(fake)(_run(), _request(), "exec-1", _permit())
 
+    assert fake.bound == []
+
+
+def test_aceita_ack_tardio_com_dispatch_persistido_apos_publicacao() -> None:
+    fake = _bindable()
+    fake.run = fake.run.model_copy(update={"state": RunState.PUBLISHED})
+    _started(fake)(_run(), _request(), "exec-1", _permit())
+    assert len(fake.bound) == 1
+
+
+@pytest.mark.parametrize(
+    "dispatch",
+    [
+        _started_dispatch(generation=1),
+        _started_dispatch(wave_id=PREVIOUS),
+        _started_dispatch(unit_ids=("u1",)),
+    ],
+    ids=["generation", "wave", "units"],
+)
+def test_rejeita_ack_tardio_com_prova_de_dispatch_divergente(
+    dispatch: RunDispatch,
+) -> None:
+    fake = FakeControlPlane(dispatch=dispatch, state=_bound_state())
+    fake.run = fake.run.model_copy(update={"state": RunState.PUBLISHED})
+    with pytest.raises(PermanentBillingError, match="dispatch_not_started"):
+        _started(fake)(_run(), _request(), "exec-1", _permit())
+    assert fake.bound == []
+
+
+@pytest.mark.parametrize(
+    ("state", "code"),
+    [
+        (_state(cancel_requested=True), "run_execution_canceled"),
+        (_bound_state(fencing_token=8), "run_fence_changed"),
+    ],
+    ids=["cancel", "fence"],
+)
+def test_ack_tardio_preserva_guards_de_cancelamento_e_fence(
+    state: RunBillingState, code: str,
+) -> None:
+    fake = FakeControlPlane(dispatch=_started_dispatch(), state=state)
+    fake.run = fake.run.model_copy(update={"state": RunState.PUBLISHED})
+    with pytest.raises(PermanentBillingError, match=code):
+        _started(fake)(_run(), _request(), "exec-1", _permit())
     assert fake.bound == []
 
 

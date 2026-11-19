@@ -230,3 +230,37 @@ def test_latest_succeeded_ignora_omissao_do_gsi_e_historico(ctx: _DynamoContext)
         _store_record(adapter, record, clock)
     chain = adapter.query_raw_manifest_chain(RawManifestChainQuery(_IDENTITY, 1))
     assert tuple(ref.manifest_id for ref in chain) == (records[-1].manifest_id,)
+
+
+_SYNTHETIC = "prod-canary-0123456789abcdef0123456789abcdef"
+
+
+def _synthetic_runs(adapter: DynamoDBControlPlane, tenants: tuple[str, ...]) -> None:
+    for index, tenant in enumerate(tenants):
+        run = _run(f"synthetic-{index}").model_copy(update={"tenant_id": tenant})
+        adapter.put_run(run)
+
+
+def test_gsi_primeira_pagina_sintetica_nao_esconde_tenant_normal(ctx: _DynamoContext) -> None:
+    adapter, clock = ctx
+    _synthetic_runs(adapter, (_SYNTHETIC, _SYNTHETIC, _SYNTHETIC.upper()))
+    normal = _run("normal-run").model_copy(
+        update={"created_at": clock.now() + timedelta(seconds=30)}
+    )
+    adapter.put_run(normal)
+    clock.advance(timedelta(minutes=1))
+    assert adapter.list_recoverable_runs(clock.now(), 1) == (normal,)
+
+
+def test_normal_recovery_open_exclui_namespace_antes_reserva(ctx: _DynamoContext) -> None:
+    adapter, clock = ctx
+    _synthetic_runs(adapter, (_SYNTHETIC, "Prod-Canary-malformado"))
+    assert adapter.list_recoverable_runs(clock.now(), 100) == ()
+    assert adapter.get_run(_SYNTHETIC, "synthetic-0") is not None
+
+
+def test_tenant_normal_continua_recuperavel_sem_capability(ctx: _DynamoContext) -> None:
+    adapter, clock = ctx
+    normal = _run("normal-run")
+    adapter.put_run(normal)
+    assert adapter.list_recoverable_runs(clock.now(), 100) == (normal,)

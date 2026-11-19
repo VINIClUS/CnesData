@@ -8,7 +8,8 @@ from functools import partial
 from typing import TYPE_CHECKING, Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response
-from fastapi.responses import RedirectResponse, StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import BaseModel, ConfigDict, Field
 
 from central_api.services.serving_access import ServingUnavailable
 from central_api.serving.aws_signed import (
@@ -37,6 +38,7 @@ _ENTITLEMENT_DENIED_CODES = frozenset(
 _KNOWN_DATASETS = frozenset(
     definition.pipeline_id for definition in build_source_catalog().definitions
 )
+_NO_STORE = "private, no-store"
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +51,14 @@ class ServingPrincipal:
 class _DocumentPath:
     dataset_name: str
     document_name: str
+
+
+class ServingEnvelope(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    url: str = Field(repr=False)
+    version_id: str
+    expires_in: int
 
 
 type ServingDelivery = Callable[[ServingPrincipal, _DocumentPath], Response]
@@ -85,9 +95,9 @@ def signed_serving_delivery(
     signed: S3SignedServingAccess, clock: Callable[[], datetime]
 ) -> ServingDelivery:
     """Args: signed: serviço de GET assinado; clock: instante de emissão.
-    Returns: Entrega aws por redirect 307 para a URL assinada.
+    Returns: Entrega aws por envelope 200 privado, com a URL assinada só no corpo.
     """
-    return partial(_redirect_signed, signed, clock)
+    return partial(_envelope_signed, signed, clock)
 
 
 def _validated_document(dataset_name: str, document_name: str) -> _DocumentPath:
@@ -152,12 +162,12 @@ def _stream_document(
     return StreamingResponse(_stream(store, key), media_type="application/json", headers=headers)
 
 
-def _redirect_signed(
+def _envelope_signed(
     signed: S3SignedServingAccess,
     clock: Callable[[], datetime],
     principal: ServingPrincipal,
     path: _DocumentPath,
-) -> RedirectResponse:
+) -> JSONResponse:
     request = SignedServingRequest(
         access=_serving_request(principal, path),
         relative_name=f"{path.document_name}.json",
@@ -170,8 +180,11 @@ def _redirect_signed(
         raise HTTPException(status_code=404, detail="serving_document_not_found") from error
     except ServingSigningUnavailable as error:
         raise HTTPException(status_code=503, detail="active_serving_unavailable") from error
-    headers = {"X-Dataset-Version": grant.version_id, "Cache-Control": "private, no-store"}
-    return RedirectResponse(grant.url, status_code=307, headers=headers)
+    envelope = ServingEnvelope(
+        url=grant.url, version_id=grant.version_id, expires_in=grant.expires_in,
+    )
+    headers = {"X-Dataset-Version": grant.version_id, "Cache-Control": _NO_STORE}
+    return JSONResponse(envelope.model_dump(), headers=headers)
 
 
 @router.get("/{dataset_name}/{document_name}")
@@ -180,6 +193,6 @@ def read_serving_document(
     principal: Annotated[ServingPrincipal, Depends(get_serving_principal)],
     deliver: Annotated[ServingDelivery, Depends(get_serving_delivery)],
 ) -> Response:
-    """Transmite o documento serving concedido, sem fallback e sem URL assinada."""
+    """Entrega o documento serving concedido: stream local ou envelope aws com URL assinada."""
 
     return deliver(principal, path)

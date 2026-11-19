@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from central_api.deps import require_auth, require_tenant_header
 from central_api.middleware import AuthenticatedUser
+from central_api.routes.tenant_discovery import AwsMeResponse, memberships, require_principal
 from cnes_infra import config
 
 router = APIRouter(tags=["dashboard"])
@@ -57,11 +58,17 @@ class AgentRunsResponse(BaseModel):
     runs: list[RunOut]
 
 
-@router.get("/auth/me", response_model=MeResponse)
+@router.get("/auth/me", response_model=MeResponse | AwsMeResponse)
 def auth_me(
     request: Request,
-    user: AuthenticatedUser = Depends(require_auth),
-) -> MeResponse:
+) -> MeResponse | AwsMeResponse:
+    if getattr(request.state, "principal", None) is not None:
+        principal = require_principal(request)
+        return AwsMeResponse(
+            subject=principal.subject, issuer=principal.issuer,
+            email=principal.email, display_name=principal.display_name,
+        )
+    user = require_auth(request)
     repo = request.app.state.dashboard_repo
     repo.log_action(
         user_id=user.user_id, tenant_id=None, action="login", metadata=None,
@@ -74,6 +81,9 @@ def auth_me(
         tenant_ids=user.tenant_ids,
         has_pending_request=repo.has_pending_request(user_id=user.user_id),
     )
+
+
+router.add_api_route("/memberships", memberships, methods=["GET"])
 
 
 @router.get("/tenants", response_model=list[TenantResponse])

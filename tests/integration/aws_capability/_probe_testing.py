@@ -1,0 +1,166 @@
+"""Laboratório de probes S3: serviços reais sobre a fronteira de comandos com estado."""
+
+import os
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from tests.integration.aws_capability._aws_fake_ddb_testing import FakeTable
+from tests.integration.aws_capability._aws_fake_testing import FakeAws
+from tests.integration.aws_capability._aws_fake_types_testing import FakeBucket, FakeRole
+from tests.integration.aws_capability._b1_testing import (
+    ACCOUNT,
+    BOUNDARY_ARN,
+    NAME,
+    OPERATOR_ARN,
+    TAGS,
+    TRUST,
+    TRUST2,
+)
+from tests.integration.aws_capability._operator_inputs import OperatorInputs
+from tests.integration.aws_capability._profiles import PROFILES
+from tests.integration.aws_capability._safety import tags
+from tests.integration.aws_capability._service_contracts import ServicePorts
+from tests.integration.aws_capability._testing import ProcessBoundary
+from tests.integration.aws_capability._worker import acknowledgement
+from tests.integration.aws_capability.contracts import (
+    Policy,
+    Ports,
+    RequestBudget,
+    RequestContext,
+    Resource,
+    RunSpec,
+)
+from tests.integration.aws_capability.services import AwsServices
+
+BUCKET = Resource("s3", NAME, NAME)
+ROLE = Resource("iam", NAME, NAME)
+TABLE = Resource("dynamodb", NAME, NAME)
+THROUGHPUT = {"MaxReadRequestUnits": 100, "MaxWriteRequestUnits": 25}
+INDEXES = tuple(f"gsi{index}" for index in range(1, 7))
+ROLE2 = Resource("iam", f"{NAME}-r2", f"{NAME}-r2")
+ROLE_AUDIT = Resource("iam", f"{NAME}-audit", f"{NAME}-audit")
+ROLE_API = Resource("iam", f"{NAME}-api", f"{NAME}-api")
+ROLE_UNIT = Resource("iam", f"{NAME}-unit", f"{NAME}-unit")
+ROLE_RECOVERY = Resource("iam", f"{NAME}-recovery", f"{NAME}-recovery")
+MATRIX_PROFILES = frozenset({"iam-leadingkeys", "iam-s3"})
+START = 1000.0
+DEADLINE = 1180.0
+LATENCY = 1.3
+
+
+@dataclass
+class ProbeLab:
+    aws: FakeAws
+    services: AwsServices
+    budget: RequestBudget
+    spec: RunSpec
+    pauses: list[float]
+    clock: list[float]
+
+    @property
+    def context(self) -> RequestContext:
+        return RequestContext(self.budget, "work")
+
+    @property
+    def resources(self) -> list[Resource]:
+        if self.spec.probe == "iam-trust":
+            return [ROLE, ROLE2]
+        if self.spec.probe == "ddb-throughput":
+            return [TABLE]
+        if self.spec.probe == "iam-leadingkeys":
+            return [TABLE, ROLE_AUDIT, ROLE_API]
+        if self.spec.probe == "iam-s3":
+            return [BUCKET, ROLE_AUDIT, ROLE_UNIT, ROLE_RECOVERY, ROLE_API]
+        return [BUCKET, ROLE] if self.spec.probe == "s3-retention" else [BUCKET]
+
+
+def make_probe_lab(
+    tmp_path: Path, probe: str, *, seeded: bool = True, **options: Any
+) -> ProbeLab:
+    clock = [START]
+    pauses: list[float] = []
+
+    def advance(seconds: float) -> None:
+        clock[0] += seconds
+
+    def pause(seconds: float) -> None:
+        pauses.append(seconds)
+        advance(seconds)
+
+    if probe == "iam-s3":
+        options.setdefault("list_gates_missing", True)
+    aws = FakeAws(lambda: clock[0], advance, **options)
+    deadline = START + PROFILES[probe].window
+    spec = RunSpec(
+        ACCOUNT, "us-east-2", "a1b2c3d4", deadline, tmp_path, allow_governance_bypass=True,
+        probe=probe,
+    )
+    if seeded:
+        seed_remote(aws, spec, probe)
+    limits = PROFILES[probe].limits
+    budget = RequestBudget(limits, deadline, lambda: clock[0])
+    operator = OperatorInputs(OPERATOR_ARN, BOUNDARY_ARN)
+    ports = ServicePorts(aws, lambda: clock[0], pause, aws.session, operator)
+    return ProbeLab(aws, AwsServices(spec, ports), budget, spec, pauses, clock)
+
+
+def seed_remote(aws: FakeAws, spec: RunSpec, probe: str) -> None:
+    if probe not in {"iam-trust", "ddb-throughput", "iam-leadingkeys"}:
+        aws.buckets[NAME] = FakeBucket(dict(TAGS))
+    if probe in {"s3-retention", "iam-trust"}:
+        aws.roles[NAME] = FakeRole(dict(TAGS), TRUST)
+    if probe == "iam-trust":
+        aws.roles[ROLE2.name] = FakeRole(dict(TAGS), TRUST2)
+    if probe in MATRIX_PROFILES:
+        mirrors = (ROLE_UNIT, ROLE_RECOVERY) if probe == "iam-s3" else ()
+        for role in (ROLE_AUDIT, *mirrors, ROLE_API):
+            aws.roles[role.name] = FakeRole(dict(TAGS), TRUST)
+    if probe == "ddb-throughput":
+        aws.tables[NAME] = seeded_table(spec)
+    if probe == "iam-leadingkeys":
+        aws.tables[NAME] = FakeTable(
+            tags(spec), protection=True, index_throughput=dict.fromkeys(INDEXES)
+        )
+
+
+def seeded_table(spec: RunSpec) -> FakeTable:
+    return FakeTable(
+        tags(spec),
+        protection=True,
+        throughput=dict(THROUGHPUT),
+        index_throughput={name: dict(THROUGHPUT) for name in INDEXES},
+    )
+
+
+def payload_text(lab: ProbeLab) -> str:
+    return " ".join(repr((r.service, r.operation, dict(r.payload))) for r in lab.aws.requests)
+
+
+def janitor_ports(lab: ProbeLab, *, supervised: bool = False) -> Ports:
+    limits = PROFILES[lab.spec.probe].limits
+    policy = Policy(ACCOUNT, frozenset({"us-east-2"}), limits)
+    processes = ProcessBoundary([])
+    if supervised:
+        processes.ack = acknowledgement(lab.spec, os.getpid())
+    return Ports(lab.services, processes, lambda: lab.clock[0], policy, lab.budget)
+
+
+def cleanup_calls(lab: ProbeLab) -> int:
+    return lab.aws.lanes.count("cleanup")
+
+
+def work_calls(lab: ProbeLab) -> int:
+    return lab.aws.lanes.count("work")
+
+
+def cleanup_seconds(lab: ProbeLab) -> float:
+    deadline = lab.budget.cleanup_deadline
+    assert deadline is not None
+    return PROFILES[lab.spec.probe].limits.cleanup_seconds - (deadline - lab.clock[0])
+
+
+def work_seconds(lab: ProbeLab) -> float:
+    deadline = lab.budget.cleanup_deadline
+    assert deadline is not None
+    return deadline - PROFILES[lab.spec.probe].limits.cleanup_seconds - START

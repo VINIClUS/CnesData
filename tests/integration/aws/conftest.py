@@ -22,8 +22,14 @@ from fastapi.testclient import TestClient
 from central_api import composition as api_composition
 from central_api import deps as api_deps
 from central_api.composition import build_runtime
-from data_processor import composition as processor_composition
-from data_processor.composition import build_processor_runtime
+from cnes_infra.aws.processor_settings import AwsRecoverySettings, AwsUnitSettings
+from cnes_infra.billing import BillingSettings
+from data_processor.aws_composition import (
+    AwsExecutionPolicy,
+    build_aws_recovery_runtime,
+    build_aws_unit_runtime,
+)
+from data_processor.orchestration.coordinator import noop_execution_started
 from packages.cnes_infra.tests.contracts.clock import MutableClock
 from tests.integration.aws._doubles import BearerSubjectVerifier
 from tests.integration.aws._harness import (
@@ -31,8 +37,10 @@ from tests.integration.aws._harness import (
     AwsTestRuntime,
     EmulatorResources,
     new_session,
+    recovery_runtime_values,
     runtime_values,
 )
+from tests.integration.aws._processor_view import processor_view
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -93,12 +101,25 @@ def emulator_endpoints() -> _Endpoints:
     return endpoints
 
 
+def _recovery_definition(standard: str) -> str:
+    definition = json.loads(standard)
+    task = definition["States"]["RunUnits"]["ItemProcessor"]["States"]["RunProcessor"]
+    environment = task["Parameters"]["Overrides"]["ContainerOverrides"][0]["Environment"]
+    leases = [item for item in environment if item["Name"] == "LEASE_SECONDS"]
+    assert len(leases) == 1
+    assert leases[0]["Value"] == "300"
+    leases[0]["Value"] = "3600"
+    return json.dumps(definition)
+
+
 @pytest.fixture(scope="session")
 def state_machines(emulator_endpoints: _Endpoints) -> Iterator[dict[str, str]]:
     client = _client("stepfunctions", emulator_endpoints.services)
     suffix = uuid4().hex[:8]
+    standard = (_STATE_MACHINES / "standard_inline_ecs.json").read_text()
     definitions = {
-        "standard": ((_STATE_MACHINES / "standard_inline_ecs.json").read_text(), "STANDARD"),
+        "standard": (standard, "STANDARD"),
+        "recovery": (_recovery_definition(standard), "STANDARD"),
         "express": (json.dumps(_EXPRESS_DEFINITION), "EXPRESS"),
         "distributed": ((_STATE_MACHINES / "distributed_map.json").read_text(), "STANDARD"),
     }
@@ -165,6 +186,7 @@ def aws_resources(
     resources = EmulatorResources(
         table_name=f"aws014-{suffix}", data_bucket=f"aws014-data-{suffix}",
         audit_bucket=f"aws014-audit-{suffix}", state_machine_arn=state_machines["standard"],
+        recovery_state_machine_arn=state_machines["recovery"],
         dynamodb_endpoint=emulator_endpoints.dynamodb,
         service_endpoint=emulator_endpoints.services,
     )
@@ -184,9 +206,18 @@ def _build_runtime(
 ) -> AwsTestRuntime:
     session = new_session(resources)
     values = runtime_values(resources, overrides)
+    api = build_runtime("aws", values, cast("Session", session))
+    policy = AwsExecutionPolicy(BillingSettings.from_mapping(values), noop_execution_started)
+    unit = build_aws_unit_runtime(
+        AwsUnitSettings.from_mapping(values), cast("Session", session), clock.now, policy,
+    )
+    recovery = build_aws_recovery_runtime(
+        AwsRecoverySettings.from_mapping(recovery_runtime_values(resources, overrides)),
+        cast("Session", session), clock.now, policy,
+    )
     return AwsTestRuntime(
-        api=build_runtime("aws", values, cast("Session", session)),
-        processor=build_processor_runtime("aws", values, cast("Session", session)),
+        api=api,
+        processor=processor_view(unit, recovery),
         clock=clock, resources=resources, s3=session.client("s3"),
         step_functions=session.client("stepfunctions"), dynamodb=session.client("dynamodb"),
     )
@@ -197,7 +228,7 @@ def aws_runtime(
     monkeypatch: pytest.MonkeyPatch, aws_resources: EmulatorResources,
 ) -> AwsTestRuntime:
     clock = MutableClock(datetime.now(UTC).replace(microsecond=0))
-    for module in (api_composition, processor_composition, api_deps):
+    for module in (api_composition, api_deps):
         monkeypatch.setattr(module, "_utc_now", clock.now)
     return _build_runtime(aws_resources, clock)
 
