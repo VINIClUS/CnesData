@@ -74,7 +74,7 @@ KMS_PRICE_LIST = (
 OTHER_SPEND_MEASUREMENT = {
     "month": "2026-10",
     "measured_on": "2026-11-20",
-    "total_usd": 0.51,
+    "total_usd": 0.52,
     "method": (
         "AWS Cost Explorer GetCostAndUsage over the last closed month, RECORD_TYPE=Usage "
         "(credits excluded), account usage outside CnesData, rounded up to the cent"

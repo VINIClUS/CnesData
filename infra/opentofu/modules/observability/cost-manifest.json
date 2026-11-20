@@ -483,7 +483,7 @@
       "description": "Usage spend of other projects in the same account, measured over the last closed month",
       "unit": "USD",
       "unit_price_usd": 1,
-      "quantity": {"min": 0.51, "base": 0.51, "max": 0.51},
+      "quantity": {"min": 0.52, "base": 0.52, "max": 0.52},
       "free_allowance": {"min": 0, "base": 0, "max": 0},
       "status": "verified",
       "max_basis": "hypothesis",
@@ -491,7 +491,7 @@
       "measurement": {
         "month": "2026-10",
         "measured_on": "2026-11-20",
-        "total_usd": 0.51,
+        "total_usd": 0.52,
         "method": "AWS Cost Explorer GetCostAndUsage over the last closed month, RECORD_TYPE=Usage (credits excluded), account usage outside CnesData, rounded up to the cent"
       },
       "assumption": "The measured month repeats; credits are not applied"
