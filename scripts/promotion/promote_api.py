@@ -11,8 +11,11 @@ from scripts.promotion._adapter_abi import (
     CLOSED_READY_FIELDS,
     INPUTS,
     MEMBER_IDENTITY,
+    MODE_INPUTS,
     MODE_OBSERVATION_FIELDS,
+    MODE_OBSERVATION_KIND,
     MODE_OPERATIONS,
+    MODE_STAGES,
     OBSERVATIONS,
     ROUTING_FIELDS,
     STAGES,
@@ -43,6 +46,7 @@ from scripts.promotion.build_host_archive import (
     archive_manifest,
 )
 from scripts.promotion.promote_close import close_drain
+from scripts.promotion.promote_mode import audit_observe, recovery_observe, unit_observe
 from scripts.promotion.promote_ready import closed_ready
 from scripts.promotion.promote_terminal import reopen, terminal_readback
 from scripts.promotion.publish_dashboard import (
@@ -72,8 +76,10 @@ __all__ = [
     "CLOSED_READY_FIELDS",
     "INPUTS",
     "MEMBER_IDENTITY",
+    "MODE_INPUTS",
     "MODE_OBSERVATION_FIELDS",
     "MODE_OPERATIONS",
+    "MODE_STAGES",
     "OBSERVATIONS",
     "ROUTING_FIELDS",
     "STAGES",
@@ -88,6 +94,8 @@ REQUEST_FIELDS = frozenset({
     "activation_sha256", "stage", "inputs",
 })
 _DIGEST = re.compile(r"[0-9a-f]{64}")
+_INPUTS: dict[str, frozenset[str]] = {**INPUTS, **MODE_INPUTS}
+_STAGES: dict[str, frozenset[str]] = {**STAGES, **MODE_STAGES}
 
 
 class AdapterContext(Protocol):
@@ -118,15 +126,15 @@ def execute_shared_operation(
     ValueError: operação fora desta tarefa ou request/input fora do contrato ABI2.
     PublicationError: binding de candidato, archive, plano ou host divergente.
     """
-    if operation in MODE_OPERATIONS:
-        raise ValueError(f"operation=mode_unanchored name={operation}")
+    if operation in MODE_OPERATIONS and operation not in MODE_INPUTS:
+        raise ValueError(f"operation=mode_effect_unanchored name={operation}")
     handler = _HANDLERS.get(operation)
     if handler is None:
         raise ValueError(f"operation=unsupported name={operation}")
     _require_request(operation, request)
     inputs = {name: _read(context, name, ref) for name, ref in request["inputs"].items()}
     observation = handler(request, inputs, context)
-    kind = OBSERVATIONS[operation]
+    kind = OBSERVATIONS.get(operation, MODE_OBSERVATION_KIND)
     digest = context.observe(kind, observation)
     snapshot = context.evidence_snapshot()
     return {
@@ -205,14 +213,15 @@ def _rollback(request: Mapping[str, Any], inputs: Mapping[str, bytes],
 _HANDLERS: dict[str, Callable[[Mapping[str, Any], Mapping[str, bytes], AdapterContext], bytes]] = {
     "inventory": _inventory, "publish-static": _publish, "rollback-api-static": _rollback,
     "close-drain": close_drain, "closed-ready": closed_ready, "reopen": reopen,
-    "terminal-readback": terminal_readback,
+    "terminal-readback": terminal_readback, "unit-observe": unit_observe,
+    "recovery-observe": recovery_observe, "audit-observe": audit_observe,
 }
 
 
 def _require_request(operation: str, request: Mapping[str, Any]) -> None:
     if set(request) != REQUEST_FIELDS or request["abi_version"] != ABI_VERSION:
         raise ValueError("request=fields")
-    if request["operation"] != operation or set(request["inputs"]) != INPUTS[operation]:
+    if request["operation"] != operation or set(request["inputs"]) != _INPUTS[operation]:
         raise ValueError("request=operation")
     owner = request["owner"]
     if (request["repository"], owner["repository"], owner["source_sha"]) != (
@@ -220,7 +229,7 @@ def _require_request(operation: str, request: Mapping[str, Any]) -> None:
     ):
         raise ValueError("request=source")
     stage = request["stage"]
-    if stage["stage"] not in STAGES[operation] or (stage["close"] is None) != (
+    if stage["stage"] not in _STAGES[operation] or (stage["close"] is None) != (
         stage["stage"] == "application-prepare"
     ):
         raise ValueError("request=stage")

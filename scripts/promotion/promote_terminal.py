@@ -131,8 +131,8 @@ def _canaries(raw: bytes, request: Mapping[str, Any]) -> bool:
     value = document(raw, "canaries")
     if not isinstance(value, list) or len(cast("list[Any]", value)) != len(ROUTE_MODES):
         raise ValueError("reopen=canaries")
-    binding = {"owner_sha256": request["owner"]["owner_sha256"],
-               "activation_sha256": request["activation_sha256"]}
+    binding = {"owner": request["owner"]["owner_sha256"],
+               "activation": request["activation_sha256"]}
     records = [closed(item, MODE_OBSERVATION_FIELDS, "reopen", "canary")
                for item in cast("list[Any]", value)]
     for kind, record in zip(ROUTE_MODES, records, strict=True):
@@ -141,7 +141,7 @@ def _canaries(raw: bytes, request: Mapping[str, Any]) -> bool:
 
 
 def _canary(record: dict[str, Any], kind: str, binding: dict[str, Any]) -> None:
-    checks, references = record["checks"], record["inputs"]
+    checks, references = record["checks"], record["commitments"]
     if (record["version"], record["kind"]) != (1, kind) or type(record["accepted"]) is not bool:
         raise ValueError(f"reopen=canary_kind kind={kind}")
     if not isinstance(checks, list) or record["accepted"] == bool(checks) or not all(
@@ -152,8 +152,8 @@ def _canary(record: dict[str, Any], kind: str, binding: dict[str, Any]) -> None:
         isinstance(item, str) and _DIGEST.fullmatch(item)
         for item in cast("dict[str, Any]", references).values()
     ):
-        raise ValueError(f"reopen=canary_inputs kind={kind}")
-    if any(record[key] != expected for key, expected in binding.items()):
+        raise ValueError(f"reopen=canary_commitments kind={kind}")
+    if any(references.get(key) != expected for key, expected in binding.items()):
         raise ValueError(f"reopen=canary_binding kind={kind}")
 
 

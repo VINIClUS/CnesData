@@ -59,9 +59,19 @@ MODE_OPERATIONS: Final[dict[str, tuple[str, str]]] = {
     "recovery-observe": ("recovery", "phase-c-recovery"),
     "audit-start": ("audit", "phase-c-audit"), "audit-observe": ("audit", "phase-c-audit"),
 }
-MODE_OBSERVATION_FIELDS: Final = frozenset(
-    {"version", "kind", "accepted", "checks", "inputs", "owner_sha256", "activation_sha256"}
-)
+MODE_OBSERVATION_FIELDS: Final = frozenset({"version", "kind", "accepted", "checks", "commitments"})
+MODE_OBSERVATION_KIND: Final = "mode"
+_SCHEDULED_INPUTS: Final = frozenset({"activation", "network", "close-drain", "phase-b", "phase-c",
+                                      "mode-result", "readbacks"})
+MODE_INPUTS: Final[dict[str, frozenset[str]]] = {
+    "unit-observe": frozenset({"activation", "close-drain", "record", "mode-result", "readbacks",
+                               "observed"}),
+    "recovery-observe": _SCHEDULED_INPUTS,
+    "audit-observe": _SCHEDULED_INPUTS | {"recovery-result", "recovery-readbacks"},
+}
+MODE_STAGES: Final[dict[str, frozenset[str]]] = {
+    name: frozenset({MODE_OPERATIONS[name][1]}) for name in MODE_INPUTS
+}
 
 
 def _constant(token: str) -> NoReturn:
@@ -122,8 +132,11 @@ __all__ = [
     "CLOSED_READY_FIELDS",
     "INPUTS",
     "MEMBER_IDENTITY",
+    "MODE_INPUTS",
     "MODE_OBSERVATION_FIELDS",
+    "MODE_OBSERVATION_KIND",
     "MODE_OPERATIONS",
+    "MODE_STAGES",
     "OBSERVATIONS",
     "ROUTING_FIELDS",
     "STAGES",

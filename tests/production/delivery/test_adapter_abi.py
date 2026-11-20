@@ -111,8 +111,7 @@ def test_operacoes_de_modo_sao_as_oito_de_promotion_do_vetor_canonico() -> None:
 
 
 def test_observacao_de_modo_tem_campos_fechados_com_aceite_e_compromissos() -> None:
-    expected = {"version", "kind", "accepted", "checks", "inputs", "owner_sha256",
-                "activation_sha256"}
+    expected = {"version", "kind", "accepted", "checks", "commitments"}
     assert set(promote_api.MODE_OBSERVATION_FIELDS) == expected
 
 
@@ -129,7 +128,8 @@ def test_retire_static_e_modos_de_readiness_seguem_recusados(operation: str) -> 
         promote_api.execute_shared_operation(operation, _request(operation), NO_CONTEXT)
 
 
-@pytest.mark.parametrize("operation", sorted(PROMOTION_MODES))
-def test_operacao_de_modo_e_recusada_sem_handler_do_keeper(operation: str) -> None:
-    with pytest.raises(ValueError, match=f"operation=mode_unanchored name={operation}"):
+@pytest.mark.parametrize("operation", sorted(name for name in PROMOTION_MODES
+                                             if not name.endswith("-observe")))
+def test_efeito_de_modo_e_recusado_sem_ancora_do_keeper(operation: str) -> None:
+    with pytest.raises(ValueError, match=f"operation=mode_effect_unanchored name={operation}"):
         promote_api.execute_shared_operation(operation, _request(operation), NO_CONTEXT)

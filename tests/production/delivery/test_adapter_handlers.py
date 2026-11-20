@@ -111,11 +111,15 @@ def _ready_inputs(close: bytes, **changes: bytes) -> dict[str, bytes]:
             "membership": _membership(close)} | changes
 
 
+def _commitments(**changes: str) -> dict[str, str]:
+    return {"owner": OWNER["owner_sha256"], "activation": sha(_activation()),
+            "mode-result": "1" * 64} | changes
+
+
 def _canary(kind: str, accepted: bool = True, **changes: Any) -> dict[str, Any]:
     checks = [] if accepted else [f"{kind}_task_failed"]
     return {"version": 1, "kind": kind, "accepted": accepted, "checks": checks,
-            "inputs": {"mode-result": "1" * 64}, "owner_sha256": OWNER["owner_sha256"],
-            "activation_sha256": sha(_activation())} | changes
+            "commitments": _commitments()} | changes
 
 
 def _canaries(*items: dict[str, Any]) -> bytes:
