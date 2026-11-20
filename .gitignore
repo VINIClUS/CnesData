@@ -175,3 +175,6 @@ minio.license
 !*.tfvars.json.example
 *.tfplan
 *.tfplan.*
+
+# Spike binaries exceed the delivery gate 8 MiB per-file cap
+spike_fb_driver/
