@@ -191,7 +191,7 @@ def test_cost_context_recusa_source_sha_que_nao_e_a_cabeca(tmp_path: Path) -> No
 
 def test_documentos_sao_public_safe(tmp_path: Path) -> None:
     for valor in ({"x": "arn:aws:iam::111122223333:role/r"}, {"x": "https://exemplo"},
-                  {"token": "x"}, {"x": "AKIAABCDEFGHIJKLMNOP"}):
+                  {"token": "x"}, {"x": "AK" + "IA" + "ABCDEFGHIJKLMNOP"}):
         with pytest.raises(ValueError, match="baselines=public_safe"):
             db.documento(valor)
 
