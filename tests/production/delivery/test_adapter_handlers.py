@@ -42,6 +42,7 @@ from tests.production.delivery.test_promote_close import _request as close_reque
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+LINEAGE = "lineage"
 READY_VECTOR = Path(__file__).with_name("closed_ready_call_vector.json")
 REOPEN_VECTOR = Path(__file__).with_name("reopen_call_vector.json")
 API = PREPARE | {"close": _epoch(0), "fixed_deadline": _epoch(1800), "stage": "api",
@@ -94,7 +95,7 @@ def _closed(name: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[Any, A
 
 
 def _phase_b(close: bytes) -> bytes:
-    before = {"lineage": "synthetic-phase-b-state", "serial": 1, "state_sha256": "1" * 64,
+    before = {LINEAGE: "synthetic-phase-b-state", "serial": 1, "state_sha256": "1" * 64,
               "object_version": "v1"}
     after = before | {"serial": 2, "state_sha256": "2" * 64, "object_version": "v2"}
     return canonical(build_phase_b_evidence(json.loads(close), before, after, b"plan", b"audit",
