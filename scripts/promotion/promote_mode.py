@@ -58,12 +58,13 @@ def unit_observe(request: Mapping[str, Any], inputs: Mapping[str, bytes],
     Raises:
     ValueError: insumo fora dos campos fechados, record de outra activation ou prazo vencido.
     """
-    _activation(inputs["activation"], request)
+    activation, _ = _activation(inputs["activation"], request)
     close = versioned(inputs["close-drain"], "close-drain", CLOSE_DRAIN_FIELDS, "mode")
     source = _record({"record": inputs["record"]}, "unit")
     record = source[0]
-    if (record.activation_sha256, record.promotion_generation) != (
-        request["activation_sha256"], close["common"]["promotion_generation"]
+    if (record.activation_sha256, record.promotion_generation, dict(record.revisions)) != (
+        request["activation_sha256"], close["common"]["promotion_generation"],
+        activation["revisions"],
     ):
         raise ValueError("mode=record_binding")
     readbacks = cast("Node", _mapping(inputs["readbacks"], "readbacks"))

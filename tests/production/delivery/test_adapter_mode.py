@@ -86,31 +86,35 @@ def _audit(op: Any, frozen: bool = True) -> dict[str, bytes]:
                      "recovery-readbacks": recovery["readbacks"]}
 
 
-def _unit_observed(op: Any) -> dict[str, Any]:
+def _unit_observed(op: Any, revision: str | None = None) -> dict[str, Any]:
     tasks = mc._stopped("unit")["tasks"]
     for task in tasks:
-        task["taskDefinitionArn"] = op.ctx.revisions["unit"]
+        task["taskDefinitionArn"] = revision or op.ctx.revisions["unit"]
     return {"execution": {"status": "SUCCEEDED", "stateMachineArn": op.context.machine["arn"]},
             "tasks": tasks, "outputs": [{"sha256": "6" * 64, "size": 10}]}
 
 
-def _unit(op: Any, observed: dict[str, Any] | None = None) -> dict[str, bytes]:
+def _unit(op: Any, revision: str | None = None) -> dict[str, bytes]:
     ctx, common = op.ctx, op.close["common"]
+    unit = revision or ctx.revisions["unit"]
     fixed = pc._instant(op.close["fixed_deadline"]).strftime("%Y-%m-%dT%H:%M:%SZ")
     record = canonical(mc._record(
         "unit", activation_sha256=ctx.activation_sha256, machine_arn=op.context.machine["arn"],
-        revisions=dict(ctx.revisions), promotion_generation=common["promotion_generation"],
+        revisions=dict(ctx.revisions) | {"unit": unit},
+        promotion_generation=common["promotion_generation"],
         **dict.fromkeys(pc.DEADLINES, fixed), **{key: op.context.canary[key] for key in (
             "candidate_sha256", "source_sha", "release_id", "canary_id")}))
-    run = observed or _unit_observed(op)
+    run = _unit_observed(op, unit)
     calls = mc._Context({"unit": run})
     calls.now = lambda: datetime.now(UTC)
     readbacks = pc._readbacks(ctx)
+    machine = readbacks["state_machine"]
+    machine["definition"] = machine["definition"].replace(ctx.revisions["unit"], unit)
     raw = mc.execute_mode_canary("unit", mc._originals(
         "unit", record=record, readbacks=readbacks, readbacks_after=readbacks), calls)
     return {"activation": op.context.activation, "close-drain": canonical(op.close),
             "record": record, "mode-result": raw, "readbacks": canonical(readbacks),
-            "observed": canonical(_unit_observed(op))}
+            "observed": canonical(run)}
 
 
 def _closed(record: dict[str, Any], inputs: dict[str, bytes], kind: str) -> None:
@@ -307,3 +311,8 @@ def test_audit_observe_reprova_quando_o_recovery_anterior_nao_reaceita(phase_c: 
     inputs["recovery-readbacks"] = canonical(readbacks)
     record = _observe(phase_c, "audit-observe", inputs)
     assert (record["accepted"], record["checks"]) == (False, ["recovery:route=alarm"])
+
+
+def test_unit_observe_recusa_record_de_outra_revisao_unit(phase_c: Any) -> None:
+    other = phase_c.ctx.revisions["unit"].rsplit(":", 1)[0] + ":99"
+    _refused(phase_c, "unit-observe", _unit(phase_c, other), "mode=record_binding")
