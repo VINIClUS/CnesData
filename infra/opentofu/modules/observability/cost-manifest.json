@@ -435,6 +435,20 @@
       "source": {"url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/awskms/current/us-east-2/index.json", "term": "sku FEMX7ZQ4DJ6QE2KP us-east-2-KMS-Keys"}
     },
     {
+      "id": "kms_signing",
+      "scope": "shared",
+      "service": "KMS",
+      "description": "Delivery chain signing key, ECC_NIST_P256 SIGN_VERIFY, one key version (no rotation)",
+      "unit": "key-month",
+      "unit_price_usd": 1.0,
+      "quantity": {"min": 1, "base": 1, "max": 1},
+      "free_allowance": {"min": 0, "base": 0, "max": 0},
+      "status": "verified",
+      "max_basis": "cap",
+      "source": {"url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/awskms/current/us-east-2/index.json", "term": "sku FEMX7ZQ4DJ6QE2KP us-east-2-KMS-Keys"},
+      "assumption": "Sign requests (sku 5PJJDDVH775CRBC6 us-east-2-KMS-Requests-Asymmetric, 0.15 USD per 10000) are not priced in this line: under 1000 per month, under 0.02 USD"
+    },
+    {
       "id": "state_backend",
       "scope": "shared",
       "service": "S3",
@@ -466,15 +480,21 @@
       "id": "other_projects_spend",
       "scope": "shared",
       "service": "Account",
-      "description": "Spend of other projects in the same account: not verified, not estimated",
+      "description": "Usage spend of other projects in the same account, measured over the last closed month",
       "unit": "USD",
-      "unit_price_usd": null,
-      "quantity": {"min": null, "base": null, "max": null},
+      "unit_price_usd": 1,
+      "quantity": {"min": 0.52, "base": 0.52, "max": 0.52},
       "free_allowance": {"min": 0, "base": 0, "max": 0},
-      "status": "unverified",
+      "status": "verified",
       "max_basis": "hypothesis",
-      "source": {"url": "https://aws.amazon.com/aws-cost-management/aws-budgets/", "term": "Account level spend"},
-      "assumption": "Remaining aggregate envelope is not verifiable from this repository"
+      "source": {"url": "https://docs.aws.amazon.com/aws-cost-management/latest/APIReference/API_GetCostAndUsage.html", "term": "GetCostAndUsage RECORD_TYPE=Usage"},
+      "measurement": {
+        "month": "2026-10",
+        "measured_on": "2026-11-20",
+        "total_usd": 0.52,
+        "method": "AWS Cost Explorer GetCostAndUsage over the last closed month, RECORD_TYPE=Usage (credits excluded), account usage outside CnesData, rounded up to the cent"
+      },
+      "assumption": "The measured month repeats; credits are not applied"
     }
   ]
 }

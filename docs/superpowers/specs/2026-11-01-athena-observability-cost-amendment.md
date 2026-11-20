@@ -160,9 +160,10 @@ deixa o alarme em `ALARM` sem novo disparo: o runbook manda desabilitar à mão.
   unitário com URL da Price List e SKU, `min/base/max` por linha, cenário `max` sem franquia de free
   tier (a franquia é da conta, compartilhada com outros projetos). Quantidades amarradas ao plan:
   Fargate = `monthly_limit_hours` × vCPU/memória reais das task definitions; métricas de alarme
-  contadas do plan; Athena = 31·W_d + (k+1)·cutoff + Q·m. `unverified`: franquia do Cognito e gasto
-  de outros projetos da conta, sem número. Schema próprio validado por um subconjunto de JSON Schema
-  no teste (sem nova dependência).
+  contadas do plan; Athena = 31·W_d + (k+1)·cutoff + Q·m. `unverified`: franquia do Cognito, sem
+  número. Gasto de outros projetos da conta: `verified`, valor medido de USD 0,52 em 2026-10 (Cost
+  Explorer, `RECORD_TYPE=Usage`). Schema próprio validado por um subconjunto de JSON Schema no teste
+  (sem nova dependência).
 
 ## Alarmes: sinais reais e limitações
 
@@ -269,7 +270,7 @@ Hipóteses, todas de uso estimado sem teto imposto pelo código: `cloudwatch_log
 `s3_athena_results_storage`, `s3_requests`, `cognito_allowance`, `data_transfer_out`,
 `github_actions`. Compartilhadas, fora do controle do produto: `state_backend`, `budget_actions`,
 `other_projects_spend`. O produto fecha em 2,54 (min), 3,91 (base) e 7,90 (max) e o agregado em
-3,54, 4,91 e 12,00, sob 8 e 15; o máximo do produto fica perto do limite por causa das hipóteses,
+5,06, 6,43 e 13,52, sob 8 e 15; o máximo do produto fica perto do limite por causa das hipóteses,
 não de tetos, e a margem é consumida primeiro por elas.
 
 ## Actions pagas: USD 0
