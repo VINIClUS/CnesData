@@ -115,12 +115,7 @@ secrets/
 secrets/**
 secrets/*
 
-# .claude/ is ignored by default (session-local state: scheduled_tasks.lock,
-# .headroom_wrap_marker.json, agent-memory/), but skills/ and commands/ are
-# shareable project context and stay trackable.
-.claude/*
-!.claude/skills/
-!.claude/commands/
+.claude/
 .claudeignore
 .claudeignore.json
 .claudeignore.json.bak
