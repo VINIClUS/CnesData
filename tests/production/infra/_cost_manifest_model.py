@@ -10,6 +10,7 @@ SCENARIOS = ("min", "base", "max")
 PRODUCT_LIMIT = Decimal("8")
 AGGREGATE_LIMIT = Decimal("15")
 CENTS = Decimal("0.01")
+CREDIT_NOT_APPLIED = "credit not applied"
 SUPPORTED_KEYWORDS = frozenset({
     "$schema", "$id", "$defs", "$ref", "title", "description", "type", "const", "enum",
     "required", "properties", "additionalProperties", "items", "minItems", "minLength",
@@ -49,17 +50,21 @@ def _resolve(schema: Node, root: Node) -> Node:
     return root["$defs"][reference.removeprefix("#/$defs/")]
 
 
+def _one_of_errors(instance: Any, schema: Node, root: Node, path: str) -> list[str]:
+    if "oneOf" not in schema:
+        return []
+    matches = sum(not validate(instance, branch, root, path) for branch in schema["oneOf"])
+    return [] if matches == 1 else [f"{path} oneOf={matches}"]
+
+
 def validate(instance: Any, schema: Node, root: Node | None = None, path: str = "$") -> list[str]:
     root = root or schema
     schema = _resolve(schema, root)
-    if "oneOf" in schema:
-        matches = sum(not validate(instance, branch, root, path) for branch in schema["oneOf"])
-        return [] if matches == 1 else [f"{path} oneOf={matches}"]
-    errors: list[str] = []
+    errors = _one_of_errors(instance, schema, root, path)
     names = schema.get("type")
     names = [names] if isinstance(names, str) else names
     if names is not None and not any(_type_ok(instance, name) for name in names):
-        return [f"{path} type={names}"]
+        return [*errors, f"{path} type={names}"]
     if "const" in schema and instance != schema["const"]:
         errors.append(f"{path} const={schema['const']!r}")
     if "enum" in schema and instance not in schema["enum"]:
@@ -122,14 +127,23 @@ def line_cost(line: Node, scenario: str) -> Decimal:
     return max(Decimal(0), billable) * price
 
 
+def excluded(manifest: Node) -> list[Node]:
+    return [
+        {"id": line["id"], "reason": CREDIT_NOT_APPLIED}
+        for line in manifest["lines"]
+        if line["unit_price_usd"] is None
+    ]
+
+
 def totals(manifest: Node) -> dict[str, dict[str, Decimal]]:
     result: dict[str, dict[str, Decimal]] = {"product": {}, "aggregate": {}}
+    priced = [line for line in manifest["lines"] if line["unit_price_usd"] is not None]
     for scenario in SCENARIOS:
         product = sum(
-            (line_cost(line, scenario) for line in manifest["lines"] if line["scope"] == "product"),
+            (line_cost(line, scenario) for line in priced if line["scope"] == "product"),
             Decimal(0),
         )
-        everything = sum((line_cost(line, scenario) for line in manifest["lines"]), Decimal(0))
+        everything = sum((line_cost(line, scenario) for line in priced), Decimal(0))
         result["product"][scenario] = product.quantize(CENTS, ROUND_HALF_UP)
         result["aggregate"][scenario] = everything.quantize(CENTS, ROUND_HALF_UP)
     return result

@@ -27,7 +27,9 @@ from tests.production.infra._athena_root_plan import (  # noqa: F401
     fixture_scheduled_plan,
 )
 from tests.production.infra._cost_manifest_model import (
+    CREDIT_NOT_APPLIED,
     SCENARIOS,
+    excluded,
     line_cost,
     totals,
     unsupported_keywords,
@@ -59,11 +61,47 @@ CAP_IDS = frozenset({
     "fargate_vcpu_hours", "fargate_memory_gb_hours", "public_ipv4_hours",
     "cloudwatch_alarm_metrics", "cloudwatch_custom_metrics", "athena_scanned",
     "cognito_essentials_mau", "ecr_storage", "s3_web_storage", "secrets_manager",
-    "cloudfront_free_plan", "waf_dedicated", "kms_envelope",
+    "cloudfront_free_plan", "waf_dedicated", "kms_envelope", "kms_signing",
 })
-SHARED_IDS = frozenset({"kms_envelope", "state_backend", "budget_actions", "other_projects_spend"})
+SHARED_IDS = frozenset({
+    "kms_envelope", "kms_signing", "state_backend", "budget_actions", "other_projects_spend",
+})
 STANDARD_RUNNERS = frozenset({"ubuntu-latest", "ubuntu-24.04", "windows-latest"})
-UNVERIFIED_IDS = frozenset({"cognito_allowance", "other_projects_spend"})
+UNVERIFIED_IDS = frozenset({"cognito_allowance"})
+KMS_PRICE_LIST = (
+    "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/awskms/current/us-east-2/index.json"
+)
+OTHER_SPEND_MEASUREMENT = {
+    "month": "2026-10",
+    "measured_on": "2026-11-20",
+    "total_usd": 0.51,
+    "method": (
+        "AWS Cost Explorer GetCostAndUsage over the last closed month, RECORD_TYPE=Usage "
+        "(credits excluded), account usage outside CnesData, rounded up to the cent"
+    ),
+}
+UNMEASURED_SPEND = {
+    "sem_medicao": (lambda line: line.pop("measurement", None), "oneOf=0"),
+    "sem_mes": (
+        lambda line: line.get("measurement", {}).pop("month", None), "required=month"
+    ),
+    "sem_data_da_medicao": (
+        lambda line: line.get("measurement", {}).pop("measured_on", None),
+        "required=measured_on",
+    ),
+    "sem_total": (
+        lambda line: line.get("measurement", {}).pop("total_usd", None), "required=total_usd"
+    ),
+    "mes_invalido": (
+        lambda line: line.setdefault("measurement", {}).update(month="2026-13"),
+        "month pattern=",
+    ),
+    "quantidade_nula": (
+        lambda line: line.update(quantity={"min": None, "base": None, "max": None}), "oneOf=0"
+    ),
+    "preco_nulo": (lambda line: line.update(unit_price_usd=None), "oneOf=0"),
+    "nao_verificada": (lambda line: line.update(status="unverified"), "oneOf=0"),
+}
 STORED_TOTAL_KEY = re.compile(r"(^|_)(sub)?totals?(_|$)|(^|_)sums?(_|$)")
 SOURCE_PREFIXES = (
     "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/",
@@ -133,6 +171,49 @@ def test_linhas_nao_verificaveis_nao_inventam_numero() -> None:
         assert line["unit_price_usd"] is None, name
         assert set(line["quantity"].values()) == {None}, name
         assert line["assumption"], name
+
+
+def test_kms_signing_e_compartilhada_e_precificada_pela_lista_publica() -> None:
+    line = _lines(_manifest())["kms_signing"]
+    assert (line["scope"], line["status"], line["max_basis"]) == ("shared", "verified", "cap")
+    assert (line["service"], line["unit"], line["unit_price_usd"]) == ("KMS", "key-month", 1.0)
+    assert line["quantity"] == {"min": 1, "base": 1, "max": 1}
+    assert line["free_allowance"] == {"min": 0, "base": 0, "max": 0}
+    assert line["source"]["url"] == KMS_PRICE_LIST
+    assert line["source"]["term"].startswith("sku FEMX7ZQ4DJ6QE2KP us-east-2-KMS-Keys")
+    assert [line_cost(line, scenario) for scenario in SCENARIOS] == [1, 1, 1]
+
+
+def test_gasto_de_outros_projetos_traz_valor_medido_e_datado() -> None:
+    line = _lines(_manifest())["other_projects_spend"]
+    assert line.get("measurement") == OTHER_SPEND_MEASUREMENT
+    assert (line["scope"], line["status"], line["max_basis"]) == (
+        "shared", "verified", "hypothesis",
+    )
+    assert (line["unit"], line["unit_price_usd"]) == ("USD", 1)
+    assert set(line["quantity"].values()) == {OTHER_SPEND_MEASUREMENT["total_usd"]}
+
+
+@pytest.mark.parametrize("case", sorted(UNMEASURED_SPEND))
+def test_gasto_de_outros_projetos_sem_medicao_datada_e_recusado(case: str) -> None:
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    manifest = _manifest()
+    mutate, expected = UNMEASURED_SPEND[case]
+    mutate(_lines(manifest)["other_projects_spend"])
+    errors = validate(manifest, schema)
+    assert any(expected in item for item in errors), errors
+
+
+def test_excluir_a_linha_de_credito_nunca_reduz_max() -> None:
+    manifest = _manifest()
+    assert excluded(manifest) == [{"id": "cognito_allowance", "reason": CREDIT_NOT_APPLIED}]
+    assert CREDIT_NOT_APPLIED == "credit not applied"
+    removed = {item["id"] for item in excluded(manifest)}
+    kept = {**manifest, "lines": [li for li in manifest["lines"] if li["id"] not in removed]}
+    computed, without = totals(manifest), totals(kept)
+    for scope in ("product", "aggregate"):
+        assert computed[scope] == without[scope], f"excluded_line_counted scope={scope}"
+        assert computed[scope]["max"] >= without[scope]["max"]
 
 
 def test_cenario_maximo_nao_aplica_franquia_de_free_tier() -> None:
