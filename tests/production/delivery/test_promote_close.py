@@ -498,3 +498,10 @@ def test_teto_do_drain_igual_ao_prazo_fixo_recusa(monkeypatch: pytest.MonkeyPatc
         with pytest.raises(DrainError, match="drain=deadline_exceeded"):
             _run(context)
     assert context.observed == []
+
+
+def test_activation_com_inputs_do_payload_verificado_e_aceita() -> None:
+    raw = canonical(json.loads(_activation()) | {"inputs": {"candidate_reference": None}})
+    request = {"activation_sha256": sha(raw)}
+    value, _ = promote_close._activation(raw, request)
+    assert value["inputs"] == {"candidate_reference": None}
