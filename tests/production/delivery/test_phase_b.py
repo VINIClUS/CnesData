@@ -23,6 +23,7 @@ from packages.cnes_infra.tests.control_plane.test_dynamodb_promotion_snapshot im
 from packages.cnes_infra.tests.control_plane.test_dynamodb_promotion_snapshot import (
     ddb as ddb_fixture,
 )
+from scripts.promotion._closed_ready import build_closed_ready
 from scripts.promotion.environment_gate import DrainError, close_and_drain
 from scripts.promotion.phase_b import (
     API_POLICY,
@@ -31,7 +32,6 @@ from scripts.promotion.phase_b import (
     build_phase_b_evidence,
     review_phase_b_plan,
 )
-from scripts.promotion.verify_routes import build_closed_ready
 from tests.production.delivery.test_canary import activation as activation_fixture
 from tests.production.delivery.test_canary import case as case_fixture
 from tests.production.delivery.test_canary import github as github_fixture
