@@ -6,6 +6,19 @@ import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Protocol
 
+from scripts.promotion._adapter_abi import (
+    ABI_VERSION,
+    CLOSED_READY_FIELDS,
+    INPUTS,
+    MEMBER_IDENTITY,
+    MODE_OBSERVATION_FIELDS,
+    MODE_OPERATIONS,
+    OBSERVATIONS,
+    ROUTING_FIELDS,
+    STAGES,
+    TERMINAL_READBACK_FIELDS,
+    stage_deadline,
+)
 from scripts.promotion._api_static_handoff import HOST_GATE_SHA
 from scripts.promotion._api_static_records import (
     PLAN_DRIFT_FIELDS,
@@ -30,6 +43,8 @@ from scripts.promotion.build_host_archive import (
     archive_manifest,
 )
 from scripts.promotion.promote_close import close_drain
+from scripts.promotion.promote_ready import closed_ready
+from scripts.promotion.promote_terminal import reopen, terminal_readback
 from scripts.promotion.publish_dashboard import (
     PublicationError,
     StaticChannel,
@@ -52,27 +67,26 @@ from scripts.promotion.rollback_api_static import (
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
-__all__ = ["CLOCK", "canonical", "execute_shared_operation", "static_plan"]
+__all__ = [
+    "CLOCK",
+    "CLOSED_READY_FIELDS",
+    "INPUTS",
+    "MEMBER_IDENTITY",
+    "MODE_OBSERVATION_FIELDS",
+    "MODE_OPERATIONS",
+    "OBSERVATIONS",
+    "ROUTING_FIELDS",
+    "STAGES",
+    "TERMINAL_READBACK_FIELDS",
+    "canonical",
+    "execute_shared_operation",
+    "static_plan",
+]
 
-ABI_VERSION = 2
 REQUEST_FIELDS = frozenset({
     "abi_version", "operation", "repository", "source_sha", "owner", "checkpoint_sha256",
     "activation_sha256", "stage", "inputs",
 })
-INPUTS = {
-    "inventory": frozenset({"candidate", "dashboard-artifact", "archive", "static-baseline"}),
-    "publish-static": frozenset(
-        {"candidate", "dashboard-artifact", "static-plan", "inventory", "host-receipt"}
-    ),
-    "rollback-api-static": frozenset(
-        {"static-plan", "inventory", "publication", "host-recovery-receipt", "recovery-decision"}
-    ),
-    "close-drain": frozenset({"activation", "expirations"}),
-}
-OBSERVATIONS = {"inventory": "inventory", "publish-static": "publication",
-                "rollback-api-static": "rollback", "close-drain": "close-drain"}
-STAGES = {"inventory": "application-prepare", "publish-static": "static",
-          "rollback-api-static": "recovery", "close-drain": "application-prepare"}
 _DIGEST = re.compile(r"[0-9a-f]{64}")
 
 
@@ -104,6 +118,8 @@ def execute_shared_operation(
     ValueError: operação fora desta tarefa ou request/input fora do contrato ABI2.
     PublicationError: binding de candidato, archive, plano ou host divergente.
     """
+    if operation in MODE_OPERATIONS:
+        raise ValueError(f"operation=mode_unanchored name={operation}")
     handler = _HANDLERS.get(operation)
     if handler is None:
         raise ValueError(f"operation=unsupported name={operation}")
@@ -188,7 +204,8 @@ def _rollback(request: Mapping[str, Any], inputs: Mapping[str, bytes],
 
 _HANDLERS: dict[str, Callable[[Mapping[str, Any], Mapping[str, bytes], AdapterContext], bytes]] = {
     "inventory": _inventory, "publish-static": _publish, "rollback-api-static": _rollback,
-    "close-drain": close_drain,
+    "close-drain": close_drain, "closed-ready": closed_ready, "reopen": reopen,
+    "terminal-readback": terminal_readback,
 }
 
 
@@ -203,7 +220,7 @@ def _require_request(operation: str, request: Mapping[str, Any]) -> None:
     ):
         raise ValueError("request=source")
     stage = request["stage"]
-    if stage["stage"] != STAGES[operation] or (stage["close"] is None) != (
+    if stage["stage"] not in STAGES[operation] or (stage["close"] is None) != (
         stage["stage"] == "application-prepare"
     ):
         raise ValueError("request=stage")
@@ -257,6 +274,5 @@ def _clock() -> datetime:
     return CLOCK()
 
 
-def _deadline(stage: Mapping[str, Any]) -> datetime:
-    limit = stage["preparation_deadline"] if stage["close"] is None else stage["deadline"]
-    return datetime.fromtimestamp(limit, UTC)
+def _deadline(stage: dict[str, Any]) -> datetime:
+    return datetime.fromtimestamp(stage_deadline(stage), UTC)

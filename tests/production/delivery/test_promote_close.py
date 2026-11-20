@@ -200,7 +200,7 @@ def _run(context: Context, request: dict[str, Any] | None = None) -> dict[str, A
 def test_tabela_do_close_drain_e_copia_literal_da_correcao_do_infra() -> None:
     """Correção infra-ansible#55 6906038586 (close-drain) e main ca3643e5 (campos, kinds)."""
     assert promote_api.INPUTS["close-drain"] == frozenset(INFRA_CLOSE_DRAIN_ROW["inputs"].split())
-    assert {promote_api.STAGES["close-drain"]} == INFRA_CLOSE_DRAIN_ROW["stage"]
+    assert promote_api.STAGES["close-drain"] == INFRA_CLOSE_DRAIN_ROW["stage"]
     assert promote_api.OBSERVATIONS["close-drain"] == INFRA_CLOSE_DRAIN_ROW["observation"]
     assert INFRA_CLOSE_EXPIRATION_KINDS - {"envelope"} == promote_close.EXPIRATION_KINDS
     assert promote_close.ROLE == "fence_operator"
