@@ -351,6 +351,7 @@ jobs:
           name: delivery-baseline-toolchain
           path: ${{ runner.temp }}/delivery-baselines/delivery-baseline-toolchain/
           if-no-files-found: error
+          overwrite: true
           retention-days: 30
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         id: policy
@@ -358,6 +359,7 @@ jobs:
           name: delivery-baseline-policy
           path: ${{ runner.temp }}/delivery-baselines/delivery-baseline-policy/
           if-no-files-found: error
+          overwrite: true
           retention-days: 30
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         id: cost
@@ -365,6 +367,7 @@ jobs:
           name: delivery-baseline-cost
           path: ${{ runner.temp }}/delivery-baselines/delivery-baseline-cost/
           if-no-files-found: error
+          overwrite: true
           retention-days: 30
       - name: Record the artifact references
         env:

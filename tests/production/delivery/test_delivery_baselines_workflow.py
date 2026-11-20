@@ -120,7 +120,7 @@ def test_tres_artefatos_com_nome_estavel_e_retencao_de_30_dias() -> None:
     assert [u["uses"] for u in uploads] == [UPLOAD] * 3
     assert [u["with"] for u in uploads] == [
         {"name": nome, "path": f"{SAIDA}/{nome}/", "if-no-files-found": "error",
-         "retention-days": 30}
+         "overwrite": True, "retention-days": 30}
         for nome in db.ARTIFACTS
     ]
 
