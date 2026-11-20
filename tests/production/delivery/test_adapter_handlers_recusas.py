@@ -228,3 +228,19 @@ def test_activation_do_reopen_e_conferida_contra_o_request() -> None:
     other = _activation(canary_id="d" * 32)
     _refused(_reopen_inputs(_frozen()) | {"activation": other}, "reopen", FINAL,
              "activation=sha256")
+
+
+def test_terminal_readback_marca_membro_ja_nao_resolvido_como_pendente(
+    monkeypatch: pytest.MonkeyPatch
+) -> None:
+    member = MEMBER | {"resolution": "UNRESOLVED"}
+    with _environment("empty", monkeypatch) as (raw, _, probe):
+        _clock(monkeypatch, FINAL)
+        context = Context(raw, probe, _readback_inputs(_frozen(member)))
+        _run(context, "terminal-readback", FINAL)
+    record = _observation(context, "terminal")
+    identity = {key: member[key] for key in promote_api.MEMBER_IDENTITY}
+    assert record["members"] == [identity]
+    assert record["pending"] == [{"kind": "member-unresolved",
+                                  "reference_sha256": sha(canonical(identity))}]
+    assert record["quiescent"] is False

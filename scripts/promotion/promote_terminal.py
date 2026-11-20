@@ -231,6 +231,7 @@ def _members(members: list[dict[str, Any]],
         identity = {key: member[key] for key in MEMBER_IDENTITY}
         if member["resolution"] == "TERMINAL" and not _terminal(member, shim):
             identity["resolution"] = "UNRESOLVED"
+        if identity["resolution"] not in MEMBER_RESOLVED:
             pending.append({"kind": "member-unresolved",
                             "reference_sha256": sha(canonical(identity))})
         final.append(identity)
