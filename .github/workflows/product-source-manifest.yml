@@ -1,6 +1,3 @@
-# Produtor do manifesto de fonte do produto (P09, D6): o gate de aplicação do infra-ansible
-# autentica o artefato deste run em S (head_sha == S, run completed/success) e confere o membro
-# product-source-manifest.json contra application_product_source_closure_sha256.
 name: product-source-manifest
 
 on:
