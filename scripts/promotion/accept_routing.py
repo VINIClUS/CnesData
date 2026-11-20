@@ -3,14 +3,24 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
-from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any, Final
+from dataclasses import asdict
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
 from cnes_domain.control_plane.environment_gate import ReopenPromotionFence
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
-from scripts.promotion.phase_b import _require_utc, object_hash
-from scripts.promotion.rollback_api_static import CONVERGENCE_SECONDS, RECOVERY_SECONDS
+from scripts.promotion._phase_c_core import (
+    MODES,
+    WINDOW_SECONDS,
+    CanaryAcceptance,
+    PhaseCWatchdog,
+    WindowCutoff,
+    _instant,
+    _require,
+    _require_utc,
+    assert_fence,
+    object_hash,
+)
 from scripts.promotion.verify_routes import verify_task_environment_arns
 
 if TYPE_CHECKING:
@@ -20,80 +30,6 @@ if TYPE_CHECKING:
     from scripts.promotion.verify_routes import NativePhaseB
 
 Node = dict[str, Any]
-MODES: Final = ("recovery", "audit")
-WINDOW_SECONDS: Final = 1800
-
-
-def _instant(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
-
-
-def _require(condition: bool, reason: str) -> None:
-    if not condition:
-        raise ValueError(reason)
-
-
-class WindowCutoff(ValueError):
-    """Passo recusado pelo watchdog; carrega a decisão de convergência com o fence fechado."""
-
-    def __init__(self, decision: Node) -> None:
-        super().__init__(f"window=cutoff step={decision['step']}")
-        self.decision = decision
-
-
-@dataclass(frozen=True)
-class PhaseCWatchdog:
-    """Prazo F original do close-drain; nenhum passo novo depois de F menos a reserva."""
-
-    closed_at: datetime
-    fixed_deadline: datetime
-
-    @classmethod
-    def from_close(cls, close: Mapping[str, Any]) -> PhaseCWatchdog:
-        """Raises: ValueError: F original além de 1800 s desde o fechamento confirmado."""
-        closed, fixed = _instant(close["close_confirmed_at"]), _instant(close["fixed_deadline"])
-        _require(closed < fixed <= closed + timedelta(seconds=WINDOW_SECONDS), "window=fixed")
-        return cls(closed, fixed)
-
-    @property
-    def cutoff(self) -> datetime:
-        return self.fixed_deadline - timedelta(seconds=RECOVERY_SECONDS)
-
-    def admit(self, step: str, now: datetime, seconds: int) -> None:
-        """Raises: WindowCutoff: Passo que terminaria depois do corte da reserva de recovery."""
-        if now + timedelta(seconds=seconds) > self.cutoff:
-            raise WindowCutoff(self.converge(step, now))
-
-    def converge(self, step: str, now: datetime) -> Node:
-        """Returns: Decisão de convergência às rotas anteriores, fence fechado, sem reset de F."""
-        deadline = min(self.fixed_deadline, now + timedelta(seconds=RECOVERY_SECONDS))
-        return {
-            "version": 1,
-            "action": "converge-prior-routes",
-            "step": step,
-            "fence": "CLOSED",
-            "reopen": False,
-            "choice_at": _require_utc(now),
-            "fixed_deadline": _require_utc(self.fixed_deadline),
-            "recovery_deadline": _require_utc(deadline),
-            "convergence_budget_seconds": CONVERGENCE_SECONDS,
-        }
-
-
-@dataclass(frozen=True)
-class CanaryAcceptance:
-    """Aceite de um mode-result, emitido só pelos aceites de recovery e audit."""
-
-    mode: str
-    common: Node
-    phase_c_sha256: str
-    result_sha256: str
-    routing_sha256: str
-    task_receipts: int
-    observed_at: str
-    freeze_proof_sha256: str | None
-    deadline_drill_sha256: str | None
-    operational_requirements: tuple[str, ...]
 
 
 def observe_gate(native: NativePhaseB) -> tuple[DynamoDBControlPlane, Any]:
@@ -101,14 +37,6 @@ def observe_gate(native: NativePhaseB) -> tuple[DynamoDBControlPlane, Any]:
     gate = DynamoDBControlPlane(native.clients["dynamodb"], native.backend["control_plane_table"],
                                 lambda: datetime.now(UTC))
     return gate, gate.observe_environment_gate("prod")
-
-
-def assert_fence(state: Any, close: Mapping[str, Any]) -> None:
-    """Raises: ValueError: Fence diferente do fechado no close-drain ou permit em voo."""
-    fence, expected = state.fence, close["fence"]
-    _require(fence.state.value == "CLOSED" and fence.promotion_id == expected["promotion_id"]
-             and fence.version == expected["version"], "fence=closed_readback")
-    _require(state.permit is None, "fence=permit_in_flight")
 
 
 def _machine_route(native: NativePhaseB, context: PhaseCContext) -> str:
@@ -219,3 +147,19 @@ def accept_and_reopen(context: PhaseCContext, native: NativePhaseB) -> Node:
         "routes": routes,
         "reopened_at": _require_utc(now),
     }
+
+
+__all__ = [
+    "MODES",
+    "WINDOW_SECONDS",
+    "CanaryAcceptance",
+    "PhaseCWatchdog",
+    "WindowCutoff",
+    "_instant",
+    "_require_utc",
+    "accept_and_reopen",
+    "assert_fence",
+    "canary_status",
+    "observe_gate",
+    "read_routes",
+]
