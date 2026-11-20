@@ -245,10 +245,14 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--checkout", type=Path, default=Path.cwd())
     parser.add_argument("--source-sha", required=True)
     parser.add_argument("--mirror-dir", required=True, type=Path)
-    parser.add_argument("--tofu-binary", required=True, type=Path)
-    parser.add_argument("--conftest-binary", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
     return parser
+
+
+def _binary(name: str) -> Path:
+    found = which(name)
+    require(found is not None, f"baselines=binary_absent name={name}")
+    return Path(found or "")
 
 
 def _write(output: Path, artifacts: dict[str, dict[str, bytes]]) -> None:
@@ -264,7 +268,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments = _parser().parse_args(argv)
     try:
         artifacts = build_all(arguments.checkout, arguments.source_sha, arguments.mirror_dir,
-                              (arguments.tofu_binary, arguments.conftest_binary))
+                              (_binary("tofu"), _binary("conftest")))
         _write(arguments.output_dir, artifacts)
     except FAILURES as error:
         logger.error("delivery_baselines=failed reason=%s", error)

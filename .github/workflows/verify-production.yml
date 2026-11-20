@@ -343,8 +343,7 @@ jobs:
         run: |
           set -euo pipefail
           python -B -m scripts.promotion.delivery_baselines --source-sha "$SOURCE_SHA" \
-            --mirror-dir "$MIRROR_DIR" --tofu-binary "$(command -v tofu)" \
-            --conftest-binary "$(command -v conftest)" --output-dir "$OUTPUT_DIR"
+            --mirror-dir "$MIRROR_DIR" --output-dir "$OUTPUT_DIR"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         id: toolchain
         with:

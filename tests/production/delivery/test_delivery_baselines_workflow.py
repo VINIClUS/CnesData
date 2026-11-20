@@ -109,8 +109,8 @@ def test_gerador_roda_em_s_com_binarios_resolvidos_no_path() -> None:
     assert comandos.startswith("set -euo pipefail ")
     assert "python -B -m scripts.promotion.delivery_baselines" in comandos
     assert '--source-sha "$SOURCE_SHA"' in comandos
-    assert '--tofu-binary "$(command -v tofu)"' in comandos
-    assert '--conftest-binary "$(command -v conftest)"' in comandos
+    assert "--tofu-binary" not in comandos
+    assert "--conftest-binary" not in comandos
     assert '--output-dir "$OUTPUT_DIR"' in comandos
 
 

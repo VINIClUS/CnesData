@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from shutil import which
 
 import pytest
 
@@ -242,12 +243,24 @@ def test_fonte_de_custo_que_nao_e_json_objeto_e_recusada(tmp_path: Path) -> None
 
 def _argv(raiz: Path, repo: Path, source: str, saida: Path) -> list[str]:
     return ["--checkout", str(repo), "--source-sha", source, "--mirror-dir",
-            str(criar_espelho(raiz)), "--tofu-binary", str(criar_binario(raiz, "tofu", TOFU_BIN)),
-            "--conftest-binary", str(criar_binario(raiz, "conftest", CONFTEST_BIN)),
-            "--output-dir", str(saida)]
+            str(criar_espelho(raiz)), "--output-dir", str(saida)]
 
 
-def test_main_grava_um_diretorio_por_artefato(tmp_path: Path) -> None:
+def _binarios_no_path(raiz: Path, monkeypatch: pytest.MonkeyPatch, nomes: tuple[str, ...]) -> None:
+    conteudos = {"tofu": TOFU_BIN, "conftest": CONFTEST_BIN}
+    for nome in nomes:
+        criar_binario(raiz, nome, conteudos[nome])
+    git = which("git")
+    assert git is not None
+    (raiz / "bin").mkdir(exist_ok=True)
+    (raiz / "bin" / "git").symlink_to(git)
+    monkeypatch.setenv("PATH", str(raiz / "bin"))
+
+
+def test_main_grava_um_diretorio_por_artefato(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _binarios_no_path(tmp_path, monkeypatch, ("tofu", "conftest"))
     repo, source = criar_produto(tmp_path)
     saida = tmp_path / "saida"
 
@@ -259,7 +272,10 @@ def test_main_grava_um_diretorio_por_artefato(tmp_path: Path) -> None:
     assert (saida / "delivery-baseline-cost/cost-manifest-source.json").read_bytes() == CUSTO
 
 
-def test_main_recusa_saida_existente_sem_gravar_nada(tmp_path: Path) -> None:
+def test_main_recusa_saida_existente_sem_gravar_nada(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _binarios_no_path(tmp_path, monkeypatch, ("tofu", "conftest"))
     repo, source = criar_produto(tmp_path)
     saida = tmp_path / "saida"
     saida.mkdir()
@@ -268,7 +284,10 @@ def test_main_recusa_saida_existente_sem_gravar_nada(tmp_path: Path) -> None:
     assert list(saida.iterdir()) == []
 
 
-def test_main_recusa_e_nao_grava_quando_o_lock_diverge_do_espelho(tmp_path: Path) -> None:
+def test_main_recusa_e_nao_grava_quando_o_lock_diverge_do_espelho(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _binarios_no_path(tmp_path, monkeypatch, ("tofu", "conftest"))
     repo, _ = criar_produto(tmp_path)
     escrever(repo, LOCK, lock_texto({"aws": ("6.54.0", b"outro-zip\n")}))
     source = commit(repo, "lock divergente")
@@ -291,3 +310,21 @@ def test_lock_real_do_repositorio_resolve_zh_para_cada_provedor() -> None:
 
 def test_politica_real_do_repositorio_existe() -> None:
     assert (ROOT / POLICY).is_file()
+
+
+@pytest.mark.parametrize("ausente", ["tofu", "conftest"])
+def test_main_recusa_sem_binario_no_path_e_nao_grava(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ausente: str,
+) -> None:
+    repo, source = criar_produto(tmp_path)
+    saida = tmp_path / "saida"
+    _binarios_no_path(tmp_path, monkeypatch, tuple(n for n in ("tofu", "conftest") if n != ausente))
+
+    assert db.main(_argv(tmp_path, repo, source, saida)) == 2
+    assert not saida.exists()
+
+
+@pytest.mark.parametrize("opcao", ["--tofu-binary", "--conftest-binary"])
+def test_main_nao_aceita_caminho_de_binario_na_linha_de_comando(tmp_path: Path, opcao: str) -> None:
+    with pytest.raises(SystemExit):
+        db.main([*_argv(tmp_path, tmp_path, "0" * 40, tmp_path / "saida"), opcao, "/bin/sh"])
