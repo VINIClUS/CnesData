@@ -130,6 +130,6 @@ def test_retire_static_e_modos_de_readiness_seguem_recusados(operation: str) -> 
 
 @pytest.mark.parametrize("operation", sorted(name for name in PROMOTION_MODES
                                              if not name.endswith("-observe")))
-def test_efeito_de_modo_e_recusado_sem_ancora_do_keeper(operation: str) -> None:
-    with pytest.raises(ValueError, match=f"operation=mode_effect_unanchored name={operation}"):
+def test_efeito_de_modo_tem_handler_e_valida_o_request(operation: str) -> None:
+    with pytest.raises(ValueError, match="request=fields"):
         promote_api.execute_shared_operation(operation, _request(operation), NO_CONTEXT)

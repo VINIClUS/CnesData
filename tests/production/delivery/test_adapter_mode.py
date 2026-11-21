@@ -1,4 +1,4 @@
-"""Operações de modo do adapter ABI2: aceite dos -observe e recusa dos efeitos (#465)."""
+"""Operações de modo do adapter ABI2: aceite dos -observe e handlers dos efeitos (#465)."""
 
 from __future__ import annotations
 
@@ -125,7 +125,10 @@ def _closed(record: dict[str, Any], inputs: dict[str, bytes], kind: str) -> None
 
 
 def test_tabela_de_modo_separa_observe_dos_efeitos() -> None:
-    assert set(promote_api.MODE_INPUTS) == set(OBSERVES)
+    assert set(promote_api.MODE_INPUTS) == set(OBSERVES) | set(EFFECTS)
+    assert {promote_api.MODE_OBSERVATIONS[name] for name in OBSERVES} == {"mode"}
+    assert {promote_api.MODE_OBSERVATIONS[name] for name in EFFECTS} == {"mode-seed",
+                                                                         "mode-result"}
     assert {name: promote_api.MODE_OPERATIONS[name][1] for name in OBSERVES} == OBSERVES
     assert promote_api.MODE_INPUTS["recovery-observe"] == SCHEDULED
     assert promote_api.MODE_INPUTS["audit-observe"] == SCHEDULED | {"recovery-result",
@@ -137,8 +140,8 @@ def test_tabela_de_modo_separa_observe_dos_efeitos() -> None:
 
 
 @pytest.mark.parametrize("name", EFFECTS)
-def test_efeito_de_seed_e_start_recusa_com_motivo_proprio(name: str) -> None:
-    with pytest.raises(ValueError, match=f"operation=mode_effect_unanchored name={name}$"):
+def test_efeito_de_seed_e_start_tem_handler_e_valida_o_request(name: str) -> None:
+    with pytest.raises(ValueError, match="request=fields"):
         promote_api.execute_shared_operation(name, {}, Context(None, Probe(), {}))
 
 

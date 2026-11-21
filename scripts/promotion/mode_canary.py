@@ -233,7 +233,7 @@ def _admit(context: ModeCanaryCalls, record: ModeCanaryRecord, request: Node,
 
 def _observe_task(context: ModeCanaryCalls, route: ModeRoute, task_arn: str,
                   fault: str) -> tuple[Node | None, str | None]:
-    response = context.call("mode_observe", "ecs:DescribeTasks",
+    response = context.call(_LAUNCHERS[route.mode], "ecs:DescribeTasks",
                             {"cluster": route.cluster_arn, "tasks": [task_arn]})
     tasks = response.get("tasks") or []
     if len(tasks) != 1 or tasks[0].get("lastStatus") != "STOPPED":
@@ -262,7 +262,12 @@ def _launch(context: ModeCanaryCalls, record: ModeCanaryRecord, route: ModeRoute
             context.ledger().mark_unknown(effect_id)
         parts.unknown.add(f"run_task:{request['clientToken']}")
         return parts
-    ref, problem = _observe_task(context, route, tasks[0]["taskArn"], record.fault)
+    try:
+        ref, problem = _observe_task(context, route, tasks[0]["taskArn"], record.fault)
+    except Exception:
+        if effect_id is not None:
+            context.ledger().mark_unknown(effect_id)
+        raise
     if ref is not None:
         parts.tasks.append(ref)
     if problem is not None:
@@ -366,6 +371,8 @@ def _guard(mode: str, frozen: bool) -> FreezeGuard:
 def _routing(originals: Node, parts: _Parts) -> tuple[str, str]:
     before = _sha(_text(originals["readbacks"]))
     after = originals.get("readbacks_after")
+    if callable(after):
+        after = after()
     if after is None:
         parts.pending.add("routing_after_missing")
         return before, _sha(_text(None))
