@@ -1,0 +1,27 @@
+{
+  "recovery": {
+    "content_sha256": "b85edb0282f108b81944ba883e13e5dc3df429e0cee84394fdca1625f103be65",
+    "created_at": "2026-11-13T12:00:00Z",
+    "run_ids": [
+      "recovery-a-4444444444444444",
+      "recovery-b-4444444444444444"
+    ],
+    "seed_sha256": "8c30a049607ac962e27db38ae1743387d021a3e21dd5a8ea9cca14d20376b016"
+  },
+  "unit": {
+    "content_sha256": "d4fd597b1f3e7fb680ecfadfa73538ec10a346fbe40a9d7f26404c753499f5d3",
+    "created_at": "2026-11-13T12:00:00Z",
+    "run_ids": [
+      "unit-4444444444444444"
+    ],
+    "seed_sha256": "e27d75c4dfc5fdeb8c314f74677498aca3f2ff5ee8fc2132bf5b5f29599b41c2"
+  },
+  "unit-microseconds": {
+    "content_sha256": "3b0efc9d1f2405af0d55f0d0c62fc7708cf9fa55b034114fc5529e49cef29749",
+    "created_at": "2026-11-13T12:00:07.123456Z",
+    "run_ids": [
+      "unit-4444444444444444"
+    ],
+    "seed_sha256": "786d929dd95d1dc2227ed10cf7d0f4a9f80b862cdd163991362e74d0f845efb2"
+  }
+}
