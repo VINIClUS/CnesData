@@ -63,10 +63,10 @@ def _plan(inventory: bytes | None = None) -> tuple[bytes, bytes]:
     return records.static_plan(inventory, ARN), inventory
 
 
-def test_static_promotion_tem_os_nove_campos_fechados_do_consumidor() -> None:
+def test_static_promotion_tem_os_nove_campos_fechados_do_contrato_do_produto() -> None:
     plan, inventory = _plan()
     value = static_promotion_input(_request(), plan, inventory)
-    assert ia.static_promotion(value, plan, records.STATIC_BUCKET) == value
+    assert ia.product_static_promotion(value, plan, records.STATIC_BUCKET) == value
 
 
 def test_static_promotion_liga_o_binding_ao_sha_do_plano_e_a_inventory() -> None:
@@ -132,19 +132,19 @@ def test_gerador_recusa_enabled_until_fora_do_formato() -> None:
         static_promotion_input(_request(enabled_until="2027-02-12"), plan, inventory)
 
 
-def test_consumidor_recusa_plano_com_campo_do_static_promotion_adulterado() -> None:
+def test_contrato_do_produto_recusa_campo_do_static_promotion_adulterado() -> None:
     plan, inventory = _plan()
     value = static_promotion_input(_request(), plan, inventory)
     forged = value | {"candidate_keys": ["index.html"]}
     with pytest.raises(ia.Refused, match="static plan fields"):
-        ia.static_promotion(forged, plan, records.STATIC_BUCKET)
+        ia.product_static_promotion(forged, plan, records.STATIC_BUCKET)
 
 
-def test_consumidor_recusa_static_promotion_com_campo_extra() -> None:
+def test_contrato_do_produto_recusa_static_promotion_com_campo_extra() -> None:
     plan, inventory = _plan()
     value = static_promotion_input(_request(), plan, inventory) | {"extra": 1}
     with pytest.raises(ia.Refused, match="closed object fields"):
-        ia.static_promotion(value, plan, records.STATIC_BUCKET)
+        ia.product_static_promotion(value, plan, records.STATIC_BUCKET)
 
 
 RESOURCES: dict[str, Any] = {

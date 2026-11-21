@@ -1,4 +1,7 @@
-"""Espelho das checagens puras do consumidor de lifecycle do infra-ansible, fixado por commit."""
+"""Espelho das checagens puras do consumidor de lifecycle do infra-ansible, fixado por commit.
+
+static_promotion e seus nove campos são contrato do produto, não do consumidor.
+"""
 
 from __future__ import annotations
 
@@ -9,6 +12,17 @@ from typing import Any
 
 # infra-ansible 7f2bc557 tools/cnesdata_delivery/{contract,lifecycle_contract,lifecycle_runtime}.py.
 IA_PIN = "7f2bc5575bae581576e1abf731059ce2e41accd0"
+IA_MIRRORED_SOURCES = {
+    "tools/cnesdata_delivery/contract.py": (
+        "64ec50ecca0370c9e5ac8edf9ddf2ed3a827e59078581053934022f1b67d8251"
+    ),
+    "tools/cnesdata_delivery/lifecycle_contract.py": (
+        "c940350838a55ecc8a29d4bc37174c3bf0727aaa0fdffba4d56b110c68ac326d"
+    ),
+    "tools/cnesdata_delivery/lifecycle_runtime.py": (
+        "dcde553252357b607f438daa67542379a90d07ac8c3ad04d8aa7c933f61344cb"
+    ),
+}
 REPOSITORY = "VINIClUS/CnesData"
 APPLICATION_CONTEXTS = {"promotion": "promotion", "mode-readiness-drill": "readiness"}
 APPLICATION_CALLERS = {
@@ -34,7 +48,7 @@ STATIC_PLAN_FIELDS = (
     "retire_versions multipart_keys"
 )
 STATIC_ENTRYPOINTS = ("index.html", "theme-init.js")
-STATIC_PROMOTION_FIELDS = (
+PRODUCT_STATIC_PROMOTION_FIELDS = (
     "mode application_promotion binding candidate_keys rollback_versions retire_versions "
     "multipart_keys inventory_sha256 enabled_until"
 )
@@ -195,8 +209,8 @@ def static_plan(raw: bytes, *, bucket: str) -> dict[str, Any]:
     return plan
 
 
-def static_promotion(value: dict[str, Any], plan_raw: bytes, bucket: str) -> dict[str, Any]:
-    closed(value, STATIC_PROMOTION_FIELDS)
+def product_static_promotion(value: dict[str, Any], plan_raw: bytes, bucket: str) -> dict[str, Any]:
+    closed(value, PRODUCT_STATIC_PROMOTION_FIELDS)
     require(value["mode"] in {"observer-bootstrap", "operational"}, "static mode")
     plan = static_plan(plan_raw, bucket=bucket)
     static_session_binding(value["binding"])
