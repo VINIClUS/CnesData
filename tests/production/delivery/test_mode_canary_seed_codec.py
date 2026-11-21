@@ -18,6 +18,7 @@ from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
 from cnes_infra.control_plane.dynamodb_codec import encode_model
 from cnes_infra.control_plane.dynamodb_keys import raw_manifest_lookup_key
 from cnes_infra.control_plane.dynamodb_run_codec import run_item
+from scripts.promotion.mode_canary_contract import ContractError
 from scripts.promotion.mode_canary_seed import (
     RawSource,
     SeedBinding,
@@ -137,3 +138,26 @@ def test_payload_dos_builders_preserva_a_ordem_de_declaracao_dos_modelos() -> No
     assert list(json.loads(run["payload"]["S"])) == list(Run.model_fields)
     assert run["payload"]["S"].endswith('"created_at":"2026-11-13T12:00:07.123456Z"}')
     assert run["gsi4sk"]["S"].startswith("2026-11-13T12:00:07.123456+00:00#")
+
+
+def test_unidades_exigem_as_duas_fontes_do_pipeline_cnes() -> None:
+    binding = _binding("unit")
+    with pytest.raises(ContractError, match="field=plan"):
+        seed_unit_items(binding, binding.run_ids[0], _sources()[:1])
+
+
+@pytest.mark.parametrize(("field", "value"), [
+    ("schema_version", ""), ("schema_version", 1), ("manifest_id", "a/b"), ("manifest_id", 7),
+])
+def test_fixture_recusa_snapshot_ou_schema_fora_da_forma(field: str, value: Any) -> None:
+    fixtures = _fixtures()
+    manifest = json.loads(fixtures["fixture-manifest.json"])
+    manifest["files"][_FILES[0]][field] = value
+    fixtures["fixture-manifest.json"] = json.dumps(manifest).encode()
+    with pytest.raises(ContractError, match=f"field={_FILES[0]}"):
+        build_mode_seed(_binding("unit"), fixtures)
+
+
+def test_fixture_manifest_que_nao_e_json_e_recusado() -> None:
+    with pytest.raises(ContractError, match="field=fixture_manifest"):
+        build_mode_seed(_binding("unit"), _fixtures() | {"fixture-manifest.json": b"{"})

@@ -16,6 +16,7 @@ from cnes_domain.orchestration.mode_canary import ModeCanaryBinding
 from scripts.promotion import _adapter_abi as abi
 from scripts.promotion import mode_canary_seed, promote_api
 from scripts.promotion.mode_canary import RESULT_FIELDS, RESULT_SCHEMA, ModeCanaryDenied
+from scripts.promotion.mode_canary_contract import ContractError
 from scripts.promotion.mode_canary_seed import SeedBinding, build_mode_seed
 from scripts.promotion.promote_mode_effects import ModeCalls
 from tests.production.delivery import test_mode_canary as mc
@@ -361,6 +362,7 @@ def test_efeito_recusa_depois_do_prazo_do_estagio(monkeypatch: pytest.MonkeyPatc
     (canonical({"version": 1, "kind": "mode-start", "frozen": 0, "started_at": STARTED}),
      "mode=mode_start"),
     (start_doc(started="2026-11-13 12:01:00"), "mode=mode_start"),
+    (start_doc(started="2026-13-01T00:00:00Z"), "mode=mode_start"),
 ])
 def test_start_recusa_documento_de_inicio_fora_do_contrato(
         monkeypatch: pytest.MonkeyPatch, raw: bytes, error: str) -> None:
@@ -401,3 +403,77 @@ def test_ponte_recusa_chamada_metodo_e_observacao_fora_da_operacao(
                                                "1" * 64, "unit", "promotion"))
     assert context.events == []
     assert bridge.now() == NOW
+
+
+class _Tampered(Keeper):
+    def observe(self, kind: str, raw: bytes) -> str:
+        self.observed.append((kind, raw))
+        return "0" * 64
+
+    def _get_object(self, request: dict[str, Any]) -> dict[str, Any]:
+        return {"Body": self.objects[(request["Bucket"], request["Key"])].decode("latin-1")}
+
+
+def test_ponte_recusa_digest_de_observacao_divergente_do_keeper() -> None:
+    bridge = ModeCalls(_Tampered({}), "recovery-start")
+    with pytest.raises(ValueError, match="mode=observation_digest name=recovery-task"):
+        bridge.observe("recovery-task", b"{}\n")
+
+
+def test_seed_recusa_releitura_de_objeto_sem_bytes(monkeypatch: pytest.MonkeyPatch) -> None:
+    with pytest.raises(ValueError, match="mode=object_body"):
+        run(monkeypatch, "unit-seed", _Tampered(seed_inputs("unit")))
+
+
+def test_seed_recusa_depois_do_prazo_do_canary(monkeypatch: pytest.MonkeyPatch) -> None:
+    late = record("unit", canary_deadline="2026-11-13T12:04:00Z")
+    context = Keeper(seed_inputs("unit") | {"record": late})
+    with pytest.raises(ContractError, match="field=canary_deadline"):
+        run(monkeypatch, "unit-seed", context)
+    assert untouched(context)
+
+
+@pytest.mark.parametrize("raw", [b"[]\n", canonical({"files": {"x": {"source_type": "SIHD"}}})])
+def test_seed_recusa_manifesto_de_fixture_sem_as_fontes_do_cnes(
+        monkeypatch: pytest.MonkeyPatch, raw: bytes) -> None:
+    inputs = seed_inputs("unit") | {"fixture-manifest": raw,
+                                    "record": record("unit", fixture_manifest_sha256=sha(raw))}
+    context = Keeper(inputs)
+    with pytest.raises(ContractError, match="field=fixture_manifest"):
+        run(monkeypatch, "unit-seed", context)
+    assert untouched(context)
+
+
+class _DeniedItem(Keeper):
+    def _put_item(self, request: dict[str, Any]) -> dict[str, Any]:
+        raise ClientError({"Error": {"Code": "AccessDeniedException"}}, "PutItem")
+
+
+class _DeniedObject(Keeper):
+    def _put_object(self, request: dict[str, Any]) -> dict[str, Any]:
+        raise ClientError({"Error": {"Code": "AccessDenied"}}, "PutObject")
+
+
+@pytest.mark.parametrize("denied", [_DeniedItem, _DeniedObject])
+def test_seed_propaga_erro_sdk_fora_dos_conflitos_fechados(
+        monkeypatch: pytest.MonkeyPatch, denied: type[Keeper]) -> None:
+    with pytest.raises(ClientError, match="AccessDenied"):
+        run(monkeypatch, "unit-seed", denied(seed_inputs("unit")))
+
+
+def test_seed_recusa_objeto_ja_gravado_com_outros_bytes(monkeypatch: pytest.MonkeyPatch) -> None:
+    first = Keeper(seed_inputs("unit"))
+    run(monkeypatch, "unit-seed", first)
+    key = next(key for key in first.objects if key[1].endswith("manifest.json"))
+    tampered = first.objects | {key: b"{}"}
+    replay = Keeper(first.inputs, items=first.items, objects=tampered)
+    with pytest.raises(ContractError, match=f"reason=seed_conflict key={key[1]}"):
+        run(monkeypatch, "unit-seed", replay)
+
+
+def test_releitura_ausente_do_keeper_deixa_o_resultado_pendente(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    context = keeper("recovery", start_inputs("recovery"))
+    context.after = None
+    run(monkeypatch, "recovery-start", context)
+    assert json.loads(context.observed[-1][1])["pending"] == ["routing_after_missing"]
