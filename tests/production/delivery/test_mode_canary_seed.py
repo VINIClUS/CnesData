@@ -183,7 +183,7 @@ def _planned(run_id: str) -> tuple[Run, tuple[Any, ...]]:
     refs = []
     for name in _FILES:
         entry = _manifest()["files"][name]
-        snapshot = f"{entry['manifest_id']}-{_OWNER[:16]}"
+        snapshot = f"{entry['manifest_id']}-unit-{_OWNER[:16]}"
         key = f"raw/{_TENANT}/{entry['source_type']}/2026-01/{snapshot}/manifest.json"
         refs.append(RawManifestRef(snapshot, key, entry["source_type"], "CNES_VINCULO",
                                    "2026-01"))
@@ -202,7 +202,7 @@ def test_seed_usa_codecs_nativos_e_estado_inicial_declarado() -> None:
     bodies = {obj.key: obj.body for obj in seed.objects}
     for name in _FILES:
         entry = _manifest()["files"][name]
-        snapshot = f"{entry['manifest_id']}-{_OWNER[:16]}"
+        snapshot = f"{entry['manifest_id']}-unit-{_OWNER[:16]}"
         prefix = f"raw/{_TENANT}/{entry['source_type']}/2026-01/{snapshot}/"
         assert bodies[prefix + "data.parquet"] == (_FIXTURES / name).read_bytes()
         raw = RawManifest.model_validate_json(bodies[prefix + "manifest.json"])

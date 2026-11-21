@@ -240,8 +240,8 @@ def test_audit_start_congelado_e_admitido_com_prova_do_freeze(
     run(monkeypatch, "audit-start", context)
     result = json.loads(context.observed[-1][1])
     assert result["freeze_proof_sha256"] is not None
-    assert [call[:3] for call in context.calls] == [("mode_audit_launch", "ecs", "run_task"),
-                                                    ("mode_observe", "ecs", "describe_tasks")]
+    assert [call[:3] for call in context.calls] == [
+        ("mode_audit_launch", "ecs", "run_task"), ("mode_audit_launch", "ecs", "describe_tasks")]
     environment = context.calls[0][3]["overrides"]["containerOverrides"][0]["environment"]
     assert [item["name"] for item in environment] == ["PROD_CANARY_AUDIT_OBSERVE"]
     assert not any(event[0] in {"admit", "settle", "unknown"} for event in context.events)

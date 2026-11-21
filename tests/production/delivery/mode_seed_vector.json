@@ -6,6 +6,8 @@
       "recovery-a-4444444444444444",
       "recovery-b-4444444444444444"
     ],
+    "scoped_content_sha256": "c1bb5e6aa69327acc23651f767acc6b8334fa2ec22769861a77afcfed395d37b",
+    "scoped_seed_sha256": "642a2690f52406d5433c00c5d499970994d43dad7f068e8d10a2ebee07ec3e69",
     "seed_sha256": "8c30a049607ac962e27db38ae1743387d021a3e21dd5a8ea9cca14d20376b016"
   },
   "unit": {
@@ -14,6 +16,8 @@
     "run_ids": [
       "unit-4444444444444444"
     ],
+    "scoped_content_sha256": "5e9978899e009c373a68310d4afe13552c3435057660de112f3a3da3dececbb9",
+    "scoped_seed_sha256": "cb4415a61b9e68dfe4aa6242d78d6b3aa5756376758d43014ce537dc5a077826",
     "seed_sha256": "e27d75c4dfc5fdeb8c314f74677498aca3f2ff5ee8fc2132bf5b5f29599b41c2"
   },
   "unit-microseconds": {
@@ -22,6 +26,8 @@
     "run_ids": [
       "unit-4444444444444444"
     ],
+    "scoped_content_sha256": "9518d0780bc165a76b2b5e5f0bdede2e62a21a53cd1bb3b51aa0472c6140d19f",
+    "scoped_seed_sha256": "2f11e9472d357f065289bd97af959b99c4607b8d86ad9344ae16fbc86c99cd78",
     "seed_sha256": "786d929dd95d1dc2227ed10cf7d0f4a9f80b862cdd163991362e74d0f845efb2"
   }
 }

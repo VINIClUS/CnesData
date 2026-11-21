@@ -86,9 +86,9 @@ _SEED_CALLS: Final = frozenset({
 MODE_EFFECT_CALLS: Final[dict[str, frozenset[tuple[str, str, str]]]] = {
     "unit-seed": _SEED_CALLS, "recovery-seed": _SEED_CALLS, "unit-start": frozenset(),
     "recovery-start": frozenset({("mode_dispatch", "ecs", "run_task"),
-                                 ("mode_observe", "ecs", "describe_tasks")}),
+                                 ("mode_dispatch", "ecs", "describe_tasks")}),
     "audit-start": frozenset({("mode_audit_launch", "ecs", "run_task"),
-                              ("mode_observe", "ecs", "describe_tasks")}),
+                              ("mode_audit_launch", "ecs", "describe_tasks")}),
 }
 MODE_EFFECT_STEPS: Final[dict[str, frozenset[str]]] = {
     "unit-seed": frozenset(), "recovery-seed": frozenset(),

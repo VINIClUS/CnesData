@@ -42,7 +42,7 @@ _COMPETENCIA: Final = "2026-01"
 _SUBTYPE: Final = "CNES_VINCULO"
 _AGENT: Final = "mode-canary-seed"
 _HEX64: Final = re.compile(r"[0-9a-f]{64}")
-_MANIFEST_ID: Final = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+_MANIFEST_ID: Final = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 _MAX_RUNS: Final = 2
 _SEPARATOR: Final = "\x1f"
 # build_source_catalog().for_pipeline("cnes").dependencies, frozen here so the child skips pydantic.
@@ -129,11 +129,10 @@ def _fixture_entry(name: str, entry: Any, body: bytes) -> Node:
     _require(type(entry) is dict and set(cast("Node", entry)) == _FILE_FIELDS, name)
     fields = cast("Node", entry)
     _require(fields["sha256"] == hashlib.sha256(body).hexdigest(), name)
-    _require(fields["size"] == len(body) and fields["source_type"] in _SOURCES, name)
+    _require(fields["size"] == len(body) > 0 and fields["source_type"] in _SOURCES, name)
     _require(type(fields["row_count"]) is int and fields["row_count"] > 0, name)
     _require(type(fields["schema_version"]) is str and bool(fields["schema_version"]), name)
-    _require(type(fields["manifest_id"]) is str
-             and _MANIFEST_ID.fullmatch(fields["manifest_id"]) is not None, name)
+    _require(_MANIFEST_ID.fullmatch(f"{fields['manifest_id']}") is not None, name)
     return fields
 
 
@@ -265,8 +264,14 @@ def seed_unit_items(binding: SeedBinding, run_id: str,
     return [_unit_item(binding, run_id, unit) for unit in (*normalize, reconcile, materialize)]
 
 
+def _scope(binding: SeedBinding) -> str:
+    owner = f"-{binding.owner_sha256[:16]}"
+    return "-".join(sorted({run.removesuffix(owner) for run in binding.run_ids}))
+
+
 def _raw_source(binding: SeedBinding, entry: Node, body: bytes) -> RawSource:
-    return RawSource(f"{entry['manifest_id']}-{binding.owner_sha256[:16]}", entry["source_type"],
+    parts = (f"{entry['manifest_id']}", _scope(binding), binding.owner_sha256[:16])
+    return RawSource("-".join(part for part in parts if part), entry["source_type"],
                      entry["schema_version"], entry["sha256"], entry["row_count"], len(body))
 
 

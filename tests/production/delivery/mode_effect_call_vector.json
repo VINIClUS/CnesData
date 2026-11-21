@@ -8,7 +8,7 @@
           "run_task"
         ],
         [
-          "mode_observe",
+          "mode_audit_launch",
           "ecs",
           "describe_tasks"
         ]
@@ -73,7 +73,7 @@
           "run_task"
         ],
         [
-          "mode_observe",
+          "mode_dispatch",
           "ecs",
           "describe_tasks"
         ]
