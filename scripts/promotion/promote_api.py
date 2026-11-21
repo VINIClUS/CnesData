@@ -6,6 +6,22 @@ import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Protocol
 
+from scripts.promotion._adapter_abi import (
+    ABI_VERSION,
+    CLOSED_READY_FIELDS,
+    INPUTS,
+    MEMBER_IDENTITY,
+    MODE_INPUTS,
+    MODE_OBSERVATION_FIELDS,
+    MODE_OBSERVATION_KIND,
+    MODE_OPERATIONS,
+    MODE_STAGES,
+    OBSERVATIONS,
+    ROUTING_FIELDS,
+    STAGES,
+    TERMINAL_READBACK_FIELDS,
+    stage_deadline,
+)
 from scripts.promotion._api_static_handoff import HOST_GATE_SHA
 from scripts.promotion._api_static_records import (
     PLAN_DRIFT_FIELDS,
@@ -30,6 +46,9 @@ from scripts.promotion.build_host_archive import (
     archive_manifest,
 )
 from scripts.promotion.promote_close import close_drain
+from scripts.promotion.promote_mode import audit_observe, recovery_observe, unit_observe
+from scripts.promotion.promote_ready import closed_ready
+from scripts.promotion.promote_terminal import reopen, terminal_readback
 from scripts.promotion.publish_dashboard import (
     PublicationError,
     StaticChannel,
@@ -52,28 +71,31 @@ from scripts.promotion.rollback_api_static import (
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
-__all__ = ["CLOCK", "canonical", "execute_shared_operation", "static_plan"]
+__all__ = [
+    "CLOCK",
+    "CLOSED_READY_FIELDS",
+    "INPUTS",
+    "MEMBER_IDENTITY",
+    "MODE_INPUTS",
+    "MODE_OBSERVATION_FIELDS",
+    "MODE_OPERATIONS",
+    "MODE_STAGES",
+    "OBSERVATIONS",
+    "ROUTING_FIELDS",
+    "STAGES",
+    "TERMINAL_READBACK_FIELDS",
+    "canonical",
+    "execute_shared_operation",
+    "static_plan",
+]
 
-ABI_VERSION = 2
 REQUEST_FIELDS = frozenset({
     "abi_version", "operation", "repository", "source_sha", "owner", "checkpoint_sha256",
     "activation_sha256", "stage", "inputs",
 })
-INPUTS = {
-    "inventory": frozenset({"candidate", "dashboard-artifact", "archive", "static-baseline"}),
-    "publish-static": frozenset(
-        {"candidate", "dashboard-artifact", "static-plan", "inventory", "host-receipt"}
-    ),
-    "rollback-api-static": frozenset(
-        {"static-plan", "inventory", "publication", "host-recovery-receipt", "recovery-decision"}
-    ),
-    "close-drain": frozenset({"activation", "expirations"}),
-}
-OBSERVATIONS = {"inventory": "inventory", "publish-static": "publication",
-                "rollback-api-static": "rollback", "close-drain": "close-drain"}
-STAGES = {"inventory": "application-prepare", "publish-static": "static",
-          "rollback-api-static": "recovery", "close-drain": "application-prepare"}
 _DIGEST = re.compile(r"[0-9a-f]{64}")
+_INPUTS: dict[str, frozenset[str]] = {**INPUTS, **MODE_INPUTS}
+_STAGES: dict[str, frozenset[str]] = {**STAGES, **MODE_STAGES}
 
 
 class AdapterContext(Protocol):
@@ -104,13 +126,15 @@ def execute_shared_operation(
     ValueError: operação fora desta tarefa ou request/input fora do contrato ABI2.
     PublicationError: binding de candidato, archive, plano ou host divergente.
     """
+    if operation in MODE_OPERATIONS and operation not in MODE_INPUTS:
+        raise ValueError(f"operation=mode_effect_unanchored name={operation}")
     handler = _HANDLERS.get(operation)
     if handler is None:
         raise ValueError(f"operation=unsupported name={operation}")
     _require_request(operation, request)
     inputs = {name: _read(context, name, ref) for name, ref in request["inputs"].items()}
     observation = handler(request, inputs, context)
-    kind = OBSERVATIONS[operation]
+    kind = OBSERVATIONS.get(operation, MODE_OBSERVATION_KIND)
     digest = context.observe(kind, observation)
     snapshot = context.evidence_snapshot()
     return {
@@ -188,14 +212,16 @@ def _rollback(request: Mapping[str, Any], inputs: Mapping[str, bytes],
 
 _HANDLERS: dict[str, Callable[[Mapping[str, Any], Mapping[str, bytes], AdapterContext], bytes]] = {
     "inventory": _inventory, "publish-static": _publish, "rollback-api-static": _rollback,
-    "close-drain": close_drain,
+    "close-drain": close_drain, "closed-ready": closed_ready, "reopen": reopen,
+    "terminal-readback": terminal_readback, "unit-observe": unit_observe,
+    "recovery-observe": recovery_observe, "audit-observe": audit_observe,
 }
 
 
 def _require_request(operation: str, request: Mapping[str, Any]) -> None:
     if set(request) != REQUEST_FIELDS or request["abi_version"] != ABI_VERSION:
         raise ValueError("request=fields")
-    if request["operation"] != operation or set(request["inputs"]) != INPUTS[operation]:
+    if request["operation"] != operation or set(request["inputs"]) != _INPUTS[operation]:
         raise ValueError("request=operation")
     owner = request["owner"]
     if (request["repository"], owner["repository"], owner["source_sha"]) != (
@@ -203,7 +229,7 @@ def _require_request(operation: str, request: Mapping[str, Any]) -> None:
     ):
         raise ValueError("request=source")
     stage = request["stage"]
-    if stage["stage"] != STAGES[operation] or (stage["close"] is None) != (
+    if stage["stage"] not in _STAGES[operation] or (stage["close"] is None) != (
         stage["stage"] == "application-prepare"
     ):
         raise ValueError("request=stage")
@@ -257,6 +283,5 @@ def _clock() -> datetime:
     return CLOCK()
 
 
-def _deadline(stage: Mapping[str, Any]) -> datetime:
-    limit = stage["preparation_deadline"] if stage["close"] is None else stage["deadline"]
-    return datetime.fromtimestamp(limit, UTC)
+def _deadline(stage: dict[str, Any]) -> datetime:
+    return datetime.fromtimestamp(stage_deadline(stage), UTC)

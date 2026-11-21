@@ -200,7 +200,7 @@ def _run(context: Context, request: dict[str, Any] | None = None) -> dict[str, A
 def test_tabela_do_close_drain_e_copia_literal_da_correcao_do_infra() -> None:
     """Correção infra-ansible#55 6906038586 (close-drain) e main ca3643e5 (campos, kinds)."""
     assert promote_api.INPUTS["close-drain"] == frozenset(INFRA_CLOSE_DRAIN_ROW["inputs"].split())
-    assert {promote_api.STAGES["close-drain"]} == INFRA_CLOSE_DRAIN_ROW["stage"]
+    assert promote_api.STAGES["close-drain"] == INFRA_CLOSE_DRAIN_ROW["stage"]
     assert promote_api.OBSERVATIONS["close-drain"] == INFRA_CLOSE_DRAIN_ROW["observation"]
     assert INFRA_CLOSE_EXPIRATION_KINDS - {"envelope"} == promote_close.EXPIRATION_KINDS
     assert promote_close.ROLE == "fence_operator"
@@ -498,3 +498,10 @@ def test_teto_do_drain_igual_ao_prazo_fixo_recusa(monkeypatch: pytest.MonkeyPatc
         with pytest.raises(DrainError, match="drain=deadline_exceeded"):
             _run(context)
     assert context.observed == []
+
+
+def test_activation_com_inputs_do_payload_verificado_e_aceita() -> None:
+    raw = canonical(json.loads(_activation()) | {"inputs": {"candidate_reference": None}})
+    request = {"activation_sha256": sha(raw)}
+    value, _ = promote_close._activation(raw, request)
+    assert value["inputs"] == {"candidate_reference": None}

@@ -5,29 +5,25 @@ from __future__ import annotations
 import hashlib
 import json
 from copy import deepcopy
-from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any, Final
 
-from cnes_infra.aws.mode_canary import canonical_text
-from scripts.promotion.accept_routing import (
-    MODES,
-    CanaryAcceptance,
-    PhaseCWatchdog,
-    assert_fence,
-    observe_gate,
-    read_routes,
-)
-from scripts.promotion.mode_canary import RESULT_FIELDS, RESULT_SCHEMA
-from scripts.promotion.phase_b import (
+from scripts.promotion._phase_c_core import (
     PhaseBContext,
-    _assert_task_revisions_unchanged,
-    _context_from_admitted,
+    PhaseCContext,
+    PhaseCWatchdog,
     _require_utc,
+    accept_mode_canary,
+    accept_recovery_canary,
+    assert_fence,
+    mode_result,
     object_hash,
+    verify_mode_route,
 )
+from scripts.promotion.accept_routing import observe_gate, read_routes
+from scripts.promotion.phase_b import _assert_task_revisions_unchanged, _context_from_admitted
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -60,79 +56,11 @@ _EMPTY_TARGET: Final = ("input", "dead_letter_config", "eventbridge_parameters",
                         "kinesis_parameters", "sagemaker_pipeline_parameters", "sqs_parameters")
 _EMPTY_ECS: Final = ("capacity_provider_strategy", "placement_constraints", "placement_strategy",
                      "propagate_tags", "reference_id", "group", "tags")
-_RESULT_COMMON: Final = ("canary_id", "candidate_sha256", "release_id", "source_sha")
 
 
 def _require(condition: bool, reason: str) -> None:
     if not condition:
         raise ValueError(reason)
-
-
-def _second(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(microsecond=0)
-
-
-@dataclass(frozen=True)
-class PhaseCContext:
-    """Phase B autenticada, close-drain original, fases C e canaries aceitos, em ordem."""
-
-    phase_b: PhaseBContext
-    phase_b_evidence: Node
-    close: Node
-    accepted: tuple[Node, ...] = ()
-    canaries: tuple[CanaryAcceptance, ...] = ()
-
-    @property
-    def activation_sha256(self) -> str:
-        return hashlib.sha256(self.phase_b.activation or b"").hexdigest()
-
-    @property
-    def revisions(self) -> Node:
-        return dict(self.phase_b.canary["revisions"])
-
-    @property
-    def initial(self) -> bool:
-        return self.phase_b_evidence["routes"]["mode"] == "initial"
-
-    @property
-    def prior(self) -> dict[str, str | None]:
-        routes = self.phase_b_evidence["routes"]
-        return {mode: None if self.initial else routes[f"{mode}_revision"] for mode in MODES}
-
-    @property
-    def next_mode(self) -> str | None:
-        return MODES[len(self.accepted)] if len(self.accepted) < len(MODES) else None
-
-    @property
-    def checkpoint(self) -> Node:
-        return (self.accepted[-1] if self.accepted else self.phase_b_evidence)["after"]
-
-    @property
-    def watchdog(self) -> PhaseCWatchdog:
-        return PhaseCWatchdog.from_close(self.close)
-
-    def routes_for(self, mode: str) -> dict[str, str | None]:
-        """Returns: Rotas esperadas depois do apply do modo; o outro modo fica onde estava."""
-        applied = MODES[: MODES.index(mode) + 1]
-        return {
-            "unit": self.revisions["unit"],
-            **{m: self.revisions[m] if m in applied else self.prior[m] for m in MODES},
-        }
-
-    def accept(self, evidence: Mapping[str, Any]) -> PhaseCContext:
-        """Raises: ValueError: Evidência fora da ordem, da cadeia de checkpoint ou das rotas."""
-        mode = self.next_mode
-        _require(
-            mode is not None
-            and evidence.get("kind") == f"phase-c-{mode}"
-            and evidence.get("common") == self.phase_b_evidence["common"]
-            and evidence.get("close_drain_sha256") == self.phase_b_evidence["close_drain_sha256"]
-            and evidence.get("before") == self.checkpoint
-            and evidence.get("routes") == self.routes_for(str(mode))
-            and len(self.canaries) == len(self.accepted),
-            "phase_c=evidence",
-        )
-        return replace(self, accepted=(*self.accepted, deepcopy(dict(evidence))))
 
 
 def phase_c_context(phase_b: PhaseBContext, evidence: Mapping[str, Any],
@@ -348,90 +276,19 @@ def execute_reviewed_phase_c(context: PhaseCContext, native: NativePhaseB,
     }
 
 
-def _bound(result: Node, mode: str, context: PhaseCContext) -> None:
-    applied = [e for e in context.accepted if e["kind"] == f"phase-c-{mode}"]
-    _require(len(applied) == 1, "canary=route_not_accepted")
-    _require(len(context.canaries) == MODES.index(mode), "canary=order")
-    canary, common = context.phase_b.canary, context.close["common"]
-    _require(
-        all(result["common"][key] == canary[key] for key in _RESULT_COMMON)
-        and result["common"]["activation_sha256"] == context.activation_sha256
-        and result["common"]["promotion_generation"] == common["promotion_generation"],
-        "canary=common",
-    )
-    observed = _second(result["observed_at"])
-    _require(_second(result["fixed_deadline"]) == _second(context.close["fixed_deadline"])
-             and observed >= _second(applied[0]["observed_at"]), "canary=window")
-    context.watchdog.admit(f"canary-{mode}", observed, 0)
-
-
-def mode_result(raw: bytes, mode: str, context: PhaseCContext, readbacks: Node) -> Node:
-    """Returns: mode-result aceito. Raises: ValueError: Result de outra janela ou incompleto."""
-    result = json.loads(raw)
-    _require(canonical_text(result).encode() == raw and set(result) == set(RESULT_FIELDS)
-             and result["schema"] == RESULT_SCHEMA and result["mode"] == mode, "canary=schema")
-    _bound(result, mode, context)
-    _require(not result["pending"] and not result["unknown"], "canary=pending")
-    routing = hashlib.sha256(canonical_text(readbacks).encode()).hexdigest()
-    _require(result["routing_before_sha256"] == routing == result["routing_after_sha256"],
-             "canary=routing")
-    _require(len(result["task_receipts"]) == 1, "canary=single_task")
-    return result
-
-
-def _route_role_deadline(readbacks: Node, mode: str, context: PhaseCContext) -> None:
-    canary, revision = context.phase_b.canary, context.revisions[mode]
-    target = readbacks["schedules"][mode]["Target"]
-    definition = readbacks["task_definitions"][mode]["taskDefinition"]
-    _require(target["EcsParameters"]["TaskDefinitionArn"] == revision
-             and definition.get("taskDefinitionArn") == revision, "route=revision")
-    role = f"arn:aws:iam::{canary['account_id']}:role/cnesdata-prod-processor-{mode}"
-    _require(definition.get("taskRoleArn") == role, "route=role")
-    _require(target["RetryPolicy"] == {"MaximumRetryAttempts": 0,
-                                       "MaximumEventAgeInSeconds": 900}, "route=deadline")
-    network = canary["network"]
-    vpc = target["EcsParameters"]["NetworkConfiguration"]["awsvpcConfiguration"]
-    _require(vpc == {"Subnets": sorted(network["subnets"]),
-                     "SecurityGroups": [network["security_group"]],
-                     "AssignPublicIp": network["public_ip"]}, "route=network")
-
-
-def verify_mode_route(readbacks: Node, mode: str, context: PhaseCContext) -> None:
-    """Raises: ValueError: Revisão, rede, role, prazo ou alarme de falha fora do alvo do modo."""
-    _route_role_deadline(readbacks, mode, context)
-    alarm = readbacks["alarms"][mode]
-    _require(
-        alarm.get("AlarmName") == f"cnesdata-prod-scheduler-{mode}-repeated-failure"
-        and alarm.get("Dimensions")
-        == [{"Name": "RuleName", "Value": f"cnesdata-prod-scheduler-{mode}-failed"}]
-        and (alarm.get("EvaluationPeriods"), alarm.get("DatapointsToAlarm")) == (2, 2)
-        and alarm.get("ActionsEnabled") is True
-        and bool(alarm.get("AlarmActions")),
-        "route=alarm",
-    )
-
-
-def accept_mode_canary(raw: bytes, mode: str, context: PhaseCContext,
-                       evidence: Mapping[str, Any]) -> PhaseCContext:
-    """Returns: Contexto com o aceite do canary. Raises: ValueError: Rota, janela ou fence."""
-    verify_mode_route(evidence["readbacks"], mode, context)
-    result = mode_result(raw, mode, context, evidence["readbacks"])
-    assert_fence(evidence["gate"], context.close)
-    accepted = CanaryAcceptance(
-        mode=mode, common=dict(result["common"]),
-        phase_c_sha256=object_hash(context.accepted[MODES.index(mode)]),
-        result_sha256=hashlib.sha256(raw).hexdigest(),
-        routing_sha256=result["routing_before_sha256"],
-        task_receipts=len(result["task_receipts"]), observed_at=result["observed_at"],
-        freeze_proof_sha256=result["freeze_proof_sha256"],
-        deadline_drill_sha256=result["deadline_drill_sha256"],
-        operational_requirements=tuple(result["operational_requirements"]),
-    )
-    return replace(context, canaries=(*context.canaries, accepted))
-
-
-def accept_recovery_canary(raw: bytes, context: PhaseCContext, readbacks: Node,
-                           gate_state: Any) -> PhaseCContext:
-    """Returns: Contexto com o canary de recovery aceito. Raises: ValueError: Permit em voo."""
-    return accept_mode_canary(raw, "recovery", context,
-                              {"readbacks": readbacks, "gate": gate_state})
+__all__ = [
+    "APPLY_SECONDS",
+    "INITIAL",
+    "RUN_POLICY",
+    "SCHEDULE",
+    "VARIABLES",
+    "PhaseCContext",
+    "accept_mode_canary",
+    "accept_recovery_canary",
+    "execute_reviewed_phase_c",
+    "mode_result",
+    "phase_c_context",
+    "review_recovery_plan",
+    "review_scheduler_plan",
+    "verify_mode_route",
+]

@@ -179,7 +179,7 @@ def _activation(raw: bytes, request: Mapping[str, Any]) -> tuple[dict[str, Any],
         value = json.loads(raw)
     except ValueError as error:
         raise ValueError("activation=encoding") from error
-    if (not isinstance(value, dict) or set(value) != FIELDS
+    if (not isinstance(value, dict) or set(value) - {"inputs"} != FIELDS
             or not all(isinstance(value[key], str) for key in _COMMON)):
         raise ValueError("activation=fields")
     return value, _account(value["revisions"])
