@@ -63,11 +63,44 @@ MODE_OBSERVATION_FIELDS: Final = frozenset({"version", "kind", "accepted", "chec
 MODE_OBSERVATION_KIND: Final = "mode"
 _SCHEDULED_INPUTS: Final = frozenset({"activation", "network", "close-drain", "phase-b", "phase-c",
                                       "mode-result", "readbacks"})
+_SEED_INPUTS: Final = frozenset({"record", "mode-start", "fixture-manifest", "fixture-cnes-local",
+                                 "fixture-cnes-nacional"})
+_START_INPUTS: Final = frozenset({"record", "readbacks", "previous", "mode-seed", "mode-start"})
 MODE_INPUTS: Final[dict[str, frozenset[str]]] = {
+    "unit-seed": _SEED_INPUTS, "recovery-seed": _SEED_INPUTS,
+    "unit-start": _START_INPUTS, "recovery-start": _START_INPUTS,
+    "audit-start": _START_INPUTS | {"audit-event-ids"},
     "unit-observe": frozenset({"activation", "close-drain", "record", "mode-result", "readbacks",
                                "observed"}),
     "recovery-observe": _SCHEDULED_INPUTS,
     "audit-observe": _SCHEDULED_INPUTS | {"recovery-result", "recovery-readbacks"},
+}
+MODE_OBSERVATIONS: Final[dict[str, str]] = {
+    name: "mode-seed" if name.endswith("-seed") else "mode-result" if name.endswith("-start")
+    else MODE_OBSERVATION_KIND for name in MODE_OPERATIONS
+}
+_SEED_CALLS: Final = frozenset({
+    ("mode_seed", "dynamodb", "put_item"), ("mode_seed", "dynamodb", "get_item"),
+    ("mode_seed", "s3", "put_object"), ("mode_seed", "s3", "get_object"),
+})
+MODE_EFFECT_CALLS: Final[dict[str, frozenset[tuple[str, str, str]]]] = {
+    "unit-seed": _SEED_CALLS, "recovery-seed": _SEED_CALLS, "unit-start": frozenset(),
+    "recovery-start": frozenset({("mode_dispatch", "ecs", "run_task"),
+                                 ("mode_dispatch", "ecs", "describe_tasks")}),
+    "audit-start": frozenset({("mode_audit_launch", "ecs", "run_task"),
+                              ("mode_audit_launch", "ecs", "describe_tasks")}),
+}
+MODE_EFFECT_STEPS: Final[dict[str, frozenset[str]]] = {
+    "unit-seed": frozenset(), "recovery-seed": frozenset(),
+    "unit-start": frozenset({"unit-execution", "unit-task", "unit-output"}),
+    "recovery-start": frozenset({"recovery-task"}), "audit-start": frozenset({"audit-task"}),
+}
+MODE_EFFECT_METHODS: Final[dict[str, frozenset[str]]] = {
+    "unit-seed": frozenset(), "recovery-seed": frozenset(),
+    "unit-start": frozenset({"dispatch_unit", "mode_readbacks"}),
+    "recovery-start": frozenset({"ledger_admit_effect", "ledger_mark_unknown", "ledger_settle",
+                                 "mode_readbacks"}),
+    "audit-start": frozenset({"mode_readbacks"}),
 }
 MODE_STAGES: Final[dict[str, frozenset[str]]] = {
     name: frozenset({MODE_OPERATIONS[name][1]}) for name in MODE_INPUTS
@@ -132,7 +165,11 @@ __all__ = [
     "CLOSED_READY_FIELDS",
     "INPUTS",
     "MEMBER_IDENTITY",
+    "MODE_EFFECT_CALLS",
+    "MODE_EFFECT_METHODS",
+    "MODE_EFFECT_STEPS",
     "MODE_INPUTS",
+    "MODE_OBSERVATIONS",
     "MODE_OBSERVATION_FIELDS",
     "MODE_OBSERVATION_KIND",
     "MODE_OPERATIONS",

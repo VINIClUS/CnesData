@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from scripts.promotion._adapter_abi import (
     ABI_VERSION,
@@ -13,7 +13,7 @@ from scripts.promotion._adapter_abi import (
     MEMBER_IDENTITY,
     MODE_INPUTS,
     MODE_OBSERVATION_FIELDS,
-    MODE_OBSERVATION_KIND,
+    MODE_OBSERVATIONS,
     MODE_OPERATIONS,
     MODE_STAGES,
     OBSERVATIONS,
@@ -47,6 +47,13 @@ from scripts.promotion.build_host_archive import (
 )
 from scripts.promotion.promote_close import close_drain
 from scripts.promotion.promote_mode import audit_observe, recovery_observe, unit_observe
+from scripts.promotion.promote_mode_effects import (
+    audit_start,
+    recovery_seed,
+    recovery_start,
+    unit_seed,
+    unit_start,
+)
 from scripts.promotion.promote_ready import closed_ready
 from scripts.promotion.promote_terminal import reopen, terminal_readback
 from scripts.promotion.publish_dashboard import (
@@ -77,6 +84,7 @@ __all__ = [
     "INPUTS",
     "MEMBER_IDENTITY",
     "MODE_INPUTS",
+    "MODE_OBSERVATIONS",
     "MODE_OBSERVATION_FIELDS",
     "MODE_OPERATIONS",
     "MODE_STAGES",
@@ -84,6 +92,8 @@ __all__ = [
     "ROUTING_FIELDS",
     "STAGES",
     "TERMINAL_READBACK_FIELDS",
+    "AdapterContext",
+    "ModeEffectContext",
     "canonical",
     "execute_shared_operation",
     "static_plan",
@@ -110,6 +120,37 @@ class AdapterContext(Protocol):
     def evidence_snapshot(self) -> dict[str, Any]: ...
 
 
+class ModeEffectContext(AdapterContext, Protocol):
+    """Métodos do keeper que só os efeitos de modo usam, além do ABI2 original."""
+
+    def ledger_admit_effect(self, kind: str, request_sha256: str, target_sha256: str,
+                            admitted_at: str) -> str: ...
+
+    def ledger_mark_unknown(self, effect_id: str) -> None: ...
+
+    def ledger_settle(self, effect_id: str, receipt_sha256: str) -> None: ...
+
+    def dispatch_unit(self, locator: str) -> dict[str, Any]: ...
+
+    def mode_readbacks(self) -> dict[str, Any]: ...
+
+
+class _Journal:
+    """Context original que registra cada observação na ordem do journal do keeper."""
+
+    def __init__(self, context: AdapterContext) -> None:
+        self._context = context
+        self.observations: list[dict[str, Any]] = []
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._context, name)
+
+    def observe(self, kind: str, raw: bytes) -> str:
+        digest = self._context.observe(kind, raw)
+        self.observations.append({"kind": kind, "sha256": digest, "size": len(raw)})
+        return digest
+
+
 def _utc_now() -> datetime:
     return datetime.now(UTC)
 
@@ -126,16 +167,14 @@ def execute_shared_operation(
     ValueError: operação fora desta tarefa ou request/input fora do contrato ABI2.
     PublicationError: binding de candidato, archive, plano ou host divergente.
     """
-    if operation in MODE_OPERATIONS and operation not in MODE_INPUTS:
-        raise ValueError(f"operation=mode_effect_unanchored name={operation}")
     handler = _HANDLERS.get(operation)
     if handler is None:
         raise ValueError(f"operation=unsupported name={operation}")
     _require_request(operation, request)
     inputs = {name: _read(context, name, ref) for name, ref in request["inputs"].items()}
-    observation = handler(request, inputs, context)
-    kind = OBSERVATIONS.get(operation, MODE_OBSERVATION_KIND)
-    digest = context.observe(kind, observation)
+    journal = _Journal(context)
+    observation = handler(request, inputs, cast("AdapterContext", journal))
+    journal.observe(OBSERVATIONS.get(operation) or MODE_OBSERVATIONS[operation], observation)
     snapshot = context.evidence_snapshot()
     return {
         "abi_version": ABI_VERSION,
@@ -143,7 +182,7 @@ def execute_shared_operation(
         "owner_sha256": request["owner"]["owner_sha256"],
         "generation": request["owner"]["generation"],
         "checkpoint_sha256": request["checkpoint_sha256"],
-        "observations": [{"kind": kind, "sha256": digest, "size": len(observation)}],
+        "observations": journal.observations,
         "call_receipts_sha256": snapshot["call_receipts_sha256"],
         "pending": snapshot["pending"],
         "unknown": snapshot["unknown"],
@@ -215,6 +254,8 @@ _HANDLERS: dict[str, Callable[[Mapping[str, Any], Mapping[str, bytes], AdapterCo
     "close-drain": close_drain, "closed-ready": closed_ready, "reopen": reopen,
     "terminal-readback": terminal_readback, "unit-observe": unit_observe,
     "recovery-observe": recovery_observe, "audit-observe": audit_observe,
+    "unit-seed": unit_seed, "recovery-seed": recovery_seed, "unit-start": unit_start,
+    "recovery-start": recovery_start, "audit-start": audit_start,
 }
 
 
