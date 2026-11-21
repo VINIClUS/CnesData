@@ -366,6 +366,8 @@ def _guard(mode: str, frozen: bool) -> FreezeGuard:
 def _routing(originals: Node, parts: _Parts) -> tuple[str, str]:
     before = _sha(_text(originals["readbacks"]))
     after = originals.get("readbacks_after")
+    if callable(after):
+        after = after()
     if after is None:
         parts.pending.add("routing_after_missing")
         return before, _sha(_text(None))

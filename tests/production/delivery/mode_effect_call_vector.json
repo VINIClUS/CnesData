@@ -1,0 +1,166 @@
+{
+  "operations": {
+    "audit-start": {
+      "calls": [
+        [
+          "mode_audit_launch",
+          "ecs",
+          "run_task"
+        ],
+        [
+          "mode_observe",
+          "ecs",
+          "describe_tasks"
+        ]
+      ],
+      "inputs": [
+        "audit-event-ids",
+        "mode-seed",
+        "mode-start",
+        "previous",
+        "readbacks",
+        "record"
+      ],
+      "methods": [
+        "mode_readbacks"
+      ],
+      "observation": "mode-result",
+      "stage": "phase-c-audit",
+      "steps": [
+        "audit-task"
+      ]
+    },
+    "recovery-seed": {
+      "calls": [
+        [
+          "mode_seed",
+          "dynamodb",
+          "get_item"
+        ],
+        [
+          "mode_seed",
+          "dynamodb",
+          "put_item"
+        ],
+        [
+          "mode_seed",
+          "s3",
+          "get_object"
+        ],
+        [
+          "mode_seed",
+          "s3",
+          "put_object"
+        ]
+      ],
+      "inputs": [
+        "fixture-cnes-local",
+        "fixture-cnes-nacional",
+        "fixture-manifest",
+        "mode-start",
+        "record"
+      ],
+      "methods": [],
+      "observation": "mode-seed",
+      "stage": "phase-c-recovery",
+      "steps": []
+    },
+    "recovery-start": {
+      "calls": [
+        [
+          "mode_dispatch",
+          "ecs",
+          "run_task"
+        ],
+        [
+          "mode_observe",
+          "ecs",
+          "describe_tasks"
+        ]
+      ],
+      "inputs": [
+        "mode-seed",
+        "mode-start",
+        "previous",
+        "readbacks",
+        "record"
+      ],
+      "methods": [
+        "ledger_admit_effect",
+        "ledger_mark_unknown",
+        "ledger_settle",
+        "mode_readbacks"
+      ],
+      "observation": "mode-result",
+      "stage": "phase-c-recovery",
+      "steps": [
+        "recovery-task"
+      ]
+    },
+    "unit-seed": {
+      "calls": [
+        [
+          "mode_seed",
+          "dynamodb",
+          "get_item"
+        ],
+        [
+          "mode_seed",
+          "dynamodb",
+          "put_item"
+        ],
+        [
+          "mode_seed",
+          "s3",
+          "get_object"
+        ],
+        [
+          "mode_seed",
+          "s3",
+          "put_object"
+        ]
+      ],
+      "inputs": [
+        "fixture-cnes-local",
+        "fixture-cnes-nacional",
+        "fixture-manifest",
+        "mode-start",
+        "record"
+      ],
+      "methods": [],
+      "observation": "mode-seed",
+      "stage": "unit",
+      "steps": []
+    },
+    "unit-start": {
+      "calls": [],
+      "inputs": [
+        "mode-seed",
+        "mode-start",
+        "previous",
+        "readbacks",
+        "record"
+      ],
+      "methods": [
+        "dispatch_unit",
+        "mode_readbacks"
+      ],
+      "observation": "mode-result",
+      "stage": "unit",
+      "steps": [
+        "unit-execution",
+        "unit-output",
+        "unit-task"
+      ]
+    }
+  },
+  "sdk_errors": {
+    "dynamodb:put_item": [
+      "ConditionalCheckFailedException"
+    ],
+    "s3:put_object": [
+      "ConditionalRequestConflict",
+      "PreconditionFailed"
+    ]
+  }
+}

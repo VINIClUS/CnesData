@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import pytest
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
@@ -54,6 +56,8 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 assert callable(module.execute_shared_operation)
 assert "scripts.promotion.promote_close" in sys.modules
+assert "scripts.promotion.promote_mode_effects" in sys.modules
+assert "scripts.promotion.mode_canary_seed" in sys.modules
 """
 
 
@@ -124,10 +128,10 @@ def _visit(name: str, edges: Edges, foreign: dict[str, set[str]]) -> list[str]:
     return found
 
 
-def _graph() -> tuple[Edges, dict[str, set[str]]]:
+def _graph(entry: str = _ENTRY) -> tuple[Edges, dict[str, set[str]]]:
     edges: Edges = {}
     foreign: dict[str, set[str]] = {}
-    pending = [_ENTRY]
+    pending = [entry]
     while pending:
         name = pending.pop()
         if name not in edges:
@@ -169,9 +173,9 @@ def test_handler_carrega_no_child_so_com_o_runtime_do_infra(tmp_path):
     assert failure == []
 
 
-def test_fechamento_do_handler_com_imports_em_funcao_nao_sai_do_runtime():
-    edges, foreign = _graph()
-    violations = []
+def _violations(entry: str) -> list[str]:
+    edges, foreign = _graph(entry)
+    violations: list[str] = []
     for name, items in sorted(edges.items()):
         if name.partition(".")[0] in _PACKAGES:
             continue
@@ -182,4 +186,17 @@ def test_fechamento_do_handler_com_imports_em_funcao_nao_sai_do_runtime():
             sites = sorted(site for module in _closure(target, edges) for site in foreign[module])
             if sites:
                 violations.append(f"{name}:{line} -> {target}: {', '.join(sites)}")
-    assert violations == []
+    return violations
+
+
+def test_fechamento_do_handler_com_imports_em_funcao_nao_sai_do_runtime():
+    assert _violations(_ENTRY) == []
+
+
+@pytest.mark.parametrize("entry", [
+    "scripts.promotion.promote_mode_effects", "scripts.promotion.mode_canary_seed",
+    "scripts.promotion.mode_canary",
+])
+def test_efeitos_de_modo_carregam_sem_pydantic_nem_cnes_contracts(entry: str):
+    assert _path(entry) is not None
+    assert _violations(entry) == []
