@@ -181,20 +181,30 @@ def test_actionlint_aceita_o_workflow() -> None:
     assert done.returncode == 0, done.stdout + done.stderr
 
 
+def _closure_digest(files: dict[str, str]) -> str:
+    canonical = json.dumps({"files": files}, sort_keys=True, separators=(",", ":")) + "\n"
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def test_ci_liga_as_constantes_ao_conteudo_do_vetor_sem_o_checkout_do_infra_ansible() -> None:
+    assert _closure_digest(VECTOR["closure_files"]) == PRODUCER_CLOSURE_SHA256
+    assert VECTOR["contract"] == {"path": CONTRACT_PATH, "sha256": CONTRACT_SHA256}
+    assert sorted(VECTOR["closure_files"]) == list(VECTOR["closure_files"])
+    assert REUSABLE["path"] in VECTOR["closure_files"]
+    assert VECTOR["closure_files"][REUSABLE["path"]] == REUSABLE["sha256"]
+
+
 def _show(repository: str, path: str) -> bytes:
     return subprocess.run(  # noqa: S603 -- git fixo sobre o checkout do pin.
         ["git", "-C", repository, "show", f"{PRODUCER}:{path}"],  # noqa: S607 -- git do dev.
-        capture_output=True,
-        check=True).stdout
+        capture_output=True, check=True).stdout
 
 
-def test_constantes_do_pin_conferem_com_a_arvore_do_infra_ansible_no_producer() -> None:
+@pytest.mark.ia_tree
+def test_vetor_confere_com_a_arvore_do_infra_ansible_no_producer() -> None:
     repository = os.environ.get("INFRA_ANSIBLE_REPO")
     if not repository:
         pytest.skip("INFRA_ANSIBLE_REPO ausente")
-    sha = lambda raw: hashlib.sha256(raw).hexdigest()  # noqa: E731
-    files = {path: sha(_show(repository, path)) for path in VECTOR["closure_paths"]}
-    canonical = json.dumps({"files": files}, sort_keys=True, separators=(",", ":")) + "\n"
-    assert sha(canonical.encode()) == PRODUCER_CLOSURE_SHA256
-    assert sha(_show(repository, CONTRACT_PATH)) == CONTRACT_SHA256
-    assert sha(_show(repository, REUSABLE["path"])) == REUSABLE["sha256"]
+    for path, digest in VECTOR["closure_files"].items():
+        assert hashlib.sha256(_show(repository, path)).hexdigest() == digest, path
+    assert hashlib.sha256(_show(repository, CONTRACT_PATH)).hexdigest() == CONTRACT_SHA256

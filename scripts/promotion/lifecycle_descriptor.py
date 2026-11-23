@@ -19,6 +19,12 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _integer(name: str, text: str) -> int:
+    if not text.isascii() or not text.isdecimal():
+        raise ValueError(f"lifecycle_descriptor field={name}")
+    return int(text)
+
+
 def main(argv: list[str] | None = None) -> int:
     """Raises: ValueError: step fora do conjunto, propósito ou observação malformada."""
     arguments = _parser().parse_args(argv)
@@ -26,7 +32,8 @@ def main(argv: list[str] | None = None) -> int:
         raise ValueError("lifecycle_descriptor field=step")
     claim = CallerClaim(
         application_purpose=arguments.purpose, source_sha=arguments.source_sha,
-        run_id=int(arguments.run_id), run_attempt=int(arguments.run_attempt),
+        run_id=_integer("run_id", arguments.run_id),
+        run_attempt=_integer("run_attempt", arguments.run_attempt),
         producer_workflow_sha=arguments.producer_workflow_sha,
         producer_source_closure_sha256=arguments.producer_closure_sha256)
     descriptor = request_descriptor(claim, arguments.step, {}, frozenset())

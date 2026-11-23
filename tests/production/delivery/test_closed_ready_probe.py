@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import subprocess
 import zipfile
 from typing import Any
 
@@ -33,6 +34,7 @@ class Api:
     def __init__(self, *, appears_at: int = 0, members: dict[str, Any] | None = None,
                  application: str = "in_progress", extra: int = 0) -> None:
         self.calls = 0
+        self.job_reads = 0
         self.appears_at = appears_at
         self.members = MEMBERS if members is None else members
         self.application = application
@@ -46,6 +48,7 @@ class Api:
         return [{"id": 9 + i, "name": name} for i in range(1 + self.extra)]
 
     def jobs(self) -> list[dict[str, Any]]:
+        self.job_reads += 1
         return [{"name": "application / execute", "status": self.application}]
 
     def archive(self, artifact_id: int) -> bytes:
@@ -69,8 +72,8 @@ class Clock:
 def _run(api: Api, clock: Clock | None = None, deadline: int = probe.TIMEOUT_SECONDS) -> str:
     clock = clock or Clock()
     return probe.wait_for_closed_ready(
-        api, run_id=7, attempt=1, application_job="application / execute",
-        sleep=clock.sleep, monotonic=clock.monotonic, deadline_seconds=deadline)
+        api, probe.Target(7, 1, "application / execute"),
+        probe.Clock(sleep=clock.sleep, monotonic=clock.monotonic), deadline)
 
 
 def test_devolve_o_hash_canonico_do_closed_ready_sem_criar_bytes() -> None:
@@ -112,3 +115,46 @@ def test_prazo_cobre_a_soma_maxima_das_janelas_mais_reserva_e_margem() -> None:
     assert probe.TIMEOUT_SECONDS >= sw.STAGE_SUM_CEILING + sw.FINAL_RESERVE + 300
     job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["closed-ready"]
     assert job["timeout-minutes"] * 60 >= probe.TIMEOUT_SECONDS
+
+
+def test_reler_o_artefato_depois_de_ver_o_application_concluido() -> None:
+    api = Api(appears_at=1, application="completed")
+    assert _run(api) == object_hash(READY)
+    assert api.calls == 2
+    assert api.job_reads == 1
+
+
+def test_nao_declara_application_concluido_se_o_artefato_ainda_nao_existe() -> None:
+    api = Api(appears_at=99, application="completed")
+    with pytest.raises(ValueError, match=r"^closed_ready_probe=application_concluded$"):
+        _run(api)
+    assert api.calls == 2
+
+
+class Run:
+    def __init__(self, failures: int) -> None:
+        self.failures = failures
+        self.calls = 0
+
+    def __call__(self, argv: list[str], **kwargs: Any) -> Any:
+        self.calls += 1
+        if self.calls <= self.failures:
+            raise subprocess.CalledProcessError(1, argv)
+        return subprocess.CompletedProcess(argv, 0, stdout=b'{"artifacts":[]}')
+
+
+def test_falha_transitoria_do_gh_api_e_repetida_ate_o_limite() -> None:
+    clock = Clock()
+    run = Run(probe.API_ATTEMPTS - 1)
+    api = probe.GhApi("VINIClUS/CnesData", 7, 1, run=run, sleep=clock.sleep)
+    assert api.artifacts("cnesdata-closed-ready-7-1") == []
+    assert run.calls == probe.API_ATTEMPTS
+    assert clock.sleeps == [probe.API_RETRY_SECONDS] * (probe.API_ATTEMPTS - 1)
+
+
+def test_falha_persistente_do_gh_api_vira_key_value_sem_traceback() -> None:
+    run = Run(10**6)
+    api = probe.GhApi("VINIClUS/CnesData", 7, 1, run=run, sleep=Clock().sleep)
+    with pytest.raises(ValueError, match=r"^closed_ready_probe=api$"):
+        api.jobs()
+    assert run.calls == probe.API_ATTEMPTS

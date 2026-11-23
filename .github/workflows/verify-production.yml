@@ -91,7 +91,7 @@ jobs:
         run: |
           uv run --no-build python -I tests/production/infra/bind_processing_sources.py \
             "${PROCESSING_SOURCE_BINDINGS}"
-          uv run --no-build pytest -q tests/production/delivery -k 'not test_dist_' \
+          uv run --no-build pytest -q tests/production/delivery -k 'not test_dist_' -m 'not ia_tree' \
             --junitxml=delivery.xml
           uv run --no-build python -c "import runpy; from pathlib import Path; \
           runpy.run_path('tests/production/test_runtime_acceptance.py')\

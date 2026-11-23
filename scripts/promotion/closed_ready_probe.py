@@ -10,6 +10,7 @@ import subprocess
 import sys
 import time
 import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, Protocol
 
@@ -21,6 +22,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 POLL_SECONDS: Final = 5
+API_ATTEMPTS: Final = 3
+API_RETRY_SECONDS: Final = 2
 MARGIN_SECONDS: Final = 300
 TIMEOUT_SECONDS: Final = STAGE_SUM_CEILING + FINAL_RESERVE + MARGIN_SECONDS
 _KINDS: Final = {"close-drain.json": "close-drain", "phase-b.json": "phase-b",
@@ -56,41 +59,74 @@ def _concluded(api: Api, application_job: str) -> bool:
                for job in api.jobs())
 
 
+@dataclass(frozen=True, slots=True)
+class Target:
+    """Run, tentativa e job do application observados pela sonda."""
+
+    run_id: int
+    attempt: int
+    application_job: str
+
+
+@dataclass(frozen=True, slots=True)
+class Clock:
+    """Relógio e espera injetáveis da sonda."""
+
+    sleep: Callable[[float], None] = time.sleep
+    monotonic: Callable[[], float] = time.monotonic
+
+
+def _published(api: Api, name: str) -> str | None:
+    found = api.artifacts(name)
+    if len(found) > 1:
+        raise ValueError("closed_ready_probe=artifact_count")
+    if not found:
+        return None
+    return object_hash(_members(api.archive(found[0]["id"]))["closed-ready.json"])
+
+
 def wait_for_closed_ready(
-    api: Api, *, run_id: int, attempt: int, application_job: str,
-    sleep: Callable[[float], None] = time.sleep,
-    monotonic: Callable[[], float] = time.monotonic,
-    deadline_seconds: int = TIMEOUT_SECONDS,
+    api: Api, target: Target, clock: Clock = Clock(), deadline_seconds: int = TIMEOUT_SECONDS,
 ) -> str:
     """Returns: sha256 canônico do closed-ready.json publicado pelo keeper neste run.
 
     Raises: ValueError: prazo, application concluído sem o artefato ou membros fora do contrato.
     """
-    name = f"cnesdata-closed-ready-{run_id}-{attempt}"
-    started = monotonic()
-    while monotonic() - started < deadline_seconds:
-        found = api.artifacts(name)
-        if len(found) > 1:
-            raise ValueError("closed_ready_probe=artifact_count")
-        if found:
-            return object_hash(_members(api.archive(found[0]["id"]))["closed-ready.json"])
-        if _concluded(api, application_job):
-            raise ValueError("closed_ready_probe=application_concluded")
-        sleep(POLL_SECONDS)
+    name = f"cnesdata-closed-ready-{target.run_id}-{target.attempt}"
+    started = clock.monotonic()
+    while clock.monotonic() - started < deadline_seconds:
+        digest = _published(api, name)
+        if digest is not None:
+            return digest
+        if _concluded(api, target.application_job):
+            digest = _published(api, name)
+            if digest is None:
+                raise ValueError("closed_ready_probe=application_concluded")
+            return digest
+        clock.sleep(POLL_SECONDS)
     raise ValueError("closed_ready_probe=deadline")
 
 
 class GhApi:
     """Leituras `gh api` do run corrente; o token vem do ambiente do job."""
 
-    def __init__(self, repository: str, run_id: int, attempt: int) -> None:
+    def __init__(self, repository: str, run_id: int, attempt: int,
+                 run: Callable[..., Any] = subprocess.run,
+                 sleep: Callable[[float], None] = time.sleep) -> None:
         self._base = f"repos/{repository}/actions"
         self._run, self._attempt = run_id, attempt
+        self._exec, self._sleep = run, sleep
 
     def _get(self, path: str) -> bytes:
-        return subprocess.run(
-            ["gh", "api", f"{self._base}/{path}"],  # noqa: S607 -- gh do runner, argv fixo.
-            check=True, capture_output=True).stdout
+        for attempt in range(API_ATTEMPTS):
+            try:
+                return self._exec(
+                    ["gh", "api", f"{self._base}/{path}"],
+                    check=True, capture_output=True).stdout
+            except (subprocess.CalledProcessError, OSError):
+                if attempt + 1 < API_ATTEMPTS:
+                    self._sleep(API_RETRY_SECONDS)
+        raise ValueError("closed_ready_probe=api")
 
     def artifacts(self, name: str) -> list[dict[str, Any]]:
         return json.loads(self._get(f"runs/{self._run}/artifacts?name={name}"))["artifacts"]
@@ -107,8 +143,8 @@ def main() -> int:
     run_id, attempt = int(os.environ["RUN_ID"]), int(os.environ["RUN_ATTEMPT"])
     try:
         digest = wait_for_closed_ready(
-            GhApi(os.environ["REPOSITORY"], run_id, attempt), run_id=run_id, attempt=attempt,
-            application_job=os.environ["APPLICATION_JOB"])
+            GhApi(os.environ["REPOSITORY"], run_id, attempt),
+            Target(run_id, attempt, os.environ["APPLICATION_JOB"]))
     except ValueError as error:
         logger.error("%s", error)
         return 1

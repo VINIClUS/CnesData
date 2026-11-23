@@ -74,10 +74,20 @@ def test_dispatch_simulado_com_o_catalogo_gera_descriptor_que_o_consumidor_admit
 @pytest.mark.parametrize("change", [
     {"--step": "plan-operational"}, {"--purpose": "outro"}, {"--source-sha": "abc"},
     {"--run-id": "0"}, {"--producer-closure-sha256": "z" * 64},
-], ids=["step", "proposito", "sha", "run", "closure"])
+    {"--run-id": "4x2"}, {"--run-attempt": "-1"}, {"--run-attempt": ""},
+], ids=["step", "proposito", "sha", "run", "closure", "run-texto", "attempt-negativo",
+        "attempt-vazio"])
 def test_cli_recusa_entrada_fora_do_contrato_sem_escrever(
     tmp_path: Path, change: dict[str, str],
 ) -> None:
     with pytest.raises(ValueError, match=r"^lifecycle_(descriptor|request) field="):
         lifecycle_descriptor.main(_argv(tmp_path / "out", **change))
     assert not (tmp_path / "out").exists()
+
+
+@pytest.mark.parametrize("change", [{"--run-id": "4x2"}, {"--run-attempt": "1.5"}],
+                         ids=["run-id", "run-attempt"])
+def test_cli_recusa_inteiro_malformado_com_key_value(tmp_path: Path,
+                                                      change: dict[str, str]) -> None:
+    with pytest.raises(ValueError, match=r"^lifecycle_descriptor field=run_(id|attempt)$"):
+        lifecycle_descriptor.main(_argv(tmp_path / "out", **change))
