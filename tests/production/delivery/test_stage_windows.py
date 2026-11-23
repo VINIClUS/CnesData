@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+import os
 import re
+import subprocess
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
@@ -276,3 +280,86 @@ def test_leitor_do_close_drain_exige_versao_2_e_as_janelas_do_request(prefix: st
     outside = document | {"windows": windows(api=361)}
     with pytest.raises(ValueError, match=r"^windows=stage stage=api value=361"):
         abi.close_drain_document(_raw(outside), prefix, windows(api=361))
+
+
+def _ia_refusal(value: Any) -> str:
+    with pytest.raises(ia.Refused) as refused:
+        ia.governed_windows(value)
+    return str(refused.value)
+
+
+def test_espelho_recusa_soma_apos_static_acima_de_1200_com_mensagem_chave_valor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    governed = windows(unit=120, phase_c_recovery=660, phase_c_audit=361)
+    assert ia.later_seconds(governed, "static") == 1201
+    monkeypatch.setattr(ia, "STAGE_SUM_CEILING", 10_000)
+    assert _ia_refusal(governed) == "stage_windows post_static=1201 context=1200"
+    at_cap = windows(unit=120, phase_c_recovery=660, phase_c_audit=360)
+    assert ia.later_seconds(at_cap, "static") == 1200
+    assert ia.governed_windows(at_cap)
+
+
+def test_produto_e_espelho_divergem_so_no_teto_ocioso_de_1200_apos_o_static() -> None:
+    governed = windows(unit=120, phase_c_recovery=660, phase_c_audit=361)
+    assert _ia_refusal(governed) == "stage windows sum=1921 ceiling=1830"
+    assert _both_refuse(governed) == "windows=sum sum=1921 ceiling=1830"
+    largest = windows(phase_b=360, api=180, static=180, unit=360, phase_c_recovery=450,
+                      phase_c_audit=450, final=180)
+    assert ia.later_seconds(largest, "static") == 1440 > ia.PROMOTION_CONTEXT_SECONDS
+    assert sum(largest["stages"].values()) > ia.STAGE_SUM_CEILING
+
+
+def test_post_static_maximo_alcancavel_sob_o_teto_de_soma_e_aceito_pelos_dois_lados() -> None:
+    reachable = windows(unit=360, phase_c_recovery=360, phase_c_audit=330, final=60)
+    assert sum(reachable["stages"].values()) == 1830
+    assert ia.later_seconds(reachable, "static") == 1110 <= ia.PROMOTION_CONTEXT_SECONDS
+    assert sw.governed_windows(reachable) == ia.governed_windows(reachable)
+
+
+@pytest.mark.parametrize(("changed", "expected"), [
+    pytest.param({"api": 181}, "api,fixed_deadline_seconds", id="estagio"),
+    pytest.param({"api": 181, "final": 61}, "api,final,fixed_deadline_seconds", id="dois"),
+])
+def test_espelho_do_close_drain_nomeia_os_campos_de_janela_divergentes(
+    changed: dict[str, int], expected: str,
+) -> None:
+    keeper = {"windows": MINIMUM}
+    other = windows(**changed)
+    raw = (json.dumps(close(other, 1800), sort_keys=True, ensure_ascii=False,
+                      separators=(",", ":")) + "\n").encode()
+    with pytest.raises(ia.Refused) as refused:
+        ia.close_window(keeper, raw, infra_bound=10**12, now=int(NOW.timestamp()))
+    message = f"close-drain windows differ from keeper windows changed={expected}"
+    assert str(refused.value) == message
+
+
+def test_espelho_do_close_drain_recusa_janela_so_com_prazo_fixo_diferente() -> None:
+    other = MINIMUM | {"fixed_deadline_seconds": 1801}
+    raw = (json.dumps(close(other, 1800), sort_keys=True, ensure_ascii=False,
+                      separators=(",", ":")) + "\n").encode()
+    with pytest.raises(ia.Refused) as refused:
+        ia.close_window({"windows": MINIMUM}, raw, infra_bound=10**12, now=int(NOW.timestamp()))
+    assert "fixed_deadline_seconds" in str(refused.value)
+
+
+def test_pin_do_espelho_e_o_commit_do_p36_mergeado_com_os_dois_sha256() -> None:
+    assert ia.IA_PIN == "b4ea93a7e8721923dfc0df0d3d9bafda4f57f028"
+    assert ia.IA_MIRRORED_SOURCES == {
+        "tools/cnesdata_delivery/lifecycle_contract.py":
+            "de82b6ca28a82cbbd2af318faa7dffd45bc4670db6e61f8ce3730769d41ebc22",
+        "tools/cnesdata_delivery/host_gate.py":
+            "7e3e103b85c29e83a2a37032c6dc34f85f2a90c98c0613a603a617b205a509d6",
+    }
+
+
+@pytest.mark.ia_tree
+def test_fontes_espelhados_conferem_com_a_arvore_do_infra_ansible_no_pin() -> None:
+    repository = os.environ.get("INFRA_ANSIBLE_REPO")
+    if not repository:
+        pytest.skip("INFRA_ANSIBLE_REPO ausente")
+    for path, expected in ia.IA_MIRRORED_SOURCES.items():
+        data = subprocess.run(  # noqa: S603 -- git fixo sobre o checkout do pin.
+            ["git", "-C", repository, "show", f"{ia.IA_PIN}:{path}"],  # noqa: S607 -- git do dev.
+            capture_output=True, check=True).stdout
+        assert hashlib.sha256(data).hexdigest() == expected, path

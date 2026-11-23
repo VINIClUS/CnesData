@@ -7,14 +7,14 @@ import re
 from datetime import UTC, datetime
 from typing import Any
 
-# infra-ansible 54b381c3 (branch do P36) tools/cnesdata_delivery/{lifecycle_contract,host_gate}.py.
-IA_PIN = "54b381c3dec4469a3bcd55a3e758291814646b07"
+# infra-ansible b4ea93a7 (P36 mergeado) tools/cnesdata_delivery/{lifecycle_contract,host_gate}.py.
+IA_PIN = "b4ea93a7e8721923dfc0df0d3d9bafda4f57f028"
 IA_MIRRORED_SOURCES = {
     "tools/cnesdata_delivery/lifecycle_contract.py": (
-        "69e91402201cc5632e1cc7f134e0d70f162837003eba428ca9e097b87c13687c"
+        "de82b6ca28a82cbbd2af318faa7dffd45bc4670db6e61f8ce3730769d41ebc22"
     ),
     "tools/cnesdata_delivery/host_gate.py": (
-        "6fff0ff74c34e8cc02d3d3d3f3736354d61579be959314e46cbdf2da4bf2c99a"
+        "7e3e103b85c29e83a2a37032c6dc34f85f2a90c98c0613a603a617b205a509d6"
     ),
 }
 ADAPTER_ABI_VERSION = 3
@@ -26,6 +26,7 @@ STAGES = {"phase-b": (360, 720), "api": (180, 360), "static": (180, 360), "unit"
           "phase-c-recovery": (240, 660), "phase-c-audit": (240, 660), "final": (60, 180)}
 FINAL_RESERVE = 420
 STAGE_SUM_CEILING = 1830
+PROMOTION_CONTEXT_SECONDS = 1200
 CLOSE_DRAIN_FIELDS = (
     "version kind common fence close_confirmed_at drain_observed_at frozen_membership_sha256 "
     "members proofs permit input_expirations fixed_deadline decision windows"
@@ -72,6 +73,16 @@ def _window_keys(value: Any) -> str:
     return ",".join(map(str, value)) if type(value) is dict else type(value).__name__
 
 
+def _window_changes(before: Any, after: Any) -> str:
+    def fields(value: Any) -> dict[str, Any]:
+        value = value if type(value) is dict else {}
+        stages = value.get("stages") if type(value.get("stages")) is dict else {}
+        return {**{name: stages.get(name) for name in STAGES},
+                "fixed_deadline_seconds": value.get("fixed_deadline_seconds")}
+    old, new = fields(before), fields(after)
+    return ",".join(name for name in new if old[name] != new[name]) or "other"
+
+
 def governed_windows(value: Any) -> Any:
     closed(value, "stages fixed_deadline_seconds")
     stages, fixed = value["stages"], value["fixed_deadline_seconds"]
@@ -83,6 +94,9 @@ def governed_windows(value: Any) -> Any:
                 f"stage window stage={name} value={seconds} min={low} max={high}")
     total = sum(stages.values())
     require(total <= STAGE_SUM_CEILING, f"stage windows sum={total} ceiling={STAGE_SUM_CEILING}")
+    post_static = later_seconds(value, "static")
+    require(post_static <= PROMOTION_CONTEXT_SECONDS,
+            f"stage_windows post_static={post_static} context={PROMOTION_CONTEXT_SECONDS}")
     require(type(fixed) is int and fixed == total + FINAL_RESERVE,
             f"fixed_deadline_seconds value={fixed} expected={total + FINAL_RESERVE}")
     return value
@@ -112,7 +126,8 @@ def close_window(previous: dict[str, Any], raw: bytes, *, infra_bound: int,
     require(type(value["version"]) is int and value["version"] == 2
             and value["kind"] == "close-drain", "close-drain observation version/kind")
     require(value["windows"] == governed_windows(previous["windows"]),
-            "close-drain windows differ from keeper windows")
+            "close-drain windows differ from keeper windows changed="
+            + _window_changes(previous["windows"], value["windows"]))
     require(value["permit"] is None and value["decision"] is None, "original idle permit/decision")
     expirations: list[Any] = value["input_expirations"]
     require(type(expirations) is list and expirations, "original input expirations")
