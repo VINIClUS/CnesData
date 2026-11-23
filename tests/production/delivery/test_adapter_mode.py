@@ -319,3 +319,22 @@ def test_audit_observe_reprova_quando_o_recovery_anterior_nao_reaceita(phase_c: 
 def test_unit_observe_recusa_record_de_outra_revisao_unit(phase_c: Any) -> None:
     other = phase_c.ctx.revisions["unit"].rsplit(":", 1)[0] + ":99"
     _refused(phase_c, "unit-observe", _unit(phase_c, other), "mode=record_binding")
+
+
+@pytest.mark.parametrize("name", ["unit-observe", "recovery-observe", "audit-observe"])
+def test_observe_recusa_close_drain_com_janelas_diferentes_das_do_request(
+    phase_c: Any, name: str
+) -> None:
+    inputs = {"unit-observe": lambda: _unit(phase_c),
+              "recovery-observe": lambda: _recovery(phase_c)[0],
+              "audit-observe": lambda: _audit(phase_c)}[name]()
+    phase_c.mp.setattr(promote_api, "CLOCK", lambda: datetime.now(UTC))
+    request = _request(phase_c, name, inputs)
+    windows = request["stage"]["windows"]
+    request["stage"]["windows"] = {
+        "stages": windows["stages"] | {"api": windows["stages"]["api"] + 1},
+        "fixed_deadline_seconds": windows["fixed_deadline_seconds"] + 1}
+    context = GateContext(phase_c, inputs)
+    with pytest.raises(ValueError, match=r"^mode=windows$"):
+        promote_api.execute_shared_operation(name, request, context)
+    assert context.calls == []

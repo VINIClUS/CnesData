@@ -28,7 +28,7 @@ from tests.production.delivery.test_adapter_handlers import (
     _writes,
 )
 from tests.production.delivery.test_api_static_rollback import decision, handoff
-from tests.production.delivery.test_phase_b import Probe, _seed
+from tests.production.delivery.test_phase_b import WINDOWS, Probe, _seed
 from tests.production.delivery.test_promote_close import (
     NOW,
     Context,
@@ -244,3 +244,22 @@ def test_terminal_readback_marca_membro_ja_nao_resolvido_como_pendente(
     assert record["pending"] == [{"kind": "member-unresolved",
                                   "reference_sha256": sha(canonical(identity))}]
     assert record["quiescent"] is False
+
+
+def test_closed_ready_recusa_close_drain_com_janelas_diferentes_das_do_request(
+    monkeypatch: pytest.MonkeyPatch
+) -> None:
+    other = {"stages": WINDOWS["stages"] | {"api": 181}, "fixed_deadline_seconds": 1801}
+    with _closed("terminal", monkeypatch) as (raw, _, probe, close):
+        _clock(monkeypatch, API)
+        context = Context(raw, probe, _ready_inputs(close))
+        with pytest.raises(ValueError, match=r"^closed_ready=windows$"):
+            _run(context, "closed-ready", API | {"windows": other})
+    assert context.calls == []
+
+
+def test_request_recusa_estagio_com_chave_a_mais() -> None:
+    context = Context(None, Probe(), {"activation": b"x", "close-drain": b"x", "phase-b": b"x",
+                                   "membership": b"x"})
+    with pytest.raises(ValueError, match=r"^request=stage$"):
+        _run(context, "closed-ready", API | {"extra": 1})
