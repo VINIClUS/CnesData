@@ -13,6 +13,10 @@ NOW = datetime(2026, 11, 9, 0, 45, tzinfo=UTC)
 APPLICATION_NOW = datetime(2026, 11, 7, 20, 52, tzinfo=UTC)
 SOURCE = "a" * 40
 PRODUCER = "6cb0bb2f46007c3679d64f62106ee02bf8758c5d"
+PRODUCER_CLOSURE_SHA256 = "c29be4e3dbcce9ff59d220ca235f0f4b12dc6b4c69232408e3e3ded620f23c93"
+CONTRACT_REPOSITORY = "VINIClUS/infra-ansible"
+CONTRACT_PATH = "docs/cnesdata-delivery-application-lifecycle.md"
+CONTRACT_SHA256 = "e28f3fccd86df77d16e49b5e7e8f54308433a362cc1e751377cbac93bf023cb8"
 BASELINES = ["backend", "cost", "drift", "policy", "shared-outputs", "toolchain"]
 
 
