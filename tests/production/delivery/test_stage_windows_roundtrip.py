@@ -10,7 +10,7 @@ import pytest
 
 from scripts.promotion import promote_api
 from tests.production.delivery import _ia_stage_windows_consumer as ia
-from tests.production.delivery.test_adapter_handlers import _ready_inputs
+from tests.production.delivery.test_adapter_handlers import API, _ready_inputs
 from tests.production.delivery.test_adapter_handlers import _request as handler_request
 from tests.production.delivery.test_promote_close import (
     NOW,
@@ -130,3 +130,18 @@ def test_resultado_do_adapter_declara_abi3(monkeypatch: pytest.MonkeyPatch) -> N
         result = promote_api.execute_shared_operation(
             "close-drain", _request(context.inputs, _prepare(INITIAL)), context)
     assert result["abi_version"] == ia.ADAPTER_ABI_VERSION
+
+
+@pytest.mark.parametrize(("operation", "stage"), [
+    ("inventory", PREPARE), ("closed-ready", API), ("unit-observe", API | {"stage": "unit"}),
+])
+def test_janelas_fora_dos_limites_sao_recusadas_no_request_de_qualquer_operacao(
+    operation: str, stage: dict[str, Any],
+) -> None:
+    names = promote_api.INPUTS.get(operation) or promote_api.MODE_INPUTS[operation]
+    inputs = dict.fromkeys(sorted(names), b"x")
+    request = handler_request(operation, inputs, stage | {"windows": windows(api=179)})
+    context = Context(None, None, inputs)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match=r"^windows=stage stage=api value=179 min=180 max=360$"):
+        promote_api.execute_shared_operation(operation, request, context)
+    assert (context.calls, context.observed) == ([], [])

@@ -98,6 +98,7 @@ def fixed_deadline(close: int, input_deadline: int, windows: dict[str, Any]) -> 
 
 
 def adapter_stage(stage: Any, window: dict[str, Any]) -> Any:
+    """validate_adapter_request (estágio fechado) e o governed_windows do checkpoint_transition."""
     closed(stage, ADAPTER_STAGE_FIELDS)
     require(stage == {key: window[key] for key in ADAPTER_STAGE_FIELDS.split()},
             "adapter original stage")
