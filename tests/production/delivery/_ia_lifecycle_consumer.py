@@ -10,17 +10,17 @@ import json
 import re
 from typing import Any
 
-# infra-ansible 7f2bc557 tools/cnesdata_delivery/{contract,lifecycle_contract,lifecycle_runtime}.py.
-IA_PIN = "7f2bc5575bae581576e1abf731059ce2e41accd0"
+# infra-ansible b4ea93a7 tools/cnesdata_delivery/{contract,lifecycle_contract,lifecycle_runtime}.py.
+IA_PIN = "b4ea93a7e8721923dfc0df0d3d9bafda4f57f028"
 IA_MIRRORED_SOURCES = {
     "tools/cnesdata_delivery/contract.py": (
-        "64ec50ecca0370c9e5ac8edf9ddf2ed3a827e59078581053934022f1b67d8251"
+        "7006c783b5cc29cd6744ca61d82946ef7a7f43e7d999f565552b902368cd0322"
     ),
     "tools/cnesdata_delivery/lifecycle_contract.py": (
-        "c940350838a55ecc8a29d4bc37174c3bf0727aaa0fdffba4d56b110c68ac326d"
+        "de82b6ca28a82cbbd2af318faa7dffd45bc4670db6e61f8ce3730769d41ebc22"
     ),
     "tools/cnesdata_delivery/lifecycle_runtime.py": (
-        "dcde553252357b607f438daa67542379a90d07ac8c3ad04d8aa7c933f61344cb"
+        "507c47893f008979f47b6448e53dcc1dd03e1610b0b5fff276f9f1d67319cb32"
     ),
 }
 REPOSITORY = "VINIClUS/CnesData"
