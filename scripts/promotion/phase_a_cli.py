@@ -18,6 +18,12 @@ from release.build_candidate import GitHub
 from release.verify_candidate import canonical, require
 from scripts.promotion.ecr_registry import connect
 from scripts.promotion.phase_a import prepare_inputs
+from scripts.promotion.phase_a_private import (
+    WRITER_ROLE,
+    stage_private,
+    upload_private,
+    validate_target,
+)
 from scripts.promotion.promote_ecr import promote_candidate
 
 if TYPE_CHECKING:
@@ -56,6 +62,33 @@ def _phase_inputs(arguments: argparse.Namespace) -> None:
     Path(arguments.output).write_bytes(canonical(inputs))
 
 
+def _identity(arguments: argparse.Namespace) -> Node:
+    return {
+        "source_sha": arguments.source_sha,
+        "run_id": int(arguments.run_id),
+        "run_attempt": int(arguments.run_attempt),
+    }
+
+
+def _stage(arguments: argparse.Namespace) -> None:
+    stage_private(Path(arguments.directory), _identity(arguments))
+
+
+def _upload(arguments: argparse.Namespace, seams: Seams) -> None:
+    target = {
+        "bucket": arguments.bucket,
+        "prefix": arguments.prefix,
+        "kms_key_arn": arguments.kms_key_arn,
+        "identity": _identity(arguments),
+    }
+    validate_target(target)
+    session = _authenticated_session(arguments, seams)
+    arn = session.client("sts").get_caller_identity()["Arn"]
+    prefix = f"arn:aws:sts::{arguments.account_id}:assumed-role/{WRITER_ROLE}/"
+    require(arn.startswith(prefix), "sts=writer_role")
+    upload_private(Path(arguments.directory), target, session.client("s3"))
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Phase A: promoção ECR e inputs locais.")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -73,6 +106,11 @@ def _parser() -> argparse.ArgumentParser:
         "output",
     ):
         inputs.add_argument(f"--{name}", required=True)
+    stage = commands.add_parser("stage-private", help="Grava candidate.json e phase-a-public.json.")
+    upload = commands.add_parser("upload-private", help="Grava os três objetos privados no S3.")
+    for sub, extra in ((stage, ()), (upload, ("account-id", "bucket", "prefix", "kms-key-arn"))):
+        for name in ("directory", "source-sha", "run-id", "run-attempt", *extra):
+            sub.add_argument(f"--{name}", required=True)
     return parser
 
 
@@ -101,6 +139,19 @@ def _authenticated_session(arguments: argparse.Namespace, seams: Seams) -> Any:
     return session
 
 
+def _dispatch(arguments: argparse.Namespace, seams: Seams) -> None:
+    if arguments.command == "promote-ecr":
+        session = _authenticated_session(arguments, seams)
+        api = seams.api_factory(REPOSITORY)
+        _promote(arguments, api, seams.registry_factory(session), seams.clock())
+    elif arguments.command == "phase-inputs":
+        _phase_inputs(arguments)
+    elif arguments.command == "stage-private":
+        _stage(arguments)
+    else:
+        _upload(arguments, seams)
+
+
 def main(
     argv: Sequence[str] | None = None,
     *,
@@ -110,17 +161,13 @@ def main(
     arguments = _parser().parse_args(argv)
     seams = seams or Seams()
     try:
-        if arguments.command == "promote-ecr":
-            session = _authenticated_session(arguments, seams)
-            api = seams.api_factory(REPOSITORY)
-            _promote(arguments, api, seams.registry_factory(session), seams.clock())
-        else:
-            _phase_inputs(arguments)
+        _dispatch(arguments, seams)
     except FAILURES as error:
         reason = str(error) if isinstance(error, ValueError) else type(error).__name__
         logger.error("%s=failed reason=%s", arguments.command.replace("-", "_"), reason)
         return 2
-    logger.info("%s=written output=%s", arguments.command.replace("-", "_"), arguments.output)
+    output = getattr(arguments, "output", None) or arguments.directory
+    logger.info("%s=written output=%s", arguments.command.replace("-", "_"), output)
     return 0
 
 
