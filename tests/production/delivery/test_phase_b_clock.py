@@ -12,6 +12,7 @@ from tests.production.delivery.test_phase_b import (
     EXPIRATIONS,
     MACHINE_ARN,
     NOW,
+    WINDOWS,
     Clock,
     Probe,
 )
@@ -41,6 +42,7 @@ def test_close_demora_e_replay_nao_rearma_o_prazo(ddb):
         expirations=EXPIRATIONS,
         clock=clock,
         common=COMMON,
+        windows=WINDOWS,
     )
     assert first["close_confirmed_at"] == first["fence"]["changed_at"] == "2026-11-09T12:00:00Z"
     assert first["fixed_deadline"] == "2026-11-09T12:30:00Z"
@@ -55,6 +57,7 @@ def test_close_demora_e_replay_nao_rearma_o_prazo(ddb):
         expirations=EXPIRATIONS,
         clock=Clock(),
         common=COMMON,
+        windows=WINDOWS,
     )
     assert replay["close_confirmed_at"] == first["close_confirmed_at"]
     assert replay["fixed_deadline"] == first["fixed_deadline"]
@@ -70,6 +73,7 @@ def test_close_demora_e_replay_nao_rearma_o_prazo(ddb):
             expirations=EXPIRATIONS,
             clock=Clock(),
             common=COMMON,
+            windows=WINDOWS,
         )
 
 
@@ -91,6 +95,7 @@ def test_replay_apos_escrita_sem_confirm_confirma_no_segundo_da_escrita(ddb, mon
             expirations=EXPIRATIONS,
             clock=Clock(),
             common=COMMON,
+            windows=WINDOWS,
         )
     assert adapter.observe_environment_gate("prod").fence.confirmed_at is None
     monkeypatch.undo()
@@ -104,6 +109,7 @@ def test_replay_apos_escrita_sem_confirm_confirma_no_segundo_da_escrita(ddb, mon
         expirations=EXPIRATIONS,
         clock=Clock(),
         common=COMMON,
+        windows=WINDOWS,
     )
     assert replay["close_confirmed_at"] == replay["fence"]["changed_at"] == "2026-11-09T12:00:00Z"
     assert replay["fixed_deadline"] == "2026-11-09T12:30:00Z"
@@ -169,5 +175,6 @@ def test_cancelamento_reserved_persistido_retoma_apos_falha_de_release(ddb):
         expirations=EXPIRATIONS,
         clock=Clock(),
         common=COMMON,
+        windows=WINDOWS,
     )
     assert result["members"][0]["resolution"] == "CANCEL_BEFORE_SEND"

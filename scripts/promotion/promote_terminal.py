@@ -1,4 +1,4 @@
-"""Handlers ABI2 reopen e terminal-readback: reabertura por CAS e leitura final do gate (#465)."""
+"""Handlers ABI3 reopen e terminal-readback: reabertura por CAS e leitura final do gate (#465)."""
 
 from __future__ import annotations
 

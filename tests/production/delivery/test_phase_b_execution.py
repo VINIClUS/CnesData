@@ -18,7 +18,14 @@ from scripts.promotion.phase_b import _context_from_admitted, execute_reviewed_p
 from scripts.promotion.run_canary import _contract
 from scripts.promotion.verify_routes import NativePhaseB
 from tests.production.delivery.test_activation_manifest import _reseal_phase, admit, prepare
-from tests.production.delivery.test_phase_b import COMMON, MACHINE_ARN, Clock, Probe, _phase_plan
+from tests.production.delivery.test_phase_b import (
+    COMMON,
+    MACHINE_ARN,
+    WINDOWS,
+    Clock,
+    Probe,
+    _phase_plan,
+)
 from tests.production.delivery.test_phase_b import activation as activation_fixture
 from tests.production.delivery.test_phase_b import case as case_fixture
 from tests.production.delivery.test_phase_b import ddb as ddb_fixture
@@ -131,6 +138,7 @@ def operation(case, activation, ddb, tmp_path, monkeypatch):
         now,
         clock=Clock(),
         common=common,
+        windows=WINDOWS,
         expirations=[
             {
                 "kind": "activation",

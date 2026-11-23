@@ -46,7 +46,7 @@ def _stage(name: str) -> dict[str, Any]:
 
 
 def _request(op: Any, name: str, inputs: dict[str, bytes]) -> dict[str, Any]:
-    return {"abi_version": 2, "operation": name, "repository": OWNER["repository"],
+    return {"abi_version": 3, "operation": name, "repository": OWNER["repository"],
             "source_sha": SHA, "owner": OWNER, "checkpoint_sha256": API["checkpoint_sha256"],
             "activation_sha256": sha(op.context.activation), "stage": _stage(OBSERVES[name]),
             "inputs": {key: {"sha256": sha(raw), "size": len(raw)}

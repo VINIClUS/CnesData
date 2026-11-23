@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 from cnes_domain.control_plane.environment_gate import FenceState, PromotionFence, open_fence
 from cnes_infra.control_plane.dynamodb_keys import item_key, timestamp
@@ -13,6 +13,8 @@ from cnes_infra.control_plane.dynamodb_keys import item_key, timestamp
 if TYPE_CHECKING:
     from cnes_domain.control_plane.environment_gate import UnitPermit
     from cnes_infra.control_plane.dynamodb_codec import Action, Item
+
+CLOSE_RECEIPT_SECONDS: Final = 2250
 
 
 def canonical_snapshot(value: Any) -> bytes:
@@ -69,7 +71,7 @@ def _snapshot_update(
         "version": updated.version,
         "changed_at": timestamp(updated.changed_at),
         "closed_membership_sha256": snapshot_sha256(membership),
-        "expires_at": (updated.changed_at + timedelta(seconds=1800))
+        "expires_at": (updated.changed_at + timedelta(seconds=CLOSE_RECEIPT_SECONDS))
         .isoformat(timespec="seconds")
         .replace("+00:00", "Z"),
     }

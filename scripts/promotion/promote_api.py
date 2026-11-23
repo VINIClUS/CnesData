@@ -1,4 +1,4 @@
-"""Entrypoint fixo do adapter ABI2: inventário, publicação e rollback estáticos (#473)."""
+"""Entrypoint fixo do adapter ABI3: inventário, publicação e rollback estáticos (#473)."""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ from scripts.promotion._adapter_abi import (
     MODE_STAGES,
     OBSERVATIONS,
     ROUTING_FIELDS,
+    STAGE_FIELDS,
     STAGES,
     TERMINAL_READBACK_FIELDS,
     stage_deadline,
@@ -39,6 +40,7 @@ from scripts.promotion._api_static_records import (
     static_plan,
     static_target,
 )
+from scripts.promotion._stage_windows import governed_windows
 from scripts.promotion.build_host_archive import (
     CALLER_REF,
     CALLER_WORKFLOW,
@@ -121,7 +123,7 @@ class AdapterContext(Protocol):
 
 
 class ModeEffectContext(AdapterContext, Protocol):
-    """Métodos do keeper que só os efeitos de modo usam, além do ABI2 original."""
+    """Métodos do keeper que só os efeitos de modo usam, além do ABI3 original."""
 
     def ledger_admit_effect(self, kind: str, request_sha256: str, target_sha256: str,
                             admitted_at: str) -> str: ...
@@ -162,9 +164,9 @@ def execute_shared_operation(
     operation: str, request: Mapping[str, Any], context: AdapterContext
 ) -> dict[str, Any]:
     """Returns:
-    Resultado ABI2 com a observação registrada e a incerteza do journal compartilhado.
+    Resultado ABI3 com a observação registrada e a incerteza do journal compartilhado.
     Raises:
-    ValueError: operação fora desta tarefa ou request/input fora do contrato ABI2.
+    ValueError: operação fora desta tarefa ou request/input fora do contrato ABI3.
     PublicationError: binding de candidato, archive, plano ou host divergente.
     """
     handler = _HANDLERS.get(operation)
@@ -270,10 +272,13 @@ def _require_request(operation: str, request: Mapping[str, Any]) -> None:
     ):
         raise ValueError("request=source")
     stage = request["stage"]
+    if not isinstance(stage, dict) or set(cast("dict[str, Any]", stage)) != STAGE_FIELDS:
+        raise ValueError("request=stage")
     if stage["stage"] not in _STAGES[operation] or (stage["close"] is None) != (
         stage["stage"] == "application-prepare"
     ):
         raise ValueError("request=stage")
+    governed_windows(stage["windows"])
 
 
 def _read(context: AdapterContext, name: str, reference: Any) -> bytes:
