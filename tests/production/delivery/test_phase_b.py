@@ -69,6 +69,13 @@ EXPIRATIONS = [
 ]
 
 
+WINDOWS = {
+    "stages": {"phase-b": 360, "api": 180, "static": 180, "unit": 120, "phase-c-recovery": 240,
+               "phase-c-audit": 240, "final": 60},
+    "fixed_deadline_seconds": 1800,
+}
+
+
 class Probe:
     def __init__(self, request=None, terminal=False):
         self.request, self.terminal = request, terminal
@@ -204,7 +211,16 @@ def native_close(ddb, request):
     coordinator = PipelineCoordinator(dependencies, execution)
     clock = Clock(lambda: coordinator.recover())
     result = close_and_drain(
-        adapter, probe, None, "prod", "r1", NOW, expirations=EXPIRATIONS, clock=clock, common=COMMON
+        adapter,
+        probe,
+        None,
+        "prod",
+        "r1",
+        NOW,
+        expirations=EXPIRATIONS,
+        clock=clock,
+        common=COMMON,
+        windows=WINDOWS,
     )
     return adapter, probe, result, mode
 
@@ -253,6 +269,7 @@ def test_starting_ausente_nunca_vira_cancelamento(ddb):
             expirations=expiration,
             clock=clock,
             common=COMMON,
+            windows=WINDOWS,
         )
     assert adapter.observe_environment_gate("prod").permit is not None
 
@@ -269,6 +286,7 @@ def test_input_expirado_nao_fecha_nem_em_ambiente_ocioso():
             NOW,
             expirations=expiration,
             common=COMMON,
+            windows=WINDOWS,
         )
 
 

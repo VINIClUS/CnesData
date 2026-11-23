@@ -27,6 +27,7 @@ from tests.production.delivery._api_static_fixtures import (
     sha,
 )
 from tests.production.delivery.test_api_static_rollback import CALLER, READY, decision, handoff
+from tests.production.delivery.test_phase_b import WINDOWS
 
 SHA = "a" * 40
 CANDIDATE_ID = f"candidate-{SHA}-77-1"
@@ -49,7 +50,7 @@ def _epoch(seconds: int) -> int:
 PREPARE = {"close": None, "fixed_deadline": None, "input_deadline": _epoch(3600),
            "stage": "application-prepare", "admitted_at": _epoch(0), "deadline": _epoch(180),
            "decision": None, "preparation_deadline": _epoch(180), "sequence": 0,
-           "checkpoint_sha256": "8" * 64}
+           "checkpoint_sha256": "8" * 64, "windows": WINDOWS}
 STATIC = PREPARE | {"close": _epoch(0), "fixed_deadline": _epoch(1800), "stage": "static",
                     "deadline": _epoch(300), "sequence": 3}
 RECOVERY = STATIC | {"stage": "recovery", "deadline": _epoch(300), "sequence": 4}
@@ -84,7 +85,7 @@ def _relogio(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _request(operation: str, inputs: dict[str, bytes], stage: dict[str, Any]) -> dict[str, Any]:
-    return {"abi_version": 2, "operation": operation, "repository": OWNER["repository"],
+    return {"abi_version": 3, "operation": operation, "repository": OWNER["repository"],
             "source_sha": SHA, "owner": OWNER, "checkpoint_sha256": stage["checkpoint_sha256"],
             "activation_sha256": "9" * 64, "stage": stage,
             "inputs": {name: {"sha256": sha(raw), "size": len(raw)}
@@ -156,7 +157,7 @@ def test_inventory_registra_observacao_canonica_e_resultado_abi2() -> None:
     assert raw == promote_api.canonical(record)
     assert record["outcome"] == "PLANNED"
     assert record["upload_order"][-1] == "index.html"
-    assert result == {"abi_version": 2, "operation": "inventory",
+    assert result == {"abi_version": 3, "operation": "inventory",
                       "owner_sha256": OWNER["owner_sha256"], "generation": 7,
                       "checkpoint_sha256": PREPARE["checkpoint_sha256"],
                       "observations": [{"kind": "inventory", "sha256": sha(raw),

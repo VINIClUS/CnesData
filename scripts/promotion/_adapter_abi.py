@@ -1,13 +1,26 @@
-"""Tabela fechada do adapter ABI2 e codecs dos insumos originais entregues pelo keeper."""
+"""Tabela fechada do adapter ABI3 e codecs dos insumos originais entregues pelo keeper."""
 
 from __future__ import annotations
 
 import json
-from typing import Any, Final, NoReturn, cast
+from typing import TYPE_CHECKING, Any, Final, NoReturn, cast
 
 from scripts.promotion._api_static_records import canonical, sha
+from scripts.promotion._stage_windows import CLOSE_DRAIN_VERSION, governed_windows
 
-ABI_VERSION: Final = 2
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+ABI_VERSION: Final = 3
+STAGE_FIELDS: Final = frozenset({
+    "close", "fixed_deadline", "input_deadline", "stage", "admitted_at", "deadline", "decision",
+    "preparation_deadline", "sequence", "checkpoint_sha256", "windows",
+})
+CLOSE_DRAIN_FIELDS: Final = frozenset({
+    "version", "kind", "common", "fence", "close_confirmed_at", "drain_observed_at",
+    "frozen_membership_sha256", "members", "proofs", "permit", "input_expirations",
+    "fixed_deadline", "decision", "windows",
+})
 INPUTS: Final[dict[str, frozenset[str]]] = {
     "inventory": frozenset({"candidate", "dashboard-artifact", "archive", "static-baseline"}),
     "publish-static": frozenset(
@@ -140,6 +153,20 @@ def versioned(raw: bytes, name: str, fields: frozenset[str], prefix: str) -> dic
     return value
 
 
+def close_drain_document(raw: bytes, prefix: str, windows: Mapping[str, Any]) -> dict[str, Any]:
+    """Returns: Close-drain versão 2 com as janelas governadas do request.
+
+    Raises: ValueError: Forma, versão, janelas fora dos limites ou diferentes das do request.
+    """
+    value = closed(document(raw, "close-drain"), CLOSE_DRAIN_FIELDS, prefix, "close-drain")
+    version = value["version"]
+    if type(version) is not int or version != CLOSE_DRAIN_VERSION or value["kind"] != "close-drain":
+        raise ValueError(f"{prefix}=kind name=close-drain")
+    if governed_windows(value["windows"]) != windows:
+        raise ValueError(f"{prefix}=windows")
+    return value
+
+
 def frozen_members(raw: bytes, prefix: str) -> list[dict[str, Any]]:
     """Returns: Membros congelados com o compromisso `frozen_membership_sha256` conferido.
 
@@ -163,6 +190,8 @@ def stage_deadline(stage: dict[str, Any]) -> int:
 __all__ = [
     "ABI_VERSION",
     "CLOSED_READY_FIELDS",
+    "CLOSE_DRAIN_FIELDS",
+    "CLOSE_DRAIN_VERSION",
     "INPUTS",
     "MEMBER_IDENTITY",
     "MODE_EFFECT_CALLS",
@@ -177,7 +206,9 @@ __all__ = [
     "OBSERVATIONS",
     "ROUTING_FIELDS",
     "STAGES",
+    "STAGE_FIELDS",
     "TERMINAL_READBACK_FIELDS",
+    "close_drain_document",
     "closed",
     "document",
     "frozen_members",

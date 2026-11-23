@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from scripts.promotion._closed_ready import utc_text
+from scripts.promotion._stage_windows import FINAL_RESERVE, close_windows, later_seconds
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -118,11 +119,13 @@ class NativePhaseB:
             "version": state.fence.version,
             "changed_at": utc_text(state.fence.changed_at),
         }
+        windows = close_windows(close, "phase_b")
+        budget = windows["stages"]["api"] + later_seconds(windows, "api") + FINAL_RESERVE
         deadline = datetime.fromisoformat(close["fixed_deadline"].replace("Z", "+00:00"))
         if (
             fence != close["fence"]
             or state.permit is not None
-            or (deadline - datetime.now(UTC)).total_seconds() < 1440
+            or (deadline - datetime.now(UTC)).total_seconds() < budget
         ):
             raise ValueError("phase_b=closed_deadline_readback")
 

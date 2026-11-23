@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Final
 
 from cnes_infra.aws.mode_canary import canonical_text
+from scripts.promotion._stage_windows import close_windows
 from scripts.promotion.mode_canary import RESULT_FIELDS, RESULT_SCHEMA
 from scripts.promotion.rollback_api_static import CONVERGENCE_SECONDS, RECOVERY_SECONDS
 
@@ -18,7 +19,6 @@ if TYPE_CHECKING:
 
 Node = dict[str, Any]
 MODES: Final = ("recovery", "audit")
-WINDOW_SECONDS: Final = 1800
 _RESULT_COMMON: Final = ("canary_id", "candidate_sha256", "release_id", "source_sha")
 
 
@@ -81,9 +81,10 @@ class PhaseCWatchdog:
 
     @classmethod
     def from_close(cls, close: Mapping[str, Any]) -> PhaseCWatchdog:
-        """Raises: ValueError: F original além de 1800 s desde o fechamento confirmado."""
+        """Raises: ValueError: F original além do prazo fixo governado desde o fechamento."""
+        seconds = close_windows(close, "window")["fixed_deadline_seconds"]
         closed, fixed = _instant(close["close_confirmed_at"]), _instant(close["fixed_deadline"])
-        _require(closed < fixed <= closed + timedelta(seconds=WINDOW_SECONDS), "window=fixed")
+        _require(closed < fixed <= closed + timedelta(seconds=seconds), "window=fixed")
         return cls(closed, fixed)
 
     @property
@@ -303,7 +304,6 @@ def accept_audit_canary(raw: bytes, context: PhaseCContext, readbacks: Node,
 
 __all__ = [
     "MODES",
-    "WINDOW_SECONDS",
     "CanaryAcceptance",
     "PhaseBContext",
     "PhaseCContext",

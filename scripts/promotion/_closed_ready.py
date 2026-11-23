@@ -8,6 +8,8 @@ import json
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
+from scripts.promotion._stage_windows import FINAL_RESERVE, close_windows, later_seconds
+
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
@@ -107,14 +109,16 @@ def build_closed_ready(
         or generation != common["promotion_generation"]
     ):
         raise ValueError("closed_ready=original_exclusion")
+    windows = close_windows(close_drain, "closed_ready")
+    api, later = windows["stages"]["api"], later_seconds(windows, "api")
     fixed = datetime.fromisoformat(close_drain["fixed_deadline"].replace("Z", "+00:00"))
     after = datetime.fromisoformat(phase_b["observed_at"].replace("Z", "+00:00"))
     if (
         observed_at != admitted_at
         or observed_at < after
         or not admitted_at < deadline
-        or deadline > min(fixed, admitted_at + timedelta(seconds=180))
-        or (fixed - admitted_at).total_seconds() < 1440
+        or deadline > min(fixed, admitted_at + timedelta(seconds=api))
+        or (fixed - admitted_at).total_seconds() < api + later + FINAL_RESERVE
     ):
         raise ValueError("closed_ready=stage_deadline")
     current, proofs = _post_members(gate, probe, close_drain, observed_at)
@@ -140,7 +144,7 @@ def build_closed_ready(
             "name": "api",
             "admitted_at": utc_text(admitted_at),
             "deadline": utc_text(deadline),
-            "later_seconds": 840,
+            "later_seconds": later,
         },
         "decision": None,
     }

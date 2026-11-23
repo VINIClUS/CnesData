@@ -11,7 +11,6 @@ from cnes_domain.control_plane.environment_gate import ReopenPromotionFence
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
 from scripts.promotion._phase_c_core import (
     MODES,
-    WINDOW_SECONDS,
     CanaryAcceptance,
     PhaseCWatchdog,
     WindowCutoff,
@@ -151,7 +150,6 @@ def accept_and_reopen(context: PhaseCContext, native: NativePhaseB) -> Node:
 
 __all__ = [
     "MODES",
-    "WINDOW_SECONDS",
     "CanaryAcceptance",
     "PhaseCWatchdog",
     "WindowCutoff",

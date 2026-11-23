@@ -62,7 +62,7 @@ PUBLICATION = canonical({"schema": "cnesdata.static-publication/v1", "plan_sha25
 
 
 def _request(operation: str, inputs: dict[str, bytes], stage: dict[str, Any]) -> dict[str, Any]:
-    return {"abi_version": 2, "operation": operation, "repository": OWNER["repository"],
+    return {"abi_version": 3, "operation": operation, "repository": OWNER["repository"],
             "source_sha": SHA, "owner": OWNER, "checkpoint_sha256": stage["checkpoint_sha256"],
             "activation_sha256": sha(_activation()), "stage": stage,
             "inputs": {name: {"sha256": sha(raw), "size": len(raw)}

@@ -1,4 +1,4 @@
-"""Handlers ABI2 dos efeitos de modo: seed e start pelos aliases e métodos do keeper (#465)."""
+"""Handlers ABI3 dos efeitos de modo: seed e start pelos aliases e métodos do keeper (#465)."""
 
 from __future__ import annotations
 
@@ -72,7 +72,7 @@ class _Ledger:
 
 
 class ModeCalls:
-    """`ModeCanaryCalls` sobre o context ABI2: tabela fechada da operação antes de qualquer IO."""
+    """`ModeCanaryCalls` sobre o context ABI3: tabela fechada da operação antes de qualquer IO."""
 
     def __init__(self, context: AdapterContext, operation: str) -> None:
         self._context = cast("ModeEffectContext", context)
@@ -84,7 +84,7 @@ class ModeCalls:
         return promote_api.CLOCK()
 
     def call(self, alias: str, operation: str, request: Node) -> Node:
-        """Raises: ValueError: Alias ou operação fora da tabela da operação ABI2."""
+        """Raises: ValueError: Alias ou operação fora da tabela da operação ABI3."""
         service, name = SDK_OPERATIONS.get(operation, ("", ""))
         if (alias, service, name) not in MODE_EFFECT_CALLS[self._operation]:
             raise ValueError(f"mode=call alias={alias} operation={operation}")

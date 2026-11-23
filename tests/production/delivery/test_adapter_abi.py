@@ -119,7 +119,7 @@ NO_CONTEXT: Any = None
 
 
 def _request(operation: str) -> dict[str, Any]:
-    return {"abi_version": 2, "operation": operation, "inputs": {}}
+    return {"abi_version": 3, "operation": operation, "inputs": {}}
 
 
 @pytest.mark.parametrize("operation", ["retire-static", *READINESS_MODES])

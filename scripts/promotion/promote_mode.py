@@ -1,10 +1,16 @@
-"""Handlers ABI2 dos -observe de modo: aceite do canary no adapter, sem efeito nativo (#465)."""
+"""Handlers ABI3 dos -observe de modo: aceite do canary no adapter, sem efeito nativo (#465)."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Final, cast
 
-from scripts.promotion._adapter_abi import closed, document, stage_deadline, versioned
+from scripts.promotion._adapter_abi import (
+    close_drain_document,
+    closed,
+    document,
+    stage_deadline,
+    versioned,
+)
 from scripts.promotion._api_static_records import canonical, sha
 from scripts.promotion._phase_c_core import (
     _RESULT_COMMON,
@@ -28,12 +34,7 @@ from scripts.promotion.mode_canary import (
     route_from_readbacks,
 )
 from scripts.promotion.promote_close import ENVIRONMENT, _activation, _Gate
-from scripts.promotion.promote_ready import (
-    CLOSE_DRAIN_FIELDS,
-    PHASE_B_FIELDS,
-    ReadOnlyShim,
-    machine_arn,
-)
+from scripts.promotion.promote_ready import PHASE_B_FIELDS, ReadOnlyShim, machine_arn
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -59,7 +60,7 @@ def unit_observe(request: Mapping[str, Any], inputs: Mapping[str, bytes],
     ValueError: insumo fora dos campos fechados, record de outra activation ou prazo vencido.
     """
     activation, _ = _activation(inputs["activation"], request)
-    close = versioned(inputs["close-drain"], "close-drain", CLOSE_DRAIN_FIELDS, "mode")
+    close = close_drain_document(inputs["close-drain"], "mode", request["stage"]["windows"])
     source = _record({"record": inputs["record"]}, "unit")
     record = source[0]
     if (record.activation_sha256, record.promotion_generation, dict(record.revisions)) != (
@@ -119,7 +120,7 @@ def _scheduled(mode: str, request: Mapping[str, Any], inputs: Mapping[str, bytes
 def _phase_c_base(request: Mapping[str, Any], inputs: Mapping[str, bytes]) -> PhaseCContext:
     activation, account = _activation(inputs["activation"], request)
     network = closed(document(inputs["network"], "network"), NETWORK_FIELDS, "mode", "network")
-    close = versioned(inputs["close-drain"], "close-drain", CLOSE_DRAIN_FIELDS, "mode")
+    close = close_drain_document(inputs["close-drain"], "mode", request["stage"]["windows"])
     evidence = versioned(inputs["phase-b"], "phase-b", PHASE_B_FIELDS, "mode")
     if evidence["common"].get("activation_sha256") != request["activation_sha256"]:
         raise ValueError("mode=activation_binding")

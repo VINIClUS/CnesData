@@ -158,7 +158,7 @@ def request(name: str, inputs: dict[str, bytes], late: bool = False) -> dict[str
     stage = API | {"stage": abi.MODE_OPERATIONS[name][1], "close": epoch - 120,
                    "fixed_deadline": epoch + 900, "admitted_at": epoch - 5,
                    "deadline": epoch - 1 if late else epoch + 600}
-    return {"abi_version": 2, "operation": name, "repository": OWNER["repository"],
+    return {"abi_version": 3, "operation": name, "repository": OWNER["repository"],
             "source_sha": SHA, "owner": OWNER, "checkpoint_sha256": API["checkpoint_sha256"],
             "activation_sha256": "a" * 64, "stage": stage,
             "inputs": {key: {"sha256": sha(raw), "size": len(raw)}

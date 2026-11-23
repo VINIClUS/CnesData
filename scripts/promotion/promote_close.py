@@ -1,4 +1,4 @@
-"""Handler ABI2 close-drain: fecha e drena o fence prod pelo shim de context.call (#473)."""
+"""Handler ABI3 close-drain: fecha e drena o fence prod pelo shim de context.call (#473)."""
 
 from __future__ import annotations
 
@@ -69,7 +69,8 @@ def close_drain(request: Mapping[str, Any], inputs: Mapping[str, bytes],
               "activation_sha256": request["activation_sha256"], **identity}
     probe = StepFunctionsExecutionProbe(cast("Any", shim.client("stepfunctions")), machine)
     document = close_and_drain(_Gate(shim), probe, None, ENVIRONMENT, identity["promotion_id"],
-                               now, expirations, clock=DRAIN_CLOCK, common=common)
+                               now, expirations, clock=DRAIN_CLOCK, common=common,
+                               windows=request["stage"]["windows"])
     return canonical(document)
 
 
