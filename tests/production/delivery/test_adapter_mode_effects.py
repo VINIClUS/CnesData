@@ -205,10 +205,18 @@ def test_erros_sdk_fechados_sao_os_tolerados_pelo_seed() -> None:
     assert frozenset(errors["s3:put_object"]) == mode_canary_seed.OBJECT_EXISTS
 
 
+def _owner_control(mp: pytest.MonkeyPatch) -> dict[tuple[str, str], Any]:
+    unit = Keeper(seed_inputs("unit"))
+    run(mp, "unit-seed", unit)
+    return {key: item for key, item in unit.items.items()
+            if key[1].startswith("PROD_CANARY_CONTROL#")}
+
+
 @pytest.mark.parametrize("mode", ["unit", "recovery"])
 def test_seed_grava_pelo_alias_mode_seed_e_observa_o_manifesto(
         monkeypatch: pytest.MonkeyPatch, mode: str) -> None:
-    context = Keeper(seed_inputs(mode))
+    control = _owner_control(monkeypatch) if mode == "recovery" else {}
+    context = Keeper(seed_inputs(mode), items=dict(control))
     result = run(monkeypatch, f"{mode}-seed", context)
     expected = seed(mode)
     assert context.observed == [("mode-seed", expected.manifest)]
@@ -216,7 +224,11 @@ def test_seed_grava_pelo_alias_mode_seed_e_observa_o_manifesto(
                                        "size": len(expected.manifest)}]
     assert {call[:3] for call in context.calls} <= abi.MODE_EFFECT_CALLS[f"{mode}-seed"]
     puts = [call[3] for call in context.calls if call[2] == "put_item"]
-    assert [put["Item"] for put in puts] == list(expected.items)
+    seeded = len(expected.items)
+    assert [put["Item"] for put in puts[:seeded]] == list(expected.items)
+    owned = [f"PROD_CANARY#{OWNER_SHA}#{mode}"]
+    owned += [f"PROD_CANARY_CONTROL#{OWNER_SHA}"] if mode == "unit" else []
+    assert [put["Item"]["sk"]["S"] for put in puts[seeded:]] == owned
     assert all(put["TableName"] == "cnesdata-prod-control-plane" for put in puts)
     assert {key for _, key in context.objects} == {obj.key for obj in expected.objects}
     replay = Keeper(context.inputs, items=context.items, objects=context.objects)

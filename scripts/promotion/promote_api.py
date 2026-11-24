@@ -56,6 +56,7 @@ from scripts.promotion.promote_mode_effects import (
     unit_seed,
     unit_start,
 )
+from scripts.promotion.promote_mode_record import audit_record, recovery_record, unit_record
 from scripts.promotion.promote_ready import closed_ready
 from scripts.promotion.promote_terminal import reopen, terminal_readback
 from scripts.promotion.publish_dashboard import (
@@ -258,6 +259,7 @@ _HANDLERS: dict[str, Callable[[Mapping[str, Any], Mapping[str, bytes], AdapterCo
     "recovery-observe": recovery_observe, "audit-observe": audit_observe,
     "unit-seed": unit_seed, "recovery-seed": recovery_seed, "unit-start": unit_start,
     "recovery-start": recovery_start, "audit-start": audit_start,
+    "unit-record": unit_record, "recovery-record": recovery_record, "audit-record": audit_record,
 }
 
 

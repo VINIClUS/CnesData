@@ -125,10 +125,12 @@ def _closed(record: dict[str, Any], inputs: dict[str, bytes], kind: str) -> None
 
 
 def test_tabela_de_modo_separa_observe_dos_efeitos() -> None:
-    assert set(promote_api.MODE_INPUTS) == set(OBSERVES) | set(EFFECTS)
+    records = {"unit-record", "recovery-record", "audit-record"}
+    assert set(promote_api.MODE_INPUTS) == set(OBSERVES) | set(EFFECTS) | records
     assert {promote_api.MODE_OBSERVATIONS[name] for name in OBSERVES} == {"mode"}
     assert {promote_api.MODE_OBSERVATIONS[name] for name in EFFECTS} == {"mode-seed",
                                                                          "mode-result"}
+    assert {promote_api.MODE_OBSERVATIONS[name] for name in records} == {"mode-record"}
     assert {name: promote_api.MODE_OPERATIONS[name][1] for name in OBSERVES} == OBSERVES
     assert promote_api.MODE_INPUTS["recovery-observe"] == SCHEDULED
     assert promote_api.MODE_INPUTS["audit-observe"] == SCHEDULED | {"recovery-result",

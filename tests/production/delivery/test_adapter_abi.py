@@ -98,14 +98,18 @@ def test_campos_fechados_das_observacoes_sao_os_do_keeper() -> None:
     assert tuple(INFRA_MEMBER_IDENTITY.split()) == promote_api.MEMBER_IDENTITY
 
 
-def test_operacoes_de_modo_sao_as_oito_de_promotion_do_vetor_canonico() -> None:
-    assert set(promote_api.MODE_OPERATIONS) == set(PROMOTION_MODES)
-    assert len(promote_api.MODE_OPERATIONS) == 8
+def test_operacoes_de_modo_sao_as_oito_de_promotion_do_vetor_canonico_e_tres_record() -> None:
+    records = {"unit-record", "recovery-record", "audit-record"}
+    assert set(promote_api.MODE_OPERATIONS) == set(PROMOTION_MODES) | records
+    assert len(promote_api.MODE_OPERATIONS) == 11
+    assert records.isdisjoint(SESSION_OPERATIONS)
     for name, (phase, stage) in promote_api.MODE_OPERATIONS.items():
+        assert stage in INFRA_STAGES
+        if name in records:
+            continue
         code, alias, context, infra_phase = PROMOTION_MODES[name]
         assert (phase, context) == (infra_phase, "promotion")
         assert SESSION_OPERATIONS[name] == (code, alias, phase, context)
-        assert stage in INFRA_STAGES
     stages = dict(promote_api.MODE_OPERATIONS.values())
     assert stages == {"unit": "unit", "recovery": "phase-c-recovery", "audit": "phase-c-audit"}
 
