@@ -57,7 +57,7 @@ OPTIONAL_INPUTS: Final = ("routing", "host-receipt", "static-receipt", "decision
 REQUIRED_INPUTS: Final[dict[str, frozenset[str]]] = {
     "application-prepare": frozenset(),
     "final": frozenset({"routing", "host-receipt", "static-receipt"}),
-    "recovery": frozenset({"decision"}),
+    "recovery": frozenset({"routing", "decision"}),
 }
 FORBIDDEN_INPUTS: Final[dict[str, frozenset[str]]] = {
     "application-prepare": frozenset(OPTIONAL_INPUTS), "final": frozenset({"decision"}),
@@ -90,17 +90,21 @@ class ReopenShim(FenceShim):
 def reopen(request: Mapping[str, Any], inputs: Mapping[str, bytes],
            context: AdapterContext) -> bytes:
     """Returns:
-    Observação routing canônica; o fence só reabre com os três modos aceitos e rotas iguais.
+    Observação routing canônica; em final o fence só reabre com os três modos aceitos e rotas
+    iguais; em recovery só observa (fence CLOSED deste dono e routes_match), sem escrita.
     Raises:
     ValueError: estágio sem regra, insumo fora dos campos fechados, fence ou prazo divergente.
     """
-    if request["stage"]["stage"] != "final":
+    stage = request["stage"]["stage"]
+    if stage not in {"final", "recovery"}:
         raise ValueError("reopen=recovery_rule_absent")
     activation, _ = _activation(inputs["activation"], request)
     routes = closed(document(inputs["routing"], "routing"), frozenset(ROUTE_MODES), "reopen",
                     "routing")
     if not all(value is None or isinstance(value, str) for value in routes.values()):
         raise ValueError("reopen=routing")
+    if stage == "recovery":
+        return _observe_routing(request, routes == activation["revisions"], context)
     accepted = _canaries(inputs["canaries"], request)
     if any(member["resolution"] not in MEMBER_RESOLVED
            for member in frozen_members(inputs["membership"], "reopen")):
@@ -124,6 +128,21 @@ def reopen(request: Mapping[str, Any], inputs: Mapping[str, bytes],
         if state.fence.state.value != "OPEN" or state.permit is not None:
             raise ValueError("reopen=readback")
     return canonical({"version": 1, "kind": "routing", "fence": state.fence.state.value,
+                      "routes_match": routes_match})
+
+
+def _observe_routing(request: Mapping[str, Any], routes_match: bool,
+                     context: AdapterContext) -> bytes:
+    now = _now()
+    if now.timestamp() >= stage_deadline(request["stage"]):
+        raise ValueError("reopen=stage_deadline")
+    promotion = request["owner"]["owner_sha256"]
+    state = _Gate(ReadOnlyShim(context, [])).observe_environment_gate(ENVIRONMENT)
+    if (state.fence.state.value, state.fence.promotion_id, state.permit) != (
+        "CLOSED", promotion, None
+    ):
+        raise ValueError("reopen=fence_not_closed_by_owner")
+    return canonical({"version": 1, "kind": "routing", "fence": "CLOSED",
                       "routes_match": routes_match})
 
 
@@ -254,8 +273,9 @@ def _clean(stage: str, state: EnvironmentGateState, routing: dict[str, Any] | No
     fence = state.fence
     if stage == "application-prepare":
         return not (fence.state.value == "CLOSED" and fence.promotion_id == promotion)
-    return routing is not None and (fence.state.value, fence.promotion_id) == (
-        routing["fence"], promotion)
+    if routing is None or (fence.state.value, fence.promotion_id) != (routing["fence"], promotion):
+        return False
+    return stage != "recovery" or (routing["fence"] == "CLOSED" and routing["routes_match"])
 
 
 def _now() -> datetime:

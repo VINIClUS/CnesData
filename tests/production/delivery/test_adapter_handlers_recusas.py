@@ -12,7 +12,6 @@ from scripts.promotion import promote_api
 from tests.production.delivery.test_adapter_handlers import (
     API,
     FINAL,
-    NULL,
     PREPARE,
     RECOVERY,
     _canaries,
@@ -182,17 +181,19 @@ def test_terminal_readback_reporta_permit_em_voo(monkeypatch: pytest.MonkeyPatch
     assert (record["quiescent"], record["state_clean"]) == (False, True)
 
 
-def test_terminal_readback_em_recovery_aceita_rollback_e_sem_routing_nao_e_limpo(
+def test_terminal_readback_em_recovery_aceita_rollback_com_routing_fechado_e_limpo(
     monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with _closed("terminal", monkeypatch) as (raw, _, probe, close):
         _clock(monkeypatch, RECOVERY)
-        inputs = _readback_inputs(close, routing=NULL, **{"static-receipt": ROLLBACK},
+        routing = canonical({"version": 1, "kind": "routing", "fence": "CLOSED",
+                             "routes_match": True})
+        inputs = _readback_inputs(close, routing=routing, **{"static-receipt": ROLLBACK},
                                   decision=canonical(decision()))
         context = Context(raw, probe, inputs)
         _run(context, "terminal-readback", RECOVERY)
     record = _observation(context, "terminal")
-    assert (record["quiescent"], record["state_clean"], record["pending"]) == (True, False, [])
+    assert (record["quiescent"], record["state_clean"], record["pending"]) == (True, True, [])
 
 
 OTHER_REGION = "arn:aws:states:us-east-1:x:execution:cnesdata-prod:" + "a" * 16
