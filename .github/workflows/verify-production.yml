@@ -132,7 +132,8 @@ jobs:
           bunx --no-install playwright --version
       - name: Exercise compiled production client at HTTP boundary
         run: |
-          uv run --no-sync --no-build pytest -q tests/production/delivery/test_ci_workflows.py -k test_dist_ \
+          uv run --no-sync --no-build pytest -q tests/production/delivery/test_ci_workflows.py \
+            tests/production/delivery/test_static_member_cap_real_build.py -k test_dist_ \
             --junitxml=dashboard-dist.xml
           uv run --no-sync --no-build python -c "import runpy; from pathlib import Path; \
           runpy.run_path('tests/production/test_runtime_acceptance.py')\

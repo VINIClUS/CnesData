@@ -62,6 +62,9 @@ class FakeContext:
     inputs: dict[str, bytes]
     observed: list[tuple[str, bytes]] = field(default_factory=list)
 
+    def __post_init__(self) -> None:
+        self.port.artifact = self.inputs.get("dashboard-artifact", self.port.artifact)
+
     def read(self, name: str) -> bytes:
         return self.inputs[name]
 

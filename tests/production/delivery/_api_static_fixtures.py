@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from tests.production.delivery import _ia_static_digest_consumer as ia
+
 NOW = datetime(2026, 11, 13, 12, 0, tzinfo=UTC)
 BUCKET = "cnesdata-prod-static-web"
 DISTRIBUTION = "E2EXAMPLE123"
@@ -102,6 +104,8 @@ class FakeStaticPort:
     """Bucket versionado + CloudFront mínimo com o IAM #498 por role e chaves do plano.
 
     Cada call avança o relógio em `latency`; `keys` restringe as chaves de normal/recovery.
+    PutObject e GetObject seguem o transporte por digest do gate (espelho do infra-ansible): o
+    corpo vem do membro do `artifact` (dist.tar) e a leitura devolve {sha256, size}.
     """
 
     clock: datetime = NOW
@@ -113,6 +117,7 @@ class FakeStaticPort:
     guards: int = 0
     serial: int = 0
     keys: dict[str, frozenset[str]] = field(default_factory=dict)
+    artifact: bytes = b""
 
     def now(self) -> datetime:
         return self.clock
@@ -189,7 +194,7 @@ class FakeStaticPort:
                 "IsTruncated": False}
 
     def _put_object(self, params: dict[str, Any]) -> dict[str, Any]:
-        body = base64.b64decode(params["Body"]["base64"], validate=True)
+        body = ia.tar_member(self.artifact, ia.s3_put_body(params))
         assert params["ChecksumSHA256"] == checksum(body), "checksum_divergente"
         current = self.latest(params["Key"])
         if params.get("IfNoneMatch") == "*" and current is not None and current.body is not None:
@@ -205,7 +210,8 @@ class FakeStaticPort:
         assert entry is not None
         assert entry.body is not None
         body = entry.body + (b"!" if params["Key"] in self.corrupt else b"")
-        return {"Body": {"base64": base64.b64encode(body).decode()}, "VersionId": entry.version_id,
+        stored = ia.s3_body_value(io.BytesIO(body), maximum=ia.STATIC_MEMBER_LIMIT)
+        return {"Body": stored, "VersionId": entry.version_id,
                 "ContentType": entry.content_type, "CacheControl": entry.cache_control}
 
     def _copy_object(self, params: dict[str, Any]) -> dict[str, Any]:
