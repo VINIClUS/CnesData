@@ -19,6 +19,7 @@ from tests.production.delivery.test_promote_close import ACCOUNT, OWNER, canonic
 MODES = ("unit", "recovery", "audit")
 STAGES = {"unit": "unit", "recovery": "phase-c-recovery", "audit": "phase-c-audit"}
 BASE_INPUTS = frozenset({"activation", "close-drain", "fixture-manifest", "mode-input"})
+OTHER_OWNER = OWNER | {"run_id": 456, "generation": 8, "owner_sha256": "8" * 64}
 
 
 def _record(mp: pytest.MonkeyPatch, mode: str, **changes: bytes) -> tuple[dict[str, Any], Any]:
@@ -62,7 +63,8 @@ def test_record_do_modo_sai_das_fontes_autenticadas_do_estagio(
     assert list(parsed.run_ids) == fx.runs(mode)
     assert parsed.revisions == activation["revisions"]
     assert parsed.machine_arn == machine_arn(ACCOUNT)
-    assert (parsed.promotion_id, parsed.promotion_generation) == ("r" + "1" * 31, 7)
+    assert (parsed.promotion_id, parsed.promotion_generation) == (
+        OWNER["owner_sha256"], OWNER["generation"])
     assert record["activation_sha256"] == sha(fx.ACTIVATION)
     assert record["fixture_manifest_sha256"] == sha(fx.fixture_manifest())
     assert record["phase_receipt_sha256"] == sha(fx.close_drain())
@@ -136,6 +138,23 @@ def test_record_recusa_manifest_de_outro_owner(monkeypatch: pytest.MonkeyPatch) 
     inputs = fx.record_inputs("unit", **{"mode-input": fx.mode_input(owner=other)})
     with pytest.raises(ValueError, match=r"^mode=record_binding$"):
         fx.execute(monkeypatch, "unit-record", inputs)
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_record_recusa_close_drain_de_outro_owner_da_mesma_activation(
+        monkeypatch: pytest.MonkeyPatch, mode: str) -> None:
+    close = fx.close_drain(**fx.identity(OTHER_OWNER))
+    inputs = fx.record_inputs(mode, **{"close-drain": close})
+    with pytest.raises(ValueError, match=r"^mode=record_binding$"):
+        fx.execute(monkeypatch, f"{mode}-record", inputs)
+
+
+@pytest.mark.parametrize("campo", ["promotion_id", "promotion_generation", "caller"])
+def test_record_recusa_close_drain_com_um_campo_da_identidade_de_outro_owner(
+        monkeypatch: pytest.MonkeyPatch, campo: str) -> None:
+    close = fx.close_drain(**{campo: fx.identity(OTHER_OWNER)[campo]})
+    with pytest.raises(ValueError, match=r"^mode=record_binding$"):
+        fx.execute(monkeypatch, "unit-record", fx.record_inputs("unit", **{"close-drain": close}))
 
 
 def test_record_recusa_prazo_do_estagio_vencido(monkeypatch: pytest.MonkeyPatch) -> None:

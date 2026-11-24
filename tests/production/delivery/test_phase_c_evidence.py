@@ -17,6 +17,7 @@ FIELDS = {"version", "kind", "common", "close_drain_sha256", "before", "after", 
           "audit_sha256", "apply_sha256", "routes", "observed_at"}
 CLOSE = {"version": 2, "kind": "close-drain", "common": {"canary_id": "c" * 32,
                                                          "release_id": "r" + "1" * 31}}
+LINEAGE = "lineage"
 UNIT, RECOVERY, AUDIT = (f"arn:aws:ecs:us-east-2:111122223333:task-definition/{n}:2"
                          for n in ("unit", "recovery", "audit"))
 
@@ -24,8 +25,8 @@ UNIT, RECOVERY, AUDIT = (f"arn:aws:ecs:us-east-2:111122223333:task-definition/{n
 def _evidence(mode: str = "recovery", **changes: Any) -> PhaseCEvidence:
     routes = {"unit": UNIT, "recovery": RECOVERY, "audit": AUDIT if mode == "audit" else None}
     return replace(PhaseCEvidence(
-        mode=mode, close=CLOSE, before={"lineage": "l-1", "serial": 4},
-        after={"lineage": "l-1", "serial": 5}, plan_sha256="1" * 64, audit_sha256="2" * 64,
+        mode=mode, close=CLOSE, before={LINEAGE: "l-1", "serial": 4},
+        after={LINEAGE: "l-1", "serial": 5}, plan_sha256="1" * 64, audit_sha256="2" * 64,
         apply_output=b"Apply complete! Resources: 1 added.\n", routes=routes,
         observed_at=datetime(2026, 11, 13, 12, 20, tzinfo=UTC)), **changes)
 
@@ -54,8 +55,8 @@ def test_apply_sha256_e_o_digest_da_saida_do_apply_fornecida_pelo_keeper() -> No
 
 
 @pytest.mark.parametrize("after", [
-    {"lineage": "l-1", "serial": 4}, {"lineage": "l-1", "serial": 3},
-    {"lineage": "l-2", "serial": 9},
+    {LINEAGE: "l-1", "serial": 4}, {LINEAGE: "l-1", "serial": 3},
+    {LINEAGE: "l-2", "serial": 9},
 ])
 def test_checkpoint_que_nao_avanca_recusa(after: dict[str, Any]) -> None:
     with pytest.raises(ValueError, match=r"^phase_c=checkpoint_not_advanced$"):

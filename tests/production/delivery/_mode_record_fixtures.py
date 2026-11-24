@@ -14,7 +14,7 @@ from scripts.promotion.mode_canary_contract import parse_context_manifest
 from scripts.promotion.promote_ready import machine_arn
 from tests.production.delivery.test_adapter_handlers import API, SHA
 from tests.production.delivery.test_phase_b import WINDOWS
-from tests.production.delivery.test_promote_close import ACCOUNT, OWNER, canonical, sha
+from tests.production.delivery.test_promote_close import ACCOUNT, CALLER, OWNER, canonical, sha
 from tests.production.delivery.test_promote_close import _activation as activation_bytes
 
 NOW = datetime(2026, 11, 13, 12, 5, tzinfo=UTC)
@@ -38,11 +38,16 @@ def fixture_manifest() -> bytes:
     return (FIXTURES / "fixture-manifest.json").read_bytes()
 
 
+def identity(owner: dict[str, Any] = OWNER) -> dict[str, Any]:
+    caller = CALLER | {"run_id": owner["run_id"], "run_attempt": owner["run_attempt"]}
+    return {"promotion_id": owner["owner_sha256"], "promotion_generation": owner["generation"],
+            "caller": caller}
+
+
 def close_drain(**common: Any) -> bytes:
     values = {"repository": "VINIClUS/CnesData", "release_id": "r" + "1" * 31,
               "source_sha": SHA, "candidate_sha256": "b" * 64, "canary_id": CANARY,
-              "activation_sha256": sha(ACTIVATION), "promotion_id": "r" + "1" * 31,
-              "promotion_generation": 7, "caller": {}} | common
+              "activation_sha256": sha(ACTIVATION), **identity()} | common
     return canonical({
         "version": 2, "kind": "close-drain", "common": values, "fence": {},
         "close_confirmed_at": "2026-11-13T12:00:00Z", "drain_observed_at": "2026-11-13T12:00:05Z",

@@ -11,7 +11,7 @@ from scripts.promotion._api_static_records import canonical, sha
 from scripts.promotion.mode_canary_contract import record_bytes
 from scripts.promotion.mode_canary_seed import SEED_SCHEMA
 from scripts.promotion.prepare_mode_canary import check_mode_canary_input
-from scripts.promotion.promote_close import _COMMON, _activation
+from scripts.promotion.promote_close import _COMMON, _activation, owner_identity
 from scripts.promotion.promote_ready import machine_arn
 
 if TYPE_CHECKING:
@@ -101,16 +101,17 @@ def _bind(mode: str, request: Mapping[str, Any], inputs: Mapping[str, bytes],
           sources: _Sources) -> list[str]:
     activation, common = sources.activation, sources.close["common"]
     fields, resources = sources.manifest.fields, sources.resources
-    scope = resources["scope"]
+    scope, identity = resources["scope"], owner_identity(request)
     actual = (
         tuple(common.get(key) for key in _COMMON), common.get("activation_sha256"),
+        {key: common.get(key) for key in identity},
         fields["context_kind"], fields["owner"]["owner_sha256"], fields["activation_sha256"],
         fields["release_id"], fields["fixture_manifest_sha256"], resources["revisions"],
         resources["machine_arn"], scope["tenant_id"],
     )
     expected = (
-        tuple(activation[key] for key in _COMMON), request["activation_sha256"], "promotion",
-        sources.owner_sha256, request["activation_sha256"], activation["release_id"],
+        tuple(activation[key] for key in _COMMON), request["activation_sha256"], identity,
+        "promotion", sources.owner_sha256, request["activation_sha256"], activation["release_id"],
         sha(inputs["fixture-manifest"]), activation["revisions"], machine_arn(sources.account),
         f"prod-canary-{activation['canary_id']}",
     )
