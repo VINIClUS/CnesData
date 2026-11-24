@@ -41,7 +41,7 @@ ROOT = ("index.html", "theme-init.js")
 class TamperedRead:
     inner: FakeStaticPort
     key: str
-    body: Any
+    changes: dict[str, Any]
 
     def guard(self) -> None:
         self.inner.guard()
@@ -49,7 +49,7 @@ class TamperedRead:
     def call(self, role: str, service: str, operation: str, parameters: dict[str, Any]) -> Any:
         result = self.inner.call(role, service, operation, parameters)
         if operation == "GetObject" and parameters["Key"] == self.key:
-            return result | {"Body": self.body}
+            return result | self.changes
         return result
 
 
@@ -115,8 +115,21 @@ def test_readback_divergente_do_item_recusa_sem_tocar_raiz(mudanca: str) -> None
     else:
         stored = {"base64": "eA=="}
     with pytest.raises(PublicationError, match=f"^readback key={INDEX_CSS}$"):
-        _publish(TamperedRead(port, INDEX_CSS, stored), inventory, candidate)
+        _publish(TamperedRead(port, INDEX_CSS, {"Body": stored}), inventory, candidate)
     assert not set(port.writes()) & set(ROOT)
+
+
+@pytest.mark.parametrize("chave", [INDEX_CSS, "theme-init.js"])
+@pytest.mark.parametrize("campo", ["VersionId", "ContentType", "CacheControl"])
+def test_readback_com_metadado_divergente_do_put_recusa_sem_nenhuma_chamada_depois(
+    campo: str, chave: str
+) -> None:
+    port, inventory, candidate = _planned(release_files())
+    with pytest.raises(PublicationError, match=f"^readback key={chave}$"):
+        _publish(TamperedRead(port, chave, {campo: "divergente"}), inventory, candidate)
+    calls = [(op, key) for op, key, _ in _normal(port)]
+    assert calls[-1] == ("GetObject", chave)
+    assert ("PutObject", "index.html") not in calls
 
 
 def test_referencias_do_css_sao_conferidas_nos_bytes_locais_apos_o_readback_por_digest() -> None:
