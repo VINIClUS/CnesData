@@ -15,6 +15,7 @@ from cnes_domain.orchestration.mode_canary import (
     is_canonical_mode_canary_tenant,
 )
 from cnes_infra.aws.mode_canary_frames import (
+    ATTEMPTS,
     CONTROL_ENTITY,
     GENESIS_LEDGER_SHA256,
     INSERT_ONLY,
@@ -52,7 +53,6 @@ if TYPE_CHECKING:
     from cnes_domain.orchestration.mode_canary import SyntheticEffectTicket
     from cnes_domain.ports.processing import StartRunExecution
 
-_ATTEMPTS: Final = 3
 _SEAL_ATTEMPTS: Final = 64
 
 
@@ -260,7 +260,7 @@ class ModeCanaryContext:
         return None if text is None else parse_ticket(text)
 
     def _transition(self, effect_id: str, change: tuple[str, str | None]) -> None:
-        for _ in range(_ATTEMPTS):
+        for _ in range(ATTEMPTS):
             request = transition(self._store.table, self._binding, self._ticket_text(effect_id),
                                  change)
             if request is None or self._store.write(request):
@@ -270,7 +270,7 @@ class ModeCanaryContext:
     def _admit(self, record: ModeCanaryRecord, effect: Effect, now: datetime) -> str:
         identifier = effect_id(self._binding.record_sha256, effect.kind, effect.request_sha256)
         owner = self._binding.owner_sha256
-        for _ in range(_ATTEMPTS):
+        for _ in range(ATTEMPTS):
             control = self._store.payload(control_key(owner))
             require_control(control, record)
             state = LedgerState(self._binding, record, control, self._ticket_text(identifier))

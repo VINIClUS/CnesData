@@ -21,6 +21,7 @@ from cnes_domain.orchestration.mode_canary import (
 )
 from cnes_infra.aws.mode_canary import ModeCanaryContext
 from cnes_infra.aws.mode_canary_frames import (
+    ATTEMPTS,
     Effect,
     LedgerState,
     admission,
@@ -178,3 +179,30 @@ def test_container_grava_os_mesmos_frames_que_o_vetor(phase: str) -> None:
         ("put_item", CASES["ledger-unknown"]["result"]),
         ("put_item", CASES["ledger-settle"]["result"]),
     ]
+
+
+def test_teto_de_tentativas_do_ledger_e_fixado_no_vetor() -> None:
+    assert VECTOR["attempts"] == ATTEMPTS == 3
+
+
+class _Cancelling(_Table):
+    def transact_write_items(self, **request: Any) -> None:
+        self.writes.append(("transact_write_items", request))
+        raise ClientError({"Error": {"Code": "TransactionCanceledException"}}, "Transact")
+
+
+def test_container_desiste_com_ledger_contended_no_teto_do_vetor() -> None:
+    case = CASES["ledger-admit"]
+    binding = _binding(case["record"])
+    table = _Cancelling()
+    pk = tenant_partition(binding.tenant_id)
+    for sort_key, text in ((f"PROD_CANARY#{binding.owner_sha256}#{binding.phase}",
+                            case["record"]),
+                           (f"PROD_CANARY_CONTROL#{binding.owner_sha256}", case["control"])):
+        table.items[(pk, sort_key)] = {"pk": {"S": pk}, "sk": {"S": sort_key},
+                                       "entity": {"S": "X"}, "payload": {"S": text}}
+    context = ModeCanaryContext(table, TABLE, binding, _Dispatches("0" * 16, ()))
+    with pytest.raises(SyntheticContextRequired, match="reason=ledger_contended"):
+        context.admit_effect("run-recovery", "1" * 64, "2" * 64,
+                             datetime.fromisoformat(case["now"]))
+    assert len(table.writes) == VECTOR["attempts"]
