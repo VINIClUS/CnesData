@@ -229,6 +229,15 @@ def _publish(request: Mapping[str, Any], inputs: Mapping[str, bytes],
     return publication_record(inputs["static-plan"], receipt, closed_ready)
 
 
+def _recorded_publication(inputs: Mapping[str, bytes], ready: str) -> Any:
+    if inputs["publication"] == canonical(None):
+        return None
+    publication, published_ready = read_publication(inputs["publication"], inputs["static-plan"])
+    if published_ready != ready:
+        raise PublicationError("host_recovery_receipt=closed_ready")
+    return publication
+
+
 def _rollback(request: Mapping[str, Any], inputs: Mapping[str, bytes],
               context: AdapterContext) -> bytes:
     plan = read_plan(inputs["static-plan"], inputs["inventory"])
@@ -237,9 +246,7 @@ def _rollback(request: Mapping[str, Any], inputs: Mapping[str, bytes],
     if host.step is not HostStep.RECOVERY or host.decision != decision:
         raise PublicationError(f"host_recovery_receipt=decision next={host.step.value}")
     deadline = min(recovery_window(decision, _clock).deadline, _deadline(request["stage"]))
-    publication, published_ready = read_publication(inputs["publication"], inputs["static-plan"])
-    if published_ready != ready:
-        raise PublicationError("host_recovery_receipt=closed_ready")
+    publication = _recorded_publication(inputs, ready)
     receipt = restore_entrypoints(StaticChannel(context, static_target(plan)),
                                   rollback_targets(read_record(inputs["inventory"])),
                                   publication, UploadWindow(_clock, deadline))

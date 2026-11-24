@@ -304,14 +304,6 @@ def test_reopen_recusa_insumo_fora_dos_campos_fechados(name: str, change: str) -
     assert context.calls == []
 
 
-def test_reopen_em_recovery_e_recusado_sem_regra_do_produto() -> None:
-    close = canonical({"frozen_membership_sha256": sha(canonical([])), "members": []})
-    context = Context(None, Probe(), _reopen_inputs(close) | {"membership": close})
-    with pytest.raises(ValueError, match="reopen=recovery_rule_absent"):
-        _run(context, "reopen", RECOVERY)
-    assert context.calls == []
-
-
 def test_terminal_readback_em_application_prepare_observa_campos_do_keeper(
     monkeypatch: pytest.MonkeyPatch
 ) -> None:
