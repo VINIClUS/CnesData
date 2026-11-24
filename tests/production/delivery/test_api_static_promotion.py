@@ -448,3 +448,39 @@ def test_rollback_exige_o_mesmo_closed_ready_da_publicacao() -> None:
     with pytest.raises(PublicationError, match="host_recovery_receipt=closed_ready"):
         _run(port, "rollback-api-static", rollback, RECOVERY)
     assert port.writes("CopyObject") == []
+
+
+def _null_publication(inputs: dict[str, bytes]) -> dict[str, bytes]:
+    return _recovery(inputs | {"publication": promote_api.canonical(None)}, decision())
+
+
+def test_rollback_aceita_publicacao_null_sem_restaurar_nada_e_sem_chamar_o_s3() -> None:
+    port = FakeStaticPort()
+    inputs = _published(port)
+    before = len(port.calls)
+    _, context = _run(port, "rollback-api-static", _null_publication(inputs), RECOVERY)
+    [(kind, raw)] = context.observed
+    record = json.loads(raw)
+    assert kind == "rollback"
+    assert (record["restored"], record["residual"], record["invalidation_id"]) == ([], False, None)
+    assert len(port.calls) == before
+
+
+@pytest.mark.parametrize("raw", [b'"x"\n', b"[]\n", b"{}\n", b"nul\n"])
+def test_rollback_recusa_publicacao_malformada_que_nao_e_null(raw: bytes) -> None:
+    port = FakeStaticPort()
+    inputs = _published(port)
+    rollback = _recovery(inputs | {"publication": raw}, decision())
+    with pytest.raises(PublicationError, match=r"publication="):
+        _run(port, "rollback-api-static", rollback, RECOVERY)
+    assert port.writes("CopyObject") == []
+
+
+def test_rollback_com_publicacao_valida_continua_comparando_o_closed_ready() -> None:
+    port = FakeStaticPort()
+    inputs = _published(port)
+    record = json.loads(inputs["publication"]) | {"closed_ready_sha256": "f" * 64}
+    rollback = _recovery(inputs | {"publication": promote_api.canonical(record)}, decision())
+    with pytest.raises(PublicationError, match="host_recovery_receipt=closed_ready"):
+        _run(port, "rollback-api-static", rollback, RECOVERY)
+    assert port.writes("CopyObject") == []

@@ -7,7 +7,8 @@ from typing import Any
 
 import pytest
 
-from scripts.promotion import promote_api
+from scripts.promotion import _stage_windows, promote_api, promote_terminal
+from scripts.promotion._adapter_abi import STAGES as ABI_STAGES
 from scripts.promotion.promote_ready import ReadOnlyShim
 from scripts.promotion.promote_terminal import REOPEN_EXPRESSION
 from tests.production.delivery.test_adapter_handlers import (
@@ -27,6 +28,7 @@ from tests.production.delivery.test_adapter_handlers import (
     _observation,
     _relogio,
     _reopen_inputs,
+    _request,
     _run,
     _writes,
     canonical,
@@ -207,3 +209,98 @@ def test_paridade_do_roteamento_com_os_campos_fechados_do_keeper(
     assert record["kind"] == "routing"
     assert record["fence"] in KEEPER_ROUTING_FACTS["fence"]
     assert type(record["routes_match"]) is bool
+
+
+OTHER_STAGES = sorted(
+    ({"application-prepare"} | set(_stage_windows.STAGES) | set().union(*ABI_STAGES.values()))
+    - {"final", "recovery"}
+)
+MODES = ("unit", "recovery", "audit")
+
+
+@pytest.mark.parametrize("stage", OTHER_STAGES)
+def test_reopen_recusa_com_recovery_rule_absent_todo_estagio_que_nao_e_final_nem_recovery(
+    stage: str,
+) -> None:
+    close = canonical({"frozen_membership_sha256": sha(canonical([])), "members": []})
+    inputs = _reopen_inputs(close)
+    context = Context(None, Probe(), inputs)
+    request = _request("reopen", inputs, RECOVERY | {"stage": stage})
+    with pytest.raises(ValueError, match=r"^reopen=recovery_rule_absent$"):
+        promote_terminal.reopen(request, inputs, context)
+    assert context.calls == []
+
+
+def test_lista_de_estagios_recusados_inclui_application_prepare() -> None:
+    assert "application-prepare" in OTHER_STAGES
+    assert len(OTHER_STAGES) >= 5
+
+
+def _routes_match(monkeypatch: pytest.MonkeyPatch, routing: bytes) -> bool:
+    with _closed("terminal", monkeypatch) as (raw, _, probe, close):
+        _clock(monkeypatch, RECOVERY)
+        context = Context(raw, probe, _reopen_inputs(close, routing=routing))
+        _run(context, "reopen", RECOVERY)
+    return _observation(context, "routing")["routes_match"]
+
+
+def test_routes_match_em_recovery_e_verdadeiro_so_com_as_revisoes_da_activation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert _routes_match(monkeypatch, canonical(json.loads(_activation())["revisions"])) is True
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_routes_match_em_recovery_e_falso_com_deriva_em_um_unico_modo(
+    monkeypatch: pytest.MonkeyPatch, mode: str,
+) -> None:
+    routes = json.loads(_activation())["revisions"] | {mode: TASKS + f"{mode}:0"}
+    assert _routes_match(monkeypatch, canonical(routes)) is False
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_routes_match_em_recovery_e_falso_com_null_em_qualquer_modo(
+    monkeypatch: pytest.MonkeyPatch, mode: str,
+) -> None:
+    routes = json.loads(_activation())["revisions"] | {mode: None}
+    assert _routes_match(monkeypatch, canonical(routes)) is False
+
+
+def test_routes_match_em_recovery_e_falso_com_todos_os_modos_null(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert _routes_match(monkeypatch, canonical(dict.fromkeys(MODES))) is False
+
+
+def test_recovery_usa_a_leitura_selada_e_nunca_a_do_cas(monkeypatch: pytest.MonkeyPatch) -> None:
+    created: list[ReadOnlyShim] = []
+
+    class Spy(ReadOnlyShim):
+        def __init__(self, context: Any, executions: Any) -> None:
+            super().__init__(context, executions)
+            created.append(self)
+
+    monkeypatch.setattr(promote_terminal, "ReadOnlyShim", Spy)
+    with _closed("terminal", monkeypatch) as (raw, _, probe, close):
+        _clock(monkeypatch, RECOVERY)
+        context = Context(raw, probe, _reopen_inputs(close))
+        _run(context, "reopen", RECOVERY)
+    [shim] = created
+    with pytest.raises(ValueError, match="shim=sealed"):
+        shim.invoke("dynamodb", "update_item", {})
+    assert _writes(context) == []
+
+
+def test_terminal_readback_em_recovery_com_fence_aberto_por_este_dono_nao_e_limpo(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    close = canonical({"frozen_membership_sha256": sha(canonical([])), "members": []})
+    with _closed("terminal", monkeypatch) as (raw, adapter, probe, _close):
+        _clock(monkeypatch, FINAL)
+        reopen = Context(raw, probe, _reopen_inputs(_close))
+        _run(reopen, "reopen", FINAL)
+        assert adapter.observe_environment_gate("prod").fence.state.value == "OPEN"
+        _clock(monkeypatch, RECOVERY)
+        context = Context(raw, probe, _recovery_readback(close, routing=_routing("OPEN")))
+        _run(context, "terminal-readback", RECOVERY)
+    assert _observation(context, "terminal")["state_clean"] is False
