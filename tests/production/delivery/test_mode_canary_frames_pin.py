@@ -83,6 +83,12 @@ class _Dispatches:
         return self._dispatch
 
 
+def _cancelled(codes: list[str]) -> ClientError:
+    return ClientError({"Error": {"Code": "TransactionCanceledException"},
+                        "CancellationReasons": [{"Code": code} for code in codes]},
+                       "TransactWriteItems")
+
+
 class _Table:
     def __init__(self) -> None:
         self.items: dict[tuple[str, str], dict[str, Any]] = {}
@@ -112,7 +118,8 @@ class _Table:
         self.writes.append(("transact_write_items", request))
         puts = [item["Put"] for item in request["TransactItems"]]
         if not all(self._admits(put) for put in puts):
-            raise ClientError({"Error": {"Code": "TransactionCanceledException"}}, "Transact")
+            raise _cancelled(["None" if self._admits(put) else "ConditionalCheckFailed"
+                              for put in puts])
         for put in puts:
             self._store(put)
 
@@ -188,7 +195,7 @@ def test_teto_de_tentativas_do_ledger_e_fixado_no_vetor() -> None:
 class _Cancelling(_Table):
     def transact_write_items(self, **request: Any) -> None:
         self.writes.append(("transact_write_items", request))
-        raise ClientError({"Error": {"Code": "TransactionCanceledException"}}, "Transact")
+        raise _cancelled(["None", "TransactionConflict"])
 
 
 def test_container_desiste_com_ledger_contended_no_teto_do_vetor() -> None:
