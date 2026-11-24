@@ -261,8 +261,8 @@ class ModeCanaryContext:
 
     def _transition(self, effect_id: str, change: tuple[str, str | None]) -> None:
         for _ in range(ATTEMPTS):
-            request = transition(self._store.table, self._binding, self._ticket_text(effect_id),
-                                 change)
+            ticket = (effect_id, self._ticket_text(effect_id))
+            request = transition(self._store.table, self._binding, ticket, change)
             if request is None or self._store.write(request):
                 return
         raise refuse("ledger_contended")

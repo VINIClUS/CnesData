@@ -48,6 +48,7 @@ _RUN = "unit-aaaaaaaaaaaaaaaa"
 _HOLDER = PermitHolder(_TENANT, _RUN, "0123456789abcdef")
 _UNITS = ("u1", "u2")
 _NOW = datetime(2026, 11, 12, 12, 10, tzinfo=UTC)
+_EFFECT = _ticket()["effect_id"]
 
 
 def _record(**changes: Any) -> tuple[ModeCanaryRecord, str]:
@@ -220,7 +221,7 @@ def test_transicao_do_ticket_e_um_cas_sobre_o_payload_antigo(state: str,
                                                             receipt: str | None) -> None:
     ledger = _state()
     ticket = canonical_text(_ticket() | {"owner_sha256": _OWNER})
-    request = transition(_TABLE, ledger.binding, ticket, (state, receipt))
+    request = transition(_TABLE, ledger.binding, (_EFFECT, ticket), (state, receipt))
     assert request is not None
     assert request["ConditionExpression"] == "payload = :old"
     assert request["ExpressionAttributeValues"] == {":old": {"S": ticket}}
@@ -232,7 +233,7 @@ def test_transicao_do_ticket_e_um_cas_sobre_o_payload_antigo(state: str,
 def test_transicao_ja_aplicada_nao_escreve() -> None:
     ledger = _state()
     ticket = canonical_text(_ticket() | {"state": "UNKNOWN"})
-    assert transition(_TABLE, ledger.binding, ticket, ("UNKNOWN", None)) is None
+    assert transition(_TABLE, ledger.binding, (_EFFECT, ticket), ("UNKNOWN", None)) is None
 
 
 @pytest.mark.parametrize(("ticket", "reason"), [
@@ -243,20 +244,28 @@ def test_transicao_ja_aplicada_nao_escreve() -> None:
 def test_transicao_sem_ticket_ou_ja_liquidado_recusa(ticket: str | None, reason: str) -> None:
     ledger = _state()
     with pytest.raises(SyntheticContextRequired, match=f"reason={reason}"):
-        transition(_TABLE, ledger.binding, ticket, ("SETTLED", "3" * 64))
+        transition(_TABLE, ledger.binding, (_EFFECT, ticket), ("SETTLED", "3" * 64))
 
 
 def test_ticket_nao_canonico_recusa() -> None:
     ledger = _state()
     with pytest.raises(SyntheticContextRequired, match="reason=ticket_not_canonical"):
-        transition(_TABLE, ledger.binding, json.dumps(_ticket()), ("UNKNOWN", None))
+        transition(_TABLE, ledger.binding, (_EFFECT, json.dumps(_ticket())), ("UNKNOWN", None))
 
 
 def test_ticket_invalido_recusa() -> None:
     ledger = _state()
     with pytest.raises(SyntheticContextRequired, match="reason=ticket_invalid"):
-        transition(_TABLE, ledger.binding, canonical_text(_ticket() | {"state": "X"}),
+        transition(_TABLE, ledger.binding, (_EFFECT, canonical_text(_ticket() | {"state": "X"})),
                    ("UNKNOWN", None))
+
+
+def test_transicao_recusa_ticket_de_outro_effect_id_antes_de_montar_o_put() -> None:
+    ledger = _state()
+    ticket = canonical_text(_ticket() | {"owner_sha256": _OWNER})
+    with pytest.raises(SyntheticContextRequired,
+                       match=r"^reason=ticket_mismatch field=tenant_id$"):
+        transition(_TABLE, ledger.binding, ("f" * 64, ticket), ("UNKNOWN", None))
 
 
 def test_item_do_record_e_o_payload_exato_na_chave_do_owner_e_fase() -> None:

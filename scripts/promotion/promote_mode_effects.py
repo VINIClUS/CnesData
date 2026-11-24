@@ -37,7 +37,7 @@ from scripts.promotion.mode_canary_seed import (
     build_mode_seed,
     execute_mode_seed,
 )
-from scripts.promotion.promote_close import TABLE
+from scripts.promotion.promote_close import TABLE, owner_identity
 from scripts.promotion.promote_mode import _mapping
 
 if TYPE_CHECKING:
@@ -229,8 +229,11 @@ def _start(name: str, request: Mapping[str, Any], inputs: Mapping[str, bytes],
 def _bound(name: str, request: Mapping[str, Any],
            inputs: Mapping[str, bytes]) -> tuple[ModeCanaryRecord, str, Node]:
     record, record_sha = _record({"record": inputs["record"]}, MODE_OPERATIONS[name][0])
-    if (record.activation_sha256, record.owner_sha256) != (
-        request["activation_sha256"], request["owner"]["owner_sha256"]
+    identity = owner_identity(request)
+    if (record.activation_sha256, record.owner_sha256, record.promotion_id,
+            record.promotion_generation) != (
+        request["activation_sha256"], request["owner"]["owner_sha256"],
+        identity["promotion_id"], identity["promotion_generation"],
     ):
         raise ValueError("mode=record_binding")
     start = versioned(inputs["mode-start"], "mode-start", _START_FIELDS, "mode")

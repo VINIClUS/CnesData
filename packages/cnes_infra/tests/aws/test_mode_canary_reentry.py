@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
@@ -18,6 +18,12 @@ from cnes_domain.orchestration.mode_canary import (
     SyntheticContextRequired,
 )
 from cnes_infra.aws.mode_canary import ModeCanaryContext, require_seeded_control
+from cnes_infra.aws.mode_canary_dispatch import (
+    DispatchStep,
+    run_dispatch_item,
+    start_claim,
+    unit_dispatch,
+)
 from cnes_infra.aws.mode_canary_frames import (
     LedgerState,
     admission,
@@ -27,6 +33,7 @@ from cnes_infra.aws.mode_canary_frames import (
     ledger_effect,
     transition,
 )
+from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
 from cnes_infra.control_plane.dynamodb_keys import run_partition, tenant_partition
 from packages.cnes_domain.tests.orchestration.test_mode_canary_records import (
     CANARY_ID,
@@ -46,6 +53,11 @@ _PK = tenant_partition(_TENANT)
 _OWNER = "a" * 64
 _NOW = datetime(2026, 11, 12, 12, 10, tzinfo=UTC)
 _RECOVERY_RUNS = ["recovery-a-aaaaaaaaaaaaaaaa", "recovery-b-aaaaaaaaaaaaaaaa"]
+_UNIT_RUN = "unit-aaaaaaaaaaaaaaaa"
+_SEEDED_UNITS = [
+    {"tenant_id": _TENANT, "run_id": _UNIT_RUN, "unit_id": unit_id, "state": "PENDING",
+     "depends_on_unit_ids": depends, "lease_until": None}
+    for unit_id, depends in (("n-a", []), ("n-b", []), ("rec", ["n-a", "n-b"]))]
 
 
 class _Dispatches:
@@ -179,7 +191,7 @@ def test_frames_do_ledger_do_recovery_e_admissao_do_container_nao_disputam(
     effect = _keeper_admit(client, binding, record, resume)
     for change in (("UNKNOWN", None), ("SETTLED", "3" * 64)):
         ticket = _payload(client, f"PROD_CANARY_EFFECT#{_OWNER}#{effect}")
-        put = transition(_TABLE_NAME, binding, ticket, change)
+        put = transition(_TABLE_NAME, binding, (effect, ticket), change)
         assert put is not None
         client.put_item(**put)
     holder = PermitHolder(_TENANT, _RECOVERY_RUNS[0], "fedcba9876543210")
@@ -200,11 +212,11 @@ def test_transicao_repetida_pelo_keeper_nao_gera_frame(client: Any) -> None:
     effect = _keeper_admit(client, binding, record,
                            ledger_effect("run-recovery", "1" * 64, "2" * 64))
     ticket = _payload(client, f"PROD_CANARY_EFFECT#{_OWNER}#{effect}")
-    put = transition(_TABLE_NAME, binding, ticket, ("UNKNOWN", None))
+    put = transition(_TABLE_NAME, binding, (effect, ticket), ("UNKNOWN", None))
     assert put is not None
     client.put_item(**put)
     again = _payload(client, f"PROD_CANARY_EFFECT#{_OWNER}#{effect}")
-    assert transition(_TABLE_NAME, binding, again, ("UNKNOWN", None)) is None
+    assert transition(_TABLE_NAME, binding, (effect, again), ("UNKNOWN", None)) is None
 
 
 def test_control_semeado_e_lido_forte_antes_do_recovery_seed(client: Any) -> None:
@@ -217,3 +229,35 @@ def test_recovery_seed_sem_control_semeado_recusa(client: Any) -> None:
     record = ModeCanaryRecord.from_mapping(_promotion() | {"owner_sha256": "b" * 64})
     with pytest.raises(SyntheticContextRequired, match="reason=control_missing"):
         require_seeded_control(client, _TABLE_NAME, record)
+
+
+def _native_step(dispatch: Any, state: str, promotion_id: str | None) -> DispatchStep:
+    lease = _NOW + timedelta(seconds=90)
+    claim = start_claim(dispatch, 1, 0, promotion_id)
+    execution = f"arn:aws:states:us-east-2:111122223333:execution:m:{dispatch.dispatch_id}"
+    return {"RESERVED": DispatchStep("RESERVED", lease),
+            "STARTING": DispatchStep("STARTING", lease, claim),
+            "STARTED": DispatchStep("STARTED", lease, claim, execution)}[state]
+
+
+@pytest.mark.parametrize("state", ["RESERVED", "STARTING", "STARTED"])
+def test_dispatch_nativo_do_keeper_e_binding_for_pelo_get_run_dispatch_real_nao_disputam(
+        client: Any, state: str) -> None:
+    binding, record = _seed(client, "unit")
+    dispatch = unit_dispatch(binding, _SEEDED_UNITS, 2, _NOW)
+    holder = PermitHolder(dispatch.tenant_id, dispatch.run_id, dispatch.dispatch_id)
+    keeper_effect = _keeper_admit(client, binding, record,
+                                  dispatch_effect(binding, record, holder, dispatch.unit_ids))
+    step = _native_step(dispatch, state, record.promotion_id)
+    client.put_item(TableName=_TABLE_NAME, Item=run_dispatch_item(dispatch, step))
+    binding_sk = f"PROD_CANARY#{dispatch.dispatch_id}"
+    binding_pk = run_partition(_TENANT, holder.run_id)
+    stored = _payload(client, binding_sk, binding_pk)
+    recorder = _Recorder(client)
+    plane = DynamoDBControlPlane(client, _TABLE_NAME, lambda: _NOW)
+    ModeCanaryContext(recorder, _TABLE_NAME, binding, plane).binding_for(holder, _NOW)
+    assert recorder.writes == []
+    assert _counts(client)["unit_tasks"] == len(dispatch.unit_ids) == 2
+    assert [ticket["effect_id"] for ticket in _tickets(client)] == [keeper_effect]
+    assert stored is not None
+    assert _payload(client, binding_sk, binding_pk) == stored

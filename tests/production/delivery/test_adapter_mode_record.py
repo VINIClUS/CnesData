@@ -20,6 +20,7 @@ MODES = ("unit", "recovery", "audit")
 STAGES = {"unit": "unit", "recovery": "phase-c-recovery", "audit": "phase-c-audit"}
 BASE_INPUTS = frozenset({"activation", "close-drain", "fixture-manifest", "mode-input"})
 OTHER_OWNER = OWNER | {"run_id": 456, "generation": 8, "owner_sha256": "8" * 64}
+FOREIGN_OWNER_FIELDS = {"run_id": 456, "run_attempt": 2, "generation": 8}
 
 
 def _record(mp: pytest.MonkeyPatch, mode: str, **changes: bytes) -> tuple[dict[str, Any], Any]:
@@ -155,6 +156,29 @@ def test_record_recusa_close_drain_com_um_campo_da_identidade_de_outro_owner(
     close = fx.close_drain(**{campo: fx.identity(OTHER_OWNER)[campo]})
     with pytest.raises(ValueError, match=r"^mode=record_binding$"):
         fx.execute(monkeypatch, "unit-record", fx.record_inputs("unit", **{"close-drain": close}))
+
+
+@pytest.mark.parametrize("campo", sorted(FOREIGN_OWNER_FIELDS))
+def test_record_recusa_mode_input_do_mesmo_owner_sha_com_outro_campo_do_owner(
+        monkeypatch: pytest.MonkeyPatch, campo: str) -> None:
+    owner = OWNER | {campo: FOREIGN_OWNER_FIELDS[campo]}
+    inputs = fx.record_inputs("unit", **{"mode-input": fx.mode_input(owner=owner)})
+    with pytest.raises(ValueError, match=r"^mode=record_binding$"):
+        fx.execute(monkeypatch, "unit-record", inputs)
+
+
+def test_record_recusa_context_manifest_vencido_antes_do_canary(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    manifest = fx.mode_input(deadline="2026-11-13T12:04:00Z")
+    inputs = fx.record_inputs("unit", **{"mode-input": manifest})
+    with pytest.raises(ValueError, match=r"^mode=record_deadline$"):
+        fx.execute(monkeypatch, "unit-record", inputs)
+
+
+def test_audit_recusa_seed_de_outro_schema(monkeypatch: pytest.MonkeyPatch) -> None:
+    seed = fx.seed_manifest(schema="cnesdata.mode-canary-seed/v0")
+    with pytest.raises(ValueError, match=r"^mode=record_seed$"):
+        fx.execute(monkeypatch, "audit-record", fx.record_inputs("audit", **{"mode-seed": seed}))
 
 
 def test_record_recusa_prazo_do_estagio_vencido(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -182,6 +182,7 @@
     "UNKNOWN",
     null
    ],
+   "effect_id": "46d3763527d841d11bd4a3b093f8623f48012a3146e6a01de1c6e641412e2c9c",
    "name": "ledger-unknown",
    "record": "{\"activation_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"canary_deadline\":\"2026-11-12T12:30:00Z\",\"canary_id\":\"0123456789abcdef0123456789abcdef\",\"candidate_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"context_kind\":\"promotion\",\"context_manifest_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"expires_at\":\"2026-11-12T13:00:00Z\",\"fault\":\"none\",\"fixed_deadline\":\"2026-11-12T13:00:00Z\",\"fixture_manifest_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"freeze_policy_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"machine_arn\":\"arn:aws:states:us-east-2:0:stateMachine:m\",\"mode\":\"recovery\",\"owner_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"phase\":\"recovery\",\"phase_receipt_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"promotion_generation\":3,\"promotion_id\":\"promo-1\",\"release_id\":\"r-499\",\"revisions\":{\"audit\":\"a:1\",\"recovery\":\"r:1\",\"unit\":\"u:1\"},\"run_ids\":[\"recovery-a-aaaaaaaaaaaaaaaa\",\"recovery-b-aaaaaaaaaaaaaaaa\"],\"scenario\":\"recovery_resume\",\"schema\":\"cnesdata.mode-canary/v2\",\"seed_manifest_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"source_sha\":\"dddddddddddddddddddddddddddddddddddddddd\",\"stage_deadline\":\"2026-11-12T12:30:00Z\"}\n",
    "result": {
@@ -215,6 +216,7 @@
     "SETTLED",
     "3333333333333333333333333333333333333333333333333333333333333333"
    ],
+   "effect_id": "46d3763527d841d11bd4a3b093f8623f48012a3146e6a01de1c6e641412e2c9c",
    "name": "ledger-settle",
    "record": "{\"activation_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"canary_deadline\":\"2026-11-12T12:30:00Z\",\"canary_id\":\"0123456789abcdef0123456789abcdef\",\"candidate_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"context_kind\":\"promotion\",\"context_manifest_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"expires_at\":\"2026-11-12T13:00:00Z\",\"fault\":\"none\",\"fixed_deadline\":\"2026-11-12T13:00:00Z\",\"fixture_manifest_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"freeze_policy_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"machine_arn\":\"arn:aws:states:us-east-2:0:stateMachine:m\",\"mode\":\"recovery\",\"owner_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"phase\":\"recovery\",\"phase_receipt_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"promotion_generation\":3,\"promotion_id\":\"promo-1\",\"release_id\":\"r-499\",\"revisions\":{\"audit\":\"a:1\",\"recovery\":\"r:1\",\"unit\":\"u:1\"},\"run_ids\":[\"recovery-a-aaaaaaaaaaaaaaaa\",\"recovery-b-aaaaaaaaaaaaaaaa\"],\"scenario\":\"recovery_resume\",\"schema\":\"cnesdata.mode-canary/v2\",\"seed_manifest_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"source_sha\":\"dddddddddddddddddddddddddddddddddddddddd\",\"stage_deadline\":\"2026-11-12T12:30:00Z\"}\n",
    "result": {
@@ -248,6 +250,7 @@
     "SETTLED",
     "3333333333333333333333333333333333333333333333333333333333333333"
    ],
+   "effect_id": "46d3763527d841d11bd4a3b093f8623f48012a3146e6a01de1c6e641412e2c9c",
    "name": "ledger-settle-replay",
    "record": "{\"activation_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"canary_deadline\":\"2026-11-12T12:30:00Z\",\"canary_id\":\"0123456789abcdef0123456789abcdef\",\"candidate_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"context_kind\":\"promotion\",\"context_manifest_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"expires_at\":\"2026-11-12T13:00:00Z\",\"fault\":\"none\",\"fixed_deadline\":\"2026-11-12T13:00:00Z\",\"fixture_manifest_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"freeze_policy_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"machine_arn\":\"arn:aws:states:us-east-2:0:stateMachine:m\",\"mode\":\"recovery\",\"owner_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"phase\":\"recovery\",\"phase_receipt_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"promotion_generation\":3,\"promotion_id\":\"promo-1\",\"release_id\":\"r-499\",\"revisions\":{\"audit\":\"a:1\",\"recovery\":\"r:1\",\"unit\":\"u:1\"},\"run_ids\":[\"recovery-a-aaaaaaaaaaaaaaaa\",\"recovery-b-aaaaaaaaaaaaaaaa\"],\"scenario\":\"recovery_resume\",\"schema\":\"cnesdata.mode-canary/v2\",\"seed_manifest_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"source_sha\":\"dddddddddddddddddddddddddddddddddddddddd\",\"stage_deadline\":\"2026-11-12T12:30:00Z\"}\n",
    "result": null,
@@ -321,6 +324,7 @@
     "UNKNOWN",
     null
    ],
+   "effect_id": "46d3763527d841d11bd4a3b093f8623f48012a3146e6a01de1c6e641412e2c9c",
    "name": "ticket-settled",
    "record": "{\"activation_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"canary_deadline\":\"2026-11-12T12:30:00Z\",\"canary_id\":\"0123456789abcdef0123456789abcdef\",\"candidate_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"context_kind\":\"promotion\",\"context_manifest_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"expires_at\":\"2026-11-12T13:00:00Z\",\"fault\":\"none\",\"fixed_deadline\":\"2026-11-12T13:00:00Z\",\"fixture_manifest_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"freeze_policy_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"machine_arn\":\"arn:aws:states:us-east-2:0:stateMachine:m\",\"mode\":\"recovery\",\"owner_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"phase\":\"recovery\",\"phase_receipt_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"promotion_generation\":3,\"promotion_id\":\"promo-1\",\"release_id\":\"r-499\",\"revisions\":{\"audit\":\"a:1\",\"recovery\":\"r:1\",\"unit\":\"u:1\"},\"run_ids\":[\"recovery-a-aaaaaaaaaaaaaaaa\",\"recovery-b-aaaaaaaaaaaaaaaa\"],\"scenario\":\"recovery_resume\",\"schema\":\"cnesdata.mode-canary/v2\",\"seed_manifest_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"source_sha\":\"dddddddddddddddddddddddddddddddddddddddd\",\"stage_deadline\":\"2026-11-12T12:30:00Z\"}\n",
    "refusal": "reason=ticket_settled field=tenant_id",
@@ -367,11 +371,226 @@
     "schema": "cnesdata.mode-canary-control/v1",
     "sealed_at": null
    }
+  },
+  {
+   "builder": "transition",
+   "change": [
+    "UNKNOWN",
+    null
+   ],
+   "effect_id": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+   "name": "ticket-key-mismatch",
+   "record": "{\"activation_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"canary_deadline\":\"2026-11-12T12:30:00Z\",\"canary_id\":\"0123456789abcdef0123456789abcdef\",\"candidate_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"context_kind\":\"promotion\",\"context_manifest_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"expires_at\":\"2026-11-12T13:00:00Z\",\"fault\":\"none\",\"fixed_deadline\":\"2026-11-12T13:00:00Z\",\"fixture_manifest_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"freeze_policy_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"machine_arn\":\"arn:aws:states:us-east-2:0:stateMachine:m\",\"mode\":\"recovery\",\"owner_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"phase\":\"recovery\",\"phase_receipt_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"promotion_generation\":3,\"promotion_id\":\"promo-1\",\"release_id\":\"r-499\",\"revisions\":{\"audit\":\"a:1\",\"recovery\":\"r:1\",\"unit\":\"u:1\"},\"run_ids\":[\"recovery-a-aaaaaaaaaaaaaaaa\",\"recovery-b-aaaaaaaaaaaaaaaa\"],\"scenario\":\"recovery_resume\",\"schema\":\"cnesdata.mode-canary/v2\",\"seed_manifest_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"source_sha\":\"dddddddddddddddddddddddddddddddddddddddd\",\"stage_deadline\":\"2026-11-12T12:30:00Z\"}\n",
+   "refusal": "reason=ticket_mismatch field=tenant_id",
+   "ticket": "{\"admitted_at\":\"2026-11-12T12:10:00+00:00\",\"context_manifest_sha256\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"deadline\":\"2026-11-12T12:30:00+00:00\",\"effect_id\":\"46d3763527d841d11bd4a3b093f8623f48012a3146e6a01de1c6e641412e2c9c\",\"effect_kind\":\"run-recovery\",\"generation\":3,\"owner_sha256\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"phase_record_sha256\":\"36d89c98f4e359ab9e71ab826f806bdba0a1872f7fb76940821fa400fab8202c\",\"receipt_sha256\":null,\"request_sha256\":\"1111111111111111111111111111111111111111111111111111111111111111\",\"schema\":\"cnesdata.mode-canary-effect/v1\",\"state\":\"PENDING\",\"target_sha256\":\"2222222222222222222222222222222222222222222222222222222222222222\"}\n"
   }
  ],
+ "closure": {
+  "packages/cnes_domain/src/cnes_domain/orchestration/mode_canary.py": "255431e9f02f0f26554c42370ee0b0c55b1ab9287a79422c24be377df45571d2",
+  "packages/cnes_infra/src/cnes_infra/aws/mode_canary_dispatch.py": "ee2c669c59dd2ea4b391edcc5490884c6c01fa23876ef91f16706cf377036c61",
+  "packages/cnes_infra/src/cnes_infra/aws/mode_canary_frames.py": "35cd96e6362a53c835369f0683e8eaec8b3eb9d3ea134f02e1689437df08cf33",
+  "packages/cnes_infra/src/cnes_infra/control_plane/dynamodb_keys.py": "5810031c6ed6fae18f7a70e578c5255b9297ce63f0745b237eca191688ca19eb"
+ },
+ "dispatch": {
+  "lease_seconds": 90,
+  "locator": {
+   "context_kind": "promotion",
+   "owner_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "phase": "unit",
+   "record_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+   "run_ids": [
+    "unit-aaaaaaaaaaaaaaaa"
+   ],
+   "tenant_id": "prod-canary-cccccccccccccccccccccccccccccccc"
+  },
+  "max_concurrency": 2,
+  "now": "2026-11-13T12:05:00+00:00",
+  "promotion_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "result": {
+   "claim": {
+    "dispatch_id": "09e6289a08ced292",
+    "fence_version": 0,
+    "generation": 1,
+    "permit_token": 1,
+    "promotion_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "request_sha256": "638d6c697f931444bcc63f4f5fa6056fc46f65a5bbb6194cc713cbaa4d42fb82"
+   },
+   "dispatch_id": "09e6289a08ced292",
+   "execution_ref": "arn:aws:states:us-east-2:111122223333:execution:cnesdata-prod:09e6289a08ced292",
+   "items": {
+    "RESERVED": {
+     "entity": {
+      "S": "RUNDISPATCH"
+     },
+     "gsi5pk": {
+      "S": "RUN_ITEMS#70726f642d63616e6172792d6363636363636363636363636363636363636363636363636363636363636363#756e69742d61616161616161616161616161616161"
+     },
+     "gsi5sk": {
+      "S": "DISPATCH#ACTIVE"
+     },
+     "payload": {
+      "S": "{\"tenant_id\":\"prod-canary-cccccccccccccccccccccccccccccccc\",\"run_id\":\"unit-aaaaaaaaaaaaaaaa\",\"wave_id\":\"61d919281eb236c7\",\"dispatch_id\":\"09e6289a08ced292\",\"generation\":1,\"unit_ids\":[\"31d49e0b2a20378b6b2998411e4f305f\",\"7687b440a8dd5123aa4000858436bdb6\"],\"state\":\"RESERVED\",\"lease_until\":\"2026-11-13T12:06:30Z\",\"execution_ref\":null,\"terminal_outcome\":null,\"start_claim\":null,\"canceled_before_send\":false}"
+     },
+     "pk": {
+      "S": "TENANT#70726f642d63616e6172792d6363636363636363636363636363636363636363636363636363636363636363#RUN#756e69742d61616161616161616161616161616161"
+     },
+     "sk": {
+      "S": "DISPATCH#ACTIVE"
+     }
+    },
+    "STARTED": {
+     "entity": {
+      "S": "RUNDISPATCH"
+     },
+     "gsi5pk": {
+      "S": "RUN_ITEMS#70726f642d63616e6172792d6363636363636363636363636363636363636363636363636363636363636363#756e69742d61616161616161616161616161616161"
+     },
+     "gsi5sk": {
+      "S": "DISPATCH#ACTIVE"
+     },
+     "payload": {
+      "S": "{\"tenant_id\":\"prod-canary-cccccccccccccccccccccccccccccccc\",\"run_id\":\"unit-aaaaaaaaaaaaaaaa\",\"wave_id\":\"61d919281eb236c7\",\"dispatch_id\":\"09e6289a08ced292\",\"generation\":1,\"unit_ids\":[\"31d49e0b2a20378b6b2998411e4f305f\",\"7687b440a8dd5123aa4000858436bdb6\"],\"state\":\"STARTED\",\"lease_until\":\"2026-11-13T12:06:30Z\",\"execution_ref\":\"arn:aws:states:us-east-2:111122223333:execution:cnesdata-prod:09e6289a08ced292\",\"terminal_outcome\":null,\"start_claim\":{\"dispatch_id\":\"09e6289a08ced292\",\"generation\":1,\"permit_token\":1,\"fence_version\":0,\"request_sha256\":\"638d6c697f931444bcc63f4f5fa6056fc46f65a5bbb6194cc713cbaa4d42fb82\",\"promotion_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"canceled_before_send\":false}"
+     },
+     "pk": {
+      "S": "TENANT#70726f642d63616e6172792d6363636363636363636363636363636363636363636363636363636363636363#RUN#756e69742d61616161616161616161616161616161"
+     },
+     "sk": {
+      "S": "DISPATCH#ACTIVE"
+     }
+    },
+    "STARTING": {
+     "entity": {
+      "S": "RUNDISPATCH"
+     },
+     "gsi5pk": {
+      "S": "RUN_ITEMS#70726f642d63616e6172792d6363636363636363636363636363636363636363636363636363636363636363#756e69742d61616161616161616161616161616161"
+     },
+     "gsi5sk": {
+      "S": "DISPATCH#ACTIVE"
+     },
+     "payload": {
+      "S": "{\"tenant_id\":\"prod-canary-cccccccccccccccccccccccccccccccc\",\"run_id\":\"unit-aaaaaaaaaaaaaaaa\",\"wave_id\":\"61d919281eb236c7\",\"dispatch_id\":\"09e6289a08ced292\",\"generation\":1,\"unit_ids\":[\"31d49e0b2a20378b6b2998411e4f305f\",\"7687b440a8dd5123aa4000858436bdb6\"],\"state\":\"STARTING\",\"lease_until\":\"2026-11-13T12:06:30Z\",\"execution_ref\":null,\"terminal_outcome\":null,\"start_claim\":{\"dispatch_id\":\"09e6289a08ced292\",\"generation\":1,\"permit_token\":1,\"fence_version\":0,\"request_sha256\":\"638d6c697f931444bcc63f4f5fa6056fc46f65a5bbb6194cc713cbaa4d42fb82\",\"promotion_id\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"},\"canceled_before_send\":false}"
+     },
+     "pk": {
+      "S": "TENANT#70726f642d63616e6172792d6363636363636363636363636363636363636363636363636363636363636363#RUN#756e69742d61616161616161616161616161616161"
+     },
+     "sk": {
+      "S": "DISPATCH#ACTIVE"
+     }
+    }
+   },
+   "permit": {
+    "fence_version": 0,
+    "token": 1
+   },
+   "start_execution": {
+    "input": "{\"dispatch_id\":\"09e6289a08ced292\",\"max_concurrency\":2,\"run_id\":\"unit-aaaaaaaaaaaaaaaa\",\"tenant_id\":\"prod-canary-cccccccccccccccccccccccccccccccc\",\"unit_ids\":[\"31d49e0b2a20378b6b2998411e4f305f\",\"7687b440a8dd5123aa4000858436bdb6\"],\"wave_id\":\"61d919281eb236c7\"}",
+    "name": "09e6289a08ced292"
+   },
+   "start_request_sha256": "638d6c697f931444bcc63f4f5fa6056fc46f65a5bbb6194cc713cbaa4d42fb82",
+   "unit_ids": [
+    "31d49e0b2a20378b6b2998411e4f305f",
+    "7687b440a8dd5123aa4000858436bdb6"
+   ],
+   "wave_id": "61d919281eb236c7"
+  },
+  "units": [
+   {
+    "attempt": 0,
+    "depends_on_unit_ids": [],
+    "dispatch_id": null,
+    "error_code": null,
+    "fencing_token": 0,
+    "file_subtype": "CNES_VINCULO",
+    "input_manifests": [
+     {
+      "manifest_id": "fixture-cnes-local-v1-unit-aaaaaaaaaaaaaaaa",
+      "manifest_key": "raw/prod-canary-cccccccccccccccccccccccccccccccc/CNES_LOCAL/2026-01/fixture-cnes-local-v1-unit-aaaaaaaaaaaaaaaa/manifest.json"
+     }
+    ],
+    "lease_owner": null,
+    "lease_until": null,
+    "output_manifests": [],
+    "partition": "2026-01",
+    "run_id": "unit-aaaaaaaaaaaaaaaa",
+    "source_type": "CNES_LOCAL",
+    "stage": "NORMALIZE",
+    "state": "PENDING",
+    "tenant_id": "prod-canary-cccccccccccccccccccccccccccccccc",
+    "unit_id": "31d49e0b2a20378b6b2998411e4f305f"
+   },
+   {
+    "attempt": 0,
+    "depends_on_unit_ids": [],
+    "dispatch_id": null,
+    "error_code": null,
+    "fencing_token": 0,
+    "file_subtype": "CNES_VINCULO",
+    "input_manifests": [
+     {
+      "manifest_id": "fixture-cnes-nacional-v1-unit-aaaaaaaaaaaaaaaa",
+      "manifest_key": "raw/prod-canary-cccccccccccccccccccccccccccccccc/CNES_NACIONAL/2026-01/fixture-cnes-nacional-v1-unit-aaaaaaaaaaaaaaaa/manifest.json"
+     }
+    ],
+    "lease_owner": null,
+    "lease_until": null,
+    "output_manifests": [],
+    "partition": "2026-01",
+    "run_id": "unit-aaaaaaaaaaaaaaaa",
+    "source_type": "CNES_NACIONAL",
+    "stage": "NORMALIZE",
+    "state": "PENDING",
+    "tenant_id": "prod-canary-cccccccccccccccccccccccccccccccc",
+    "unit_id": "7687b440a8dd5123aa4000858436bdb6"
+   },
+   {
+    "attempt": 0,
+    "depends_on_unit_ids": [
+     "31d49e0b2a20378b6b2998411e4f305f",
+     "7687b440a8dd5123aa4000858436bdb6"
+    ],
+    "dispatch_id": null,
+    "error_code": null,
+    "fencing_token": 0,
+    "file_subtype": null,
+    "input_manifests": [],
+    "lease_owner": null,
+    "lease_until": null,
+    "output_manifests": [],
+    "partition": "all",
+    "run_id": "unit-aaaaaaaaaaaaaaaa",
+    "source_type": null,
+    "stage": "RECONCILE",
+    "state": "PENDING",
+    "tenant_id": "prod-canary-cccccccccccccccccccccccccccccccc",
+    "unit_id": "f0b1e643355958963f23d02c36e90be5"
+   },
+   {
+    "attempt": 0,
+    "depends_on_unit_ids": [
+     "f0b1e643355958963f23d02c36e90be5"
+    ],
+    "dispatch_id": null,
+    "error_code": null,
+    "fencing_token": 0,
+    "file_subtype": null,
+    "input_manifests": [],
+    "lease_owner": null,
+    "lease_until": null,
+    "output_manifests": [],
+    "partition": "all",
+    "run_id": "unit-aaaaaaaaaaaaaaaa",
+    "source_type": null,
+    "stage": "MATERIALIZE",
+    "state": "PENDING",
+    "tenant_id": "prod-canary-cccccccccccccccccccccccccccccccc",
+    "unit_id": "d962dfc5248fcc4b02aeabe32bf056ec"
+   }
+  ]
+ },
  "source": {
   "path": "packages/cnes_infra/src/cnes_infra/aws/mode_canary_frames.py",
-  "sha256": "3b95d77a70c9c121c6dc77cea9b71d0cac5fab359fd4b6d655269f3a61a315a6"
+  "sha256": "35cd96e6362a53c835369f0683e8eaec8b3eb9d3ea134f02e1689437df08cf33"
  },
  "table": "cnesdata-prod-control-plane"
 }

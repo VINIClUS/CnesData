@@ -92,3 +92,20 @@ def test_relogio_fora_de_utc_recusa() -> None:
     local = datetime(2026, 11, 13, 9, 20, tzinfo=timezone(timedelta(hours=-3)))
     with pytest.raises(ValueError, match="reason=datetime_not_utc"):
         phase_c_evidence(_evidence(observed_at=local))
+
+
+@pytest.mark.parametrize(("campo", "valor"), [
+    ("after", {LINEAGE: "l-1"}), ("after", {LINEAGE: "l-1", "serial": "5"}),
+    ("after", {LINEAGE: "l-1", "serial": True}), ("after", {LINEAGE: 1, "serial": 5}),
+    ("after", {LINEAGE: "", "serial": 5}), ("before", None), ("before", {"serial": 4}),
+    ("before", [4]),
+])
+def test_checkpoint_malformado_recusa_com_chave_valor(campo: str, valor: Any) -> None:
+    with pytest.raises(ValueError, match=r"^phase_c=checkpoint_invalid$"):
+        phase_c_evidence(_evidence(**{campo: valor}))
+
+
+@pytest.mark.parametrize("close", [None, {"version": 2}, {"common": None}, {"common": []}])
+def test_close_sem_common_recusa_com_chave_valor(close: Any) -> None:
+    with pytest.raises(ValueError, match=r"^phase_c=close_invalid$"):
+        phase_c_evidence(_evidence(close=close))

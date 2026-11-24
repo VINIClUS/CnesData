@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -29,7 +30,7 @@ from scripts.promotion.accept_routing import observe_gate, read_routes
 from scripts.promotion.phase_b import _assert_task_revisions_unchanged, _context_from_admitted
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable
 
     from scripts.promotion.verify_routes import NativePhaseB
 
@@ -243,6 +244,13 @@ def _apply_reviewed(native: NativePhaseB, raw: bytes, review: Callable[[Node], N
     return applied
 
 
+def _checkpoint(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    lineage, serial = cast("Node", value).get("lineage"), cast("Node", value).get("serial")
+    return isinstance(lineage, str) and bool(lineage) and type(serial) is int
+
+
 def _advanced(before: Node, after: Node) -> None:
     _require(after["lineage"] == before["lineage"] and after["serial"] > before["serial"],
              "phase_c=checkpoint_not_advanced")
@@ -276,11 +284,16 @@ def _projected(mode: str, routes: Any) -> bool:
 def phase_c_evidence(evidence: PhaseCEvidence) -> bytes:
     """Returns: Bytes canônicos do elemento `phase-c-<mode>` com apply_sha256 da saída do apply.
 
-    Raises: ValueError: phase_c=checkpoint_not_advanced, phase_c=routes ou relógio não UTC.
+    Raises: ValueError: phase_c=checkpoint_invalid, phase_c=close_invalid,
+    phase_c=checkpoint_not_advanced, phase_c=routes ou relógio não UTC.
     """
+    _require(_checkpoint(evidence.before) and _checkpoint(evidence.after),
+             "phase_c=checkpoint_invalid")
+    close = evidence.close
+    _require(isinstance(close, Mapping) and isinstance(close.get("common"), dict),
+             "phase_c=close_invalid")
     _advanced(evidence.before, evidence.after)
     _require(_projected(evidence.mode, evidence.routes), "phase_c=routes")
-    close = evidence.close
     return _canonical({
         "version": 1, "kind": f"phase-c-{evidence.mode}", "common": dict(close["common"]),
         "close_drain_sha256": object_hash(close), "before": evidence.before,

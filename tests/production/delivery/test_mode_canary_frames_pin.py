@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
+import sys
 from datetime import datetime
 from hashlib import sha256
 from pathlib import Path
@@ -40,6 +42,8 @@ TABLE: str = VECTOR["table"]
 CASES: dict[str, dict[str, Any]] = {case["name"]: case for case in VECTOR["cases"]}
 BUILT = [name for name, case in CASES.items() if "refusal" not in case]
 REFUSED = [name for name, case in CASES.items() if "refusal" in case]
+ENTRIES = ("cnes_infra.aws.mode_canary_frames", "cnes_infra.aws.mode_canary_dispatch")
+FIRST_PARTY = frozenset({"cnes_domain", "cnes_infra", "cnes_contracts"})
 
 
 def _record(text: str) -> ModeCanaryRecord:
@@ -69,7 +73,8 @@ def _build(case: dict[str, Any]) -> Any:
         return initial_control(_record(text), datetime.fromisoformat(case["admitted_at"]))
     binding = _binding(text)
     if builder == "transition":
-        return transition(TABLE, binding, case["ticket"], tuple(case["change"]))
+        return transition(TABLE, binding, (case["effect_id"], case["ticket"]),
+                          tuple(case["change"]))
     state = LedgerState(binding, _record(text), case["control"], case["ticket"])
     plan = admission(TABLE, state, _effect(case, binding), datetime.fromisoformat(case["now"]))
     return {"effect_id": plan.effect_id, "items": plan.items}
@@ -124,6 +129,55 @@ class _Table:
             self._store(put)
 
 
+def _module_path(module: str) -> Path:
+    parts = module.split(".")
+    return ROOT / "packages" / parts[0] / "src" / Path(*parts).with_suffix(".py")
+
+
+def _runtime_imports(path: Path) -> set[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    typing_only = {id(node) for block in ast.walk(tree) if isinstance(block, ast.If)
+                   and "TYPE_CHECKING" in ast.unparse(block.test)
+                   for statement in block.body for node in ast.walk(statement)}
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if id(node) in typing_only:
+            continue
+        if isinstance(node, ast.Import):
+            names |= {alias.name for alias in node.names}
+        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
+            names.add(node.module)
+    return names
+
+
+def _closure() -> tuple[set[str], set[str]]:
+    pending, seen, outside = list[str](ENTRIES), set[str](), set[str]()
+    while pending:
+        module = pending.pop()
+        if module in seen:
+            continue
+        seen.add(module)
+        for name in _runtime_imports(_module_path(module)):
+            root = name.split(".")[0]
+            if root in FIRST_PARTY:
+                pending.append(name)
+            else:
+                outside.add(root)
+    return {_module_path(module).relative_to(ROOT).as_posix() for module in seen}, outside
+
+
+def test_closure_dos_formatos_e_a_do_vetor_com_o_sha256_de_cada_arquivo() -> None:
+    files, _ = _closure()
+    assert set(VECTOR["closure"]) == files
+    for path, digest in VECTOR["closure"].items():
+        assert hashlib.sha256((ROOT / path).read_bytes()).hexdigest() == digest
+
+
+def test_closure_dos_formatos_so_importa_a_biblioteca_padrao() -> None:
+    _, outside = _closure()
+    assert outside <= sys.stdlib_module_names
+
+
 def test_fonte_dos_formatos_tem_o_sha256_fixado_no_vetor() -> None:
     data = (ROOT / VECTOR["source"]["path"]).read_bytes()
     assert hashlib.sha256(data).hexdigest() == VECTOR["source"]["sha256"]
@@ -135,7 +189,8 @@ def test_vetor_cobre_dispatch_ledger_record_control_e_as_recusas() -> None:
                           "record-item", "initial-control"}
     reasons = {CASES[name]["refusal"] for name in REFUSED}
     assert reasons == {f"reason={reason} field=tenant_id"
-                       for reason in ("ticket_conflict", "budget_exhausted", "ticket_settled")}
+                       for reason in ("ticket_conflict", "budget_exhausted", "ticket_settled",
+                                      "ticket_mismatch")}
     hangs = [CASES[name] for name in REFUSED if "hangs" in name]
     assert [json.loads(case["control"])["admitted_counts"]["recovery_hangs"]
             for case in hangs] == [1]
@@ -213,3 +268,19 @@ def test_container_desiste_com_ledger_contended_no_teto_do_vetor() -> None:
         context.admit_effect("run-recovery", "1" * 64, "2" * 64,
                              datetime.fromisoformat(case["now"]))
     assert len(table.writes) == VECTOR["attempts"]
+
+
+def test_container_recusa_ticket_gravado_na_chave_de_outro_effect_id_sem_escrever() -> None:
+    case = CASES["ledger-unknown"]
+    binding = _binding(case["record"])
+    table = _Table()
+    pk = tenant_partition(binding.tenant_id)
+    other = "f" * 64
+    sort_key = f"PROD_CANARY_EFFECT#{binding.owner_sha256}#{other}"
+    table.items[(pk, sort_key)] = {"pk": {"S": pk}, "sk": {"S": sort_key},
+                                   "entity": {"S": "X"}, "payload": {"S": case["ticket"]}}
+    context = ModeCanaryContext(table, TABLE, binding, _Dispatches("0" * 16, ()))
+    with pytest.raises(SyntheticContextRequired,
+                       match=r"^reason=ticket_mismatch field=tenant_id$"):
+        context.mark_unknown(other)
+    assert table.writes == []

@@ -20,11 +20,16 @@ from tests.production.delivery.test_promote_close import OWNER, sha
 
 PK = tenant_partition(fx.TENANT)
 OTHER = OWNER | {"owner_sha256": "8" * 64}
+COLLIDER = fx.OWNER_SHA[:16] + "0" + fx.OWNER_SHA[17:]
+COLLIDING = OWNER | {"owner_sha256": COLLIDER}
+FOREIGN_PROMOTION = {"promotion_id": "8" * 64, "promotion_generation": OWNER["generation"] + 1}
+EFFECTS = ("unit-seed", "recovery-seed", "unit-start", "recovery-start", "audit-start")
 
 
 def _record(mode: str, owner: str = fx.OWNER_SHA, **changes: Any) -> bytes:
     run_ids = [run.replace(fx.OWNER_SHA[:16], owner[:16]) for run in fx.runs(mode)]
-    return fx.record(mode, owner_sha256=owner, run_ids=run_ids, **changes)
+    fields = {"owner_sha256": owner, "promotion_id": owner, "run_ids": run_ids}
+    return fx.record(mode, **(fields | changes))
 
 
 def _seed(mp: pytest.MonkeyPatch, name: str, keeper: fx.Keeper,
@@ -191,3 +196,45 @@ def test_owner_novo_no_mesmo_tenant_grava_chaves_disjuntas_sem_seed_conflict(
         (PK, f"{prefix}#{owner}{suffix}") for owner in (fx.OWNER_SHA, OTHER["owner_sha256"])
         for prefix, suffix in (("PROD_CANARY", "#unit"), ("PROD_CANARY", "#recovery"),
                                ("PROD_CANARY_CONTROL", ""))}
+
+
+@pytest.mark.parametrize("campo", sorted(FOREIGN_PROMOTION))
+@pytest.mark.parametrize("name", EFFECTS)
+def test_seed_e_start_recusam_record_de_outra_promocao_antes_de_qualquer_chamada(
+        monkeypatch: pytest.MonkeyPatch, name: str, campo: str) -> None:
+    mode = abi.MODE_OPERATIONS[name][0]
+    record = _record(mode, **{campo: FOREIGN_PROMOTION[campo]})
+    if name.endswith("-seed"):
+        keeper = fx.Keeper(fx.seed_inputs(mode) | {"record": record})
+    else:
+        keeper = fx.keeper(mode, fx.start_inputs(mode, record=record))
+    with pytest.raises(ValueError, match=r"^mode=record_binding$"):
+        fx.run(monkeypatch, name, keeper)
+    assert fx.untouched(keeper)
+
+
+def test_colisao_de_owner16_com_bytes_identicos_adota_o_seed_sem_sobrescrever(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    keeper = _keeper("unit")
+    _seed(monkeypatch, "unit-seed", keeper)
+    first, objects = dict(keeper.items), dict(keeper.objects)
+    keeper.inputs = fx.seed_inputs("unit") | {"record": _record("unit", COLLIDER)}
+    _seed(monkeypatch, "unit-seed", keeper, COLLIDING)
+    assert {key: keeper.items[key] for key in first} == first
+    assert keeper.objects == objects
+    assert set(keeper.items) - set(first) == {
+        (PK, f"PROD_CANARY#{COLLIDER}#unit"), (PK, f"PROD_CANARY_CONTROL#{COLLIDER}")}
+
+
+def test_colisao_de_owner16_com_bytes_diferentes_recusa_seed_conflict_sem_sobrescrever(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    keeper = _keeper("unit")
+    _seed(monkeypatch, "unit-seed", keeper)
+    first, objects = dict(keeper.items), dict(keeper.objects)
+    keeper.inputs = fx.seed_inputs("unit") | {
+        "record": _record("unit", COLLIDER), "mode-start": fx.start_doc(
+            started="2026-11-13T12:02:00Z")}
+    with pytest.raises(ContractError, match=r"^reason=seed_conflict sk="):
+        _seed(monkeypatch, "unit-seed", keeper, COLLIDING)
+    assert keeper.items == first
+    assert keeper.objects == objects

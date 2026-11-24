@@ -45,9 +45,16 @@ def _stage(name: str) -> dict[str, Any]:
                   "admitted_at": now - 5, "deadline": now + 600}
 
 
+def _owner(close: dict[str, Any]) -> dict[str, Any]:
+    common = close["common"]
+    return OWNER | {"owner_sha256": common["promotion_id"],
+                    "generation": common["promotion_generation"]}
+
+
 def _request(op: Any, name: str, inputs: dict[str, bytes]) -> dict[str, Any]:
     return {"abi_version": 3, "operation": name, "repository": OWNER["repository"],
-            "source_sha": SHA, "owner": OWNER, "checkpoint_sha256": API["checkpoint_sha256"],
+            "source_sha": SHA, "owner": _owner(op.close),
+            "checkpoint_sha256": API["checkpoint_sha256"],
             "activation_sha256": sha(op.context.activation), "stage": _stage(OBSERVES[name]),
             "inputs": {key: {"sha256": sha(raw), "size": len(raw)}
                        for key, raw in sorted(inputs.items())}}
@@ -120,7 +127,8 @@ def _unit(op: Any, revision: str | None = None) -> dict[str, bytes]:
 def _closed(record: dict[str, Any], inputs: dict[str, bytes], kind: str) -> None:
     assert set(record) == FIELDS
     assert (record["version"], record["kind"]) == (1, kind)
-    expected = {"owner": OWNER["owner_sha256"]} | {name: sha(raw) for name, raw in inputs.items()}
+    owner = _owner(json.loads(inputs["close-drain"]))["owner_sha256"]
+    expected = {"owner": owner} | {name: sha(raw) for name, raw in inputs.items()}
     assert record["commitments"] == expected
 
 
@@ -321,6 +329,21 @@ def test_audit_observe_reprova_quando_o_recovery_anterior_nao_reaceita(phase_c: 
 def test_unit_observe_recusa_record_de_outra_revisao_unit(phase_c: Any) -> None:
     other = phase_c.ctx.revisions["unit"].rsplit(":", 1)[0] + ":99"
     _refused(phase_c, "unit-observe", _unit(phase_c, other), "mode=record_binding")
+
+
+@pytest.mark.parametrize("campo", ["promotion_id", "promotion_generation", "caller"])
+def test_unit_observe_recusa_close_drain_de_outro_owner_da_mesma_activation(
+        phase_c: Any, campo: str) -> None:
+    common = phase_c.close["common"]
+    foreign = {"promotion_id": "8" * 64, "promotion_generation": common["promotion_generation"],
+               "caller": common["caller"] | {"run_id": 456}}
+    inputs = _unit(phase_c)
+    if campo == "promotion_generation":
+        inputs["record"] = canonical(json.loads(inputs["record"]) | {"promotion_generation": 8})
+        foreign["promotion_generation"] = 8
+    close = phase_c.close | {"common": common | {campo: foreign[campo]}}
+    inputs["close-drain"] = canonical(close)
+    _refused(phase_c, "unit-observe", inputs, "mode=record_binding")
 
 
 @pytest.mark.parametrize("name", ["unit-observe", "recovery-observe", "audit-observe"])

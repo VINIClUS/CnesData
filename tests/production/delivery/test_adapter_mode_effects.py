@@ -44,7 +44,8 @@ def fixtures() -> dict[str, bytes]:
 
 
 def record(mode: str, **changes: Any) -> bytes:
-    fields = {"owner_sha256": OWNER_SHA, "run_ids": runs(mode),
+    fields = {"owner_sha256": OWNER_SHA, "run_ids": runs(mode), "promotion_id": OWNER_SHA,
+              "promotion_generation": OWNER["generation"],
               "fixture_manifest_sha256": sha(fixtures()["fixture-manifest"])}
     return canonical(mc._record(mode, **fields) | changes)
 

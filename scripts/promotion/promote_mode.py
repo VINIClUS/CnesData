@@ -33,7 +33,7 @@ from scripts.promotion.mode_canary import (
     _unit_checks,
     route_from_readbacks,
 )
-from scripts.promotion.promote_close import ENVIRONMENT, _activation, _Gate
+from scripts.promotion.promote_close import ENVIRONMENT, _activation, _Gate, bound_to_owner
 from scripts.promotion.promote_ready import PHASE_B_FIELDS, ReadOnlyShim, machine_arn
 
 if TYPE_CHECKING:
@@ -66,7 +66,7 @@ def unit_observe(request: Mapping[str, Any], inputs: Mapping[str, bytes],
     if (record.activation_sha256, record.promotion_generation, dict(record.revisions)) != (
         request["activation_sha256"], close["common"]["promotion_generation"],
         activation["revisions"],
-    ):
+    ) or not bound_to_owner(close["common"], request):
         raise ValueError("mode=record_binding")
     readbacks = cast("Node", _mapping(inputs["readbacks"], "readbacks"))
     observed = _observed(inputs["observed"])
