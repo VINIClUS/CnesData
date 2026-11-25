@@ -33,7 +33,13 @@ from scripts.promotion.mode_canary import (
     _unit_checks,
     route_from_readbacks,
 )
-from scripts.promotion.promote_close import ENVIRONMENT, _activation, _Gate, bound_to_owner
+from scripts.promotion.promote_close import (
+    ENVIRONMENT,
+    _activation,
+    _Gate,
+    bound_to_owner,
+    owner_identity,
+)
 from scripts.promotion.promote_ready import PHASE_B_FIELDS, ReadOnlyShim, machine_arn
 
 if TYPE_CHECKING:
@@ -57,15 +63,16 @@ def unit_observe(request: Mapping[str, Any], inputs: Mapping[str, bytes],
     """Returns:
     Observação de modo do unit: aceite pelas checagens do unit sobre a execução observada.
     Raises:
-    ValueError: insumo fora dos campos fechados, record de outra activation ou prazo vencido.
+    ValueError: insumo fora dos campos fechados, record de outra activation ou owner, prazo.
     """
     activation, _ = _activation(inputs["activation"], request)
     close = close_drain_document(inputs["close-drain"], "mode", request["stage"]["windows"])
     source = _record({"record": inputs["record"]}, "unit")
-    record = source[0]
-    if (record.activation_sha256, record.promotion_generation, dict(record.revisions)) != (
-        request["activation_sha256"], close["common"]["promotion_generation"],
-        activation["revisions"],
+    record, identity = source[0], owner_identity(request)
+    if (record.activation_sha256, record.owner_sha256, record.promotion_id,
+            record.promotion_generation, dict(record.revisions)) != (
+        request["activation_sha256"], request["owner"]["owner_sha256"], identity["promotion_id"],
+        identity["promotion_generation"], activation["revisions"],
     ) or not bound_to_owner(close["common"], request):
         raise ValueError("mode=record_binding")
     readbacks = cast("Node", _mapping(inputs["readbacks"], "readbacks"))

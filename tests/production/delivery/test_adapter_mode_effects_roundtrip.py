@@ -18,6 +18,7 @@ from tests.production.delivery.test_promote_close import canonical, sha
 phase_c, operation, activation = pc.phase_c, pc.operation, pc.activation
 case, ddb, github = pc.case, pc.ddb, pc.github
 STAMP = "%Y-%m-%dT%H:%M:%SZ"
+PROMOTION_ID = fx.OWNER_SHA
 
 
 def _record(op: Any, mode: str) -> bytes:

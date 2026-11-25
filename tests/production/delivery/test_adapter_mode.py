@@ -26,6 +26,7 @@ OBSERVES = {"unit-observe": "unit", "recovery-observe": "phase-c-recovery",
 SCHEDULED = frozenset({"activation", "network", "close-drain", "phase-b", "phase-c",
                        "mode-result", "readbacks"})
 FIELDS = {"version", "kind", "accepted", "checks", "commitments"}
+PROMOTION_ID = OWNER["owner_sha256"]
 
 
 class GateContext(Context):
@@ -109,6 +110,7 @@ def _unit(op: Any, revision: str | None = None) -> dict[str, bytes]:
         "unit", activation_sha256=ctx.activation_sha256, machine_arn=op.context.machine["arn"],
         revisions=dict(ctx.revisions) | {"unit": unit},
         promotion_generation=common["promotion_generation"],
+        owner_sha256=common["promotion_id"], promotion_id=common["promotion_id"],
         **dict.fromkeys(pc.DEADLINES, fixed), **{key: op.context.canary[key] for key in (
             "candidate_sha256", "source_sha", "release_id", "canary_id")}))
     run = _unit_observed(op, unit)
@@ -344,6 +346,15 @@ def test_unit_observe_recusa_close_drain_de_outro_owner_da_mesma_activation(
     close = phase_c.close | {"common": common | {campo: foreign[campo]}}
     inputs["close-drain"] = canonical(close)
     _refused(phase_c, "unit-observe", inputs, "mode=record_binding")
+
+
+@pytest.mark.parametrize(("campo", "valor"), [
+    ("owner_sha256", "8" * 64), ("promotion_id", "8" * 64), ("promotion_generation", 8)],
+    ids=["owner_sha256", "promotion_id", "promotion_generation"])
+def test_unit_observe_recusa_record_de_outro_owner(phase_c: Any, campo: str, valor: Any) -> None:
+    inputs = _unit(phase_c)
+    inputs["record"] = canonical(json.loads(inputs["record"]) | {campo: valor})
+    _refused(phase_c, "unit-observe", inputs, "^mode=record_binding$")
 
 
 @pytest.mark.parametrize("name", ["unit-observe", "recovery-observe", "audit-observe"])
