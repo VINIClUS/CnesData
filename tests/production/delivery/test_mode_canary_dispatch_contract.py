@@ -1,165 +1,145 @@
-"""Contrato do dispatch nativo do unit: o caminho do produto reproduz o vetor e o construtor."""
+"""Start nativo do unit: o caminho do produto gera o vetor e os construtores o reproduzem."""
 
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta
+import re
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import boto3
+import pytest
 from moto import mock_aws
 
-from cnes_domain.control_plane.commands import (
-    BindRunDispatch,
-    ClaimRunDispatchStart,
-    ReserveRunDispatch,
-)
-from cnes_domain.control_plane.dispatch_start import DispatchStartClaim, request_sha256
-from cnes_domain.control_plane.environment_gate import AcquireUnitPermit, PermitHolder
-from cnes_domain.orchestration.mode_canary import ModeCanaryBinding
-from cnes_domain.ports.processing import StartRunExecution
-from cnes_infra.aws.mode_canary_dispatch import (
-    DispatchStep,
-    run_dispatch_item,
-    start_claim,
-    start_execution,
-    start_request_sha256,
-    unit_dispatch,
-)
+from cnes_domain.control_plane.environment_gate import ClosePromotionFence
+from cnes_infra.aws.mode_canary_dispatch import request_targets
+from cnes_infra.aws.processor_settings import PRODUCTION_PROCESSOR_MAX_CONCURRENCY
+from cnes_infra.aws.settings import _PRODUCTION_LEASE_SECONDS  # pyright: ignore[reportPrivateUsage]
 from cnes_infra.control_plane.dynamodb_adapter import DynamoDBControlPlane
-from cnes_infra.control_plane.dynamodb_keys import dispatch_key, item_key
-from cnes_infra.executor.step_functions import StepFunctionsExecutor
+from cnes_infra.control_plane.dynamodb_keys import run_partition, tenant_partition
+from packages.cnes_infra.tests.aws.mode_canary_native import NativeCase, native_start
+from packages.cnes_infra.tests.aws.test_mode_canary_unit_start import built_start
 from packages.cnes_infra.tests.control_plane import test_dynamodb_adapter as dyn
 from scripts.promotion.mode_canary_seed import SeedBinding, build_mode_seed
 
+ROOT = Path(__file__).resolve().parents[3]
 VECTOR: dict[str, Any] = json.loads(
     Path(__file__).with_name("mode_canary_frames_vector.json").read_text(encoding="utf-8"))
-FIXTURES = Path(__file__).resolve().parents[3] / "tests/production/fixtures/mode_canary"
+TABLE: str = VECTOR["table"]
+FIXTURES = ROOT / "tests/production/fixtures/mode_canary"
 FILES = {"fixture-manifest": "fixture-manifest.json", "fixture-cnes-local": "cnes-local-v1.parquet",
          "fixture-cnes-nacional": "cnes-nacional-v1.parquet"}
+IAM = ROOT / "infra/opentofu/modules/runtime-iam/mode-canary.tf"
 OWNER = "a" * 64
 TENANT = "prod-canary-" + "c" * 32
 RUN = f"unit-{OWNER[:16]}"
-MACHINE = "arn:aws:states:us-east-2:111122223333:stateMachine:cnesdata-prod"
-NOW = datetime.fromisoformat("2026-11-13T12:05:00+00:00")
-LEASE = 90
-CONCURRENCY = 2
+LOCATOR = {"tenant_id": TENANT, "run_ids": [RUN], "owner_sha256": OWNER,
+           "record_sha256": "1" * 64, "phase": "unit", "context_kind": "promotion"}
+CLOCKS = {
+    "producao": (datetime(2026, 11, 13, 12, 5, tzinfo=UTC), True),
+    "fim-do-mes": (datetime(2026, 12, 31, 23, 59, 30, tzinfo=UTC), False),
+    "inicio-do-mes": (datetime(2027, 1, 1, tzinfo=UTC), False),
+}
+CASES: dict[str, dict[str, Any]] = {
+    case["name"]: case for case in VECTOR["dispatch"]["cases"]}
 
 
-class _Sfn:
-    def __init__(self) -> None:
-        self.calls: list[dict[str, Any]] = []
+class _Named:
+    def __init__(self, client: Any) -> None:
+        self._client = client
 
-    def start_execution(self, **request: Any) -> dict[str, Any]:
-        self.calls.append(request)
-        execution = MACHINE.replace(":stateMachine:", ":execution:")
-        return {"executionArn": f"{execution}:{request['name']}"}
-
-
-def _locator() -> ModeCanaryBinding:
-    return ModeCanaryBinding(TENANT, (RUN,), OWNER, "1" * 64, "unit", "promotion")
+    def __getattr__(self, name: str) -> Any:
+        method = getattr(self._client, name)
+        return lambda **request: method(**(request | {"TableName": TABLE}))
 
 
-def _seeded(client: Any) -> list[dict[str, Any]]:
+def _seeded(client: Any, now: datetime) -> None:
     files = {FILES[name]: (FIXTURES / file).read_bytes() for name, file in FILES.items()}
-    binding = SeedBinding(TENANT, (RUN,), OWNER, NOW - timedelta(minutes=4), "bucket")
-    seed = build_mode_seed(binding, files)
-    for item in seed.items:
-        client.put_item(TableName=dyn._TABLE_NAME, Item=item)
-    return [json.loads(item["payload"]["S"]) for item in seed.items
-            if item["entity"]["S"] == "RUNUNIT"]
+    binding = SeedBinding(TENANT, (RUN,), OWNER, now - timedelta(minutes=4), "bucket")
+    for item in build_mode_seed(binding, files).items:
+        client.put_item(TableName=TABLE, Item=item)
 
 
-def _dispatch_item(client: Any) -> dict[str, Any]:
-    key = item_key(*dispatch_key(TENANT, RUN))
-    return client.get_item(TableName=dyn._TABLE_NAME, Key=key,
-                           ConsistentRead=True)["Item"]
+def _native(name: str) -> dict[str, Any]:
+    now, closed = CLOCKS[name]
+    with mock_aws():
+        client = boto3.client("dynamodb", region_name="us-east-1")
+        dyn._create_table(_Named(client))
+        _seeded(client, now)
+        if closed:
+            plane = DynamoDBControlPlane(client, TABLE, lambda: now)
+            assert plane.close_promotion_fence(
+                ClosePromotionFence("prod", OWNER, now - timedelta(minutes=1)))
+        case = NativeCase(TENANT, RUN, now, _PRODUCTION_LEASE_SECONDS, OWNER)
+        native = native_start(client, TABLE, case)
+    return {"name": name, "table": TABLE, "locator": LOCATOR, "now": now.isoformat(),
+            "lease_seconds": _PRODUCTION_LEASE_SECONDS, "promotion_id": OWNER, **native}
 
 
-def _native(client: Any, units: list[dict[str, Any]]) -> dict[str, Any]:
-    plane = DynamoDBControlPlane(client, dyn._TABLE_NAME, lambda: NOW)
-    plan = unit_dispatch(_locator(), units, CONCURRENCY, NOW)
-    reserved = plane.reserve_run_dispatch(ReserveRunDispatch(
-        tenant_id=TENANT, run_id=RUN, wave_id=plan.wave_id, unit_ids=plan.unit_ids, now=NOW,
-        lease_seconds=LEASE))
-    items = {"RESERVED": _dispatch_item(client)}
-    holder = PermitHolder(TENANT, RUN, reserved.dispatch_id)
-    acquired = plane.acquire_unit_permit(AcquireUnitPermit("prod", holder, NOW, LEASE, OWNER))
-    assert acquired.permit is not None
-    token = acquired.permit.token
-    fence = plane.observe_environment_gate("prod").fence.version
-    request = StartRunExecution(tenant_id=TENANT, run_id=RUN, wave_id=reserved.wave_id,
-                                dispatch_id=reserved.dispatch_id, unit_ids=reserved.unit_ids,
-                                max_concurrency=CONCURRENCY)
-    claim = DispatchStartClaim(dispatch_id=reserved.dispatch_id, generation=reserved.generation,
-                               permit_token=token, fence_version=fence,
-                               request_sha256=request_sha256(request), promotion_id=OWNER)
-    plane.claim_run_dispatch_start(ClaimRunDispatchStart(
-        tenant_id=TENANT, run_id=RUN, dispatch_id=reserved.dispatch_id, claim=claim, now=NOW,
-        lease_seconds=LEASE))
-    items["STARTING"] = _dispatch_item(client)
-    sfn = _Sfn()
-    execution = StepFunctionsExecutor(cast("Any", sfn), MACHINE).start_with_claim(request, claim)
-    plane.bind_run_dispatch(BindRunDispatch(
-        tenant_id=TENANT, run_id=RUN, dispatch_id=reserved.dispatch_id, execution_ref=execution,
-        now=NOW, lease_seconds=LEASE, claim=claim))
-    items["STARTED"] = _dispatch_item(client)
-    [call] = sfn.calls
-    return {"dispatch_id": reserved.dispatch_id, "wave_id": reserved.wave_id,
-            "unit_ids": list(reserved.unit_ids), "start_execution": {
-                "name": call["name"], "input": call["input"]},
-            "start_request_sha256": request_sha256(request), "claim": claim.model_dump(),
-            "permit": {"token": token, "fence_version": fence},
-            "execution_ref": execution, "items": items}
+def _flat(results: list[dict[str, Any]]) -> list[Any]:
+    return [request for result in results for step in result["requests"].values()
+            for request in step]
 
 
 def product_dispatch() -> dict[str, Any]:
-    """Returns: Seção `dispatch` do vetor gerada pelo caminho nativo do produto sobre o seed."""
-    with mock_aws():
-        client = boto3.client("dynamodb", region_name="us-east-1")
-        dyn._create_table(client)
-        units = _seeded(client)
-        native = _native(client, units)
-    return {"locator": {"tenant_id": TENANT, "run_ids": [RUN], "owner_sha256": OWNER,
-                        "record_sha256": "1" * 64, "phase": "unit", "context_kind": "promotion"},
-            "units": units, "max_concurrency": CONCURRENCY, "now": NOW.isoformat(),
-            "lease_seconds": LEASE, "promotion_id": OWNER, "result": native}
+    """Returns: Seção `dispatch` do vetor: casos do caminho nativo e o gate derivado deles."""
+    cases = [_native(name) for name in CLOCKS]
+    targets = request_targets(_flat([case["result"] for case in cases]))
+    return {"cases": cases, "gate": [list(target) for target in targets]}
 
 
-def _builder(case: dict[str, Any]) -> dict[str, Any]:
-    locator = case["locator"]
-    binding = ModeCanaryBinding(locator["tenant_id"], tuple(locator["run_ids"]),
-                                locator["owner_sha256"], locator["record_sha256"],
-                                locator["phase"], locator["context_kind"])
-    now = datetime.fromisoformat(case["now"])
-    plan = unit_dispatch(binding, case["units"], case["max_concurrency"], now)
-    native = case["result"]
-    permit = native["permit"]
-    claim = start_claim(plan, permit["token"], permit["fence_version"], case["promotion_id"])
-    lease = now + timedelta(seconds=case["lease_seconds"])
-    steps = {"RESERVED": DispatchStep("RESERVED", lease),
-             "STARTING": DispatchStep("STARTING", lease, claim),
-             "STARTED": DispatchStep("STARTED", lease, claim, native["execution_ref"])}
-    return {"dispatch_id": plan.dispatch_id, "wave_id": plan.wave_id,
-            "unit_ids": list(plan.unit_ids), "start_execution": start_execution(plan),
-            "start_request_sha256": start_request_sha256(plan), "claim": claim,
-            "permit": permit, "execution_ref": native["execution_ref"],
-            "items": {state: run_dispatch_item(plan, step) for state, step in steps.items()}}
-
-
-def test_construtor_reproduz_o_dispatch_nativo_do_vetor() -> None:
-    case = VECTOR["dispatch"]
-    assert _builder(case) == case["result"]
+def _mode_dispatch_grant() -> dict[str, set[str]]:
+    text = IAM.read_text(encoding="utf-8")
+    [names] = re.findall(r"mode_dispatch = concat\(\s*\[for name in \[([^\]]*)\]", text)
+    partitions = [tenant_partition(TENANT), run_partition(TENANT, RUN)]
+    grant: dict[str, set[str]] = {}
+    for name in re.findall(r'"(\w+)"', names):
+        [(actions, keys)] = re.findall(
+            rf"\n\s*{name}\s*=\s*\{{\s*actions\s*=\s*\[([^\]]*)\],?\s*keys\s*=\s*"
+            r"(\[[^\]]*\]|local\.mode_partition_keys)", text)
+        scope = partitions if keys == "local.mode_partition_keys" else re.findall(
+            r'"([^"]+)"', keys)
+        for key in scope:
+            grant.setdefault(key, set()).update(re.findall(r'"(\w+)"', actions))
+    return grant
 
 
 def test_caminho_nativo_do_produto_reproduz_o_vetor() -> None:
     assert product_dispatch() == VECTOR["dispatch"]
 
 
+@pytest.mark.parametrize("name", list(CLOCKS))
+def test_construtores_reproduzem_o_caso_do_vetor(name: str) -> None:
+    assert built_start(CASES[name]) == CASES[name]["result"]
+
+
+def test_gate_e_derivado_dos_requests_dos_construtores_sobre_os_casos() -> None:
+    built = [built_start(case) for case in VECTOR["dispatch"]["cases"]]
+    assert [list(target) for target in request_targets(_flat(built))] == VECTOR["dispatch"]["gate"]
+
+
+def test_gate_derivado_cabe_no_grant_do_mode_dispatch_sem_mudanca_de_iam() -> None:
+    grant = _mode_dispatch_grant()
+    assert set(grant) >= {"ENV#prod#FENCE", "ENV#prod#SEMAPHORE", "ENV#prod#ATTEMPTS"}
+    for action, table, pk, _ in VECTOR["dispatch"]["gate"]:
+        assert table == TABLE
+        assert action in grant.get(pk, set()), (action, pk)
+
+
+def test_casos_cobrem_a_producao_e_a_virada_de_mes_do_attempts() -> None:
+    months = {sk for _, _, pk, sk in VECTOR["dispatch"]["gate"] if pk == "ENV#prod#ATTEMPTS"}
+    assert months == {"MONTH#2026-11", "MONTH#2026-12", "MONTH#2027-01"}
+    production = CASES["producao"]["result"]
+    assert production["max_concurrency"] == PRODUCTION_PROCESSOR_MAX_CONCURRENCY
+    assert production["permit"]["fence_version"] >= 1
+    leases = {case["lease_seconds"] for case in VECTOR["dispatch"]["cases"]}
+    assert leases == {_PRODUCTION_LEASE_SECONDS}
+
+
 def test_wave_do_seed_do_unit_e_a_dos_normalize_sem_dependencia() -> None:
-    case = VECTOR["dispatch"]
-    ready = sorted(unit["unit_id"] for unit in case["units"]
-                   if unit["stage"] == "NORMALIZE" and not unit["depends_on_unit_ids"])
-    assert case["result"]["unit_ids"] == ready
-    assert len(ready) == 2
+    for case in VECTOR["dispatch"]["cases"]:
+        ready = sorted(unit["unit_id"] for unit in case["units"]
+                       if unit["stage"] == "NORMALIZE" and not unit["depends_on_unit_ids"])
+        assert case["result"]["unit_ids"] == ready
+        assert len(ready) == 2

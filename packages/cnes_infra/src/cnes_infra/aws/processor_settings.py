@@ -2,7 +2,7 @@
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Self
+from typing import Final, Self
 
 from cnes_infra.aws.settings import (
     _PRODUCTION_LEASE_SECONDS,  # pyright: ignore[reportPrivateUsage]
@@ -21,6 +21,7 @@ from cnes_infra.executor.step_functions import (
     _require_unqualified_state_machine_arn,  # pyright: ignore[reportPrivateUsage]
 )
 
+PRODUCTION_PROCESSOR_MAX_CONCURRENCY: Final = 1
 _CONCURRENCY = _Limit(
     "AWS_PROCESSOR_MAX_CONCURRENCY",
     "processor_max_concurrency",
@@ -173,7 +174,10 @@ def _positive_integer(values: Mapping[str, str], name: str) -> int:
 def _validate_production(settings: AwsUnitSettings) -> None:
     violations = (
         (settings.region != _PRODUCTION_REGION, "production_region=invalid"),
-        (settings.processor_max_concurrency != 1, "production_processor_max_concurrency=invalid"),
+        (
+            settings.processor_max_concurrency != PRODUCTION_PROCESSOR_MAX_CONCURRENCY,
+            "production_processor_max_concurrency=invalid",
+        ),
         (
             settings.processor_lease_seconds != _PRODUCTION_LEASE_SECONDS,
             "production_processor_lease_seconds=invalid",
@@ -186,4 +190,9 @@ def _validate_production(settings: AwsUnitSettings) -> None:
             raise AwsRuntimeConfigurationError(error)
 
 
-__all__ = ["AwsAuditDispatchSettings", "AwsRecoverySettings", "AwsUnitSettings"]
+__all__ = [
+    "PRODUCTION_PROCESSOR_MAX_CONCURRENCY",
+    "AwsAuditDispatchSettings",
+    "AwsRecoverySettings",
+    "AwsUnitSettings",
+]

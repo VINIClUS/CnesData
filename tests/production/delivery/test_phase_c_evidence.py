@@ -109,3 +109,17 @@ def test_checkpoint_malformado_recusa_com_chave_valor(campo: str, valor: Any) ->
 def test_close_sem_common_recusa_com_chave_valor(close: Any) -> None:
     with pytest.raises(ValueError, match=r"^phase_c=close_invalid$"):
         phase_c_evidence(_evidence(close=close))
+
+
+@pytest.mark.parametrize(("campo", "valor", "motivo"), [
+    ("apply_output", "Apply complete! Resources: 1 added.\n", "apply_output_invalid"),
+    ("apply_output", None, "apply_output_invalid"),
+    ("observed_at", "2026-11-13T12:20:00Z", "observed_at_invalid"),
+    ("observed_at", None, "observed_at_invalid"),
+    ("plan_sha256", 1, "digest_invalid"), ("plan_sha256", "1" * 63, "digest_invalid"),
+    ("plan_sha256", "G" * 64, "digest_invalid"), ("audit_sha256", None, "digest_invalid"),
+])
+def test_insumo_do_deploy_fora_do_tipo_recusa_com_chave_valor(
+        campo: str, valor: Any, motivo: str) -> None:
+    with pytest.raises(ValueError, match=rf"^phase_c={motivo}$"):
+        phase_c_evidence(_evidence(**{campo: valor}))

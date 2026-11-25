@@ -253,7 +253,7 @@ def _native_step(dispatch: Any, state: str, promotion_id: str | None) -> Dispatc
 def test_dispatch_nativo_do_keeper_e_binding_for_pelo_get_run_dispatch_real_nao_disputam(
         client: Any, state: str) -> None:
     binding, record = _seed(client, "unit")
-    dispatch = unit_dispatch(binding, _SEEDED_UNITS, 2, _NOW)
+    dispatch = unit_dispatch(binding, _SEEDED_UNITS, _NOW)
     holder = PermitHolder(dispatch.tenant_id, dispatch.run_id, dispatch.dispatch_id)
     keeper_effect = _keeper_admit(client, binding, record,
                                   dispatch_effect(binding, record, holder, dispatch.unit_ids))
@@ -274,7 +274,7 @@ def test_dispatch_nativo_do_keeper_e_binding_for_pelo_get_run_dispatch_real_nao_
 
 def _under_closed_fence(client: Any, closer: str) -> tuple[Any, Any, PermitAcquisition]:
     binding, _ = _seed(client, "unit")
-    plan = unit_dispatch(binding, _SEEDED_UNITS, 2, _NOW)
+    plan = unit_dispatch(binding, _SEEDED_UNITS, _NOW)
     plane = DynamoDBControlPlane(client, _TABLE_NAME, lambda: _NOW)
     assert plane.close_promotion_fence(ClosePromotionFence("prod", closer, _NOW))
     reserved = DispatchStep("RESERVED", _NOW + timedelta(seconds=90))
