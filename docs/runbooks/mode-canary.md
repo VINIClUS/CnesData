@@ -61,7 +61,10 @@ F, `started_at` e `common` não mudam. Códigos de pendência:
 |---|---|
 | `unit_task_not_stopped` / `recovery_task_not_stopped` | Sem task STOPPED observada |
 | `unit_output_missing` | Exit 0 sem output de unidade |
-| `unit_execution_not_succeeded` | SFN não terminou SUCCEEDED na máquina PROD |
+| `unit_output_invalid` | RUNUNIT fora do dispatch: estado, attempt ou sidecar `tmp/...` |
+| `unit_execution_not_succeeded` | SFN não SUCCEEDED na máquina PROD, ou input/nome/ARN fora |
+| `unit_task_unbound` | Scan sem ARN, cluster fora dos schedules ou binding `processor` |
+| `unit_task_missing` | DescribeTasks `MISSING` para ARN do scan (retenção da task) |
 | `<modo>_task_failed` | Exit diferente do esperado (3 em `hang_no_dispatch`, senão 0) |
 | `routing_after_missing` / `routing_changed` | Readback pós-execução ausente ou divergente |
 | `run_task:<token>` (unknown) | RunTask sem resposta ou com falha; repetir o mesmo token |

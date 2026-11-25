@@ -14,6 +14,7 @@ from scripts.promotion import phase_b as phase_b_module
 from scripts.promotion import phase_c_audit as audit_module
 from scripts.promotion import phase_c_recovery as recovery_module
 from tests.production.delivery import test_mode_canary as mc
+from tests.production.delivery import test_mode_canary_unit as mu
 from tests.production.delivery import test_phase_c as pc
 from tests.production.delivery.test_adapter_handlers import API, OWNER, SHA
 from tests.production.delivery.test_promote_close import Context, Probe, canonical, sha
@@ -94,12 +95,11 @@ def _audit(op: Any, frozen: bool = True) -> dict[str, bytes]:
                      "recovery-readbacks": recovery["readbacks"]}
 
 
-def _unit_observed(op: Any, revision: str | None = None) -> dict[str, Any]:
-    tasks = mc._stopped("unit")["tasks"]
-    for task in tasks:
-        task["taskDefinitionArn"] = revision or op.ctx.revisions["unit"]
-    return {"execution": {"status": "SUCCEEDED", "stateMachineArn": op.context.machine["arn"]},
-            "tasks": tasks, "outputs": [{"sha256": "6" * 64, "size": 10}]}
+def _unit_observed(op: Any, revision: str | None = None, run: str = mu._RUN) -> dict[str, Any]:
+    return mu.observed_for({
+        "machine": op.context.machine["arn"], "cluster": op.ctx.phase_b.canary["cluster"],
+        "revision": revision or op.ctx.revisions["unit"], "run": run,
+        "tenant": f"prod-canary-{op.context.canary['canary_id']}"})
 
 
 def _unit(op: Any, revision: str | None = None) -> dict[str, bytes]:
@@ -123,7 +123,7 @@ def _unit(op: Any, revision: str | None = None) -> dict[str, bytes]:
         "unit", record=record, readbacks=readbacks, readbacks_after=readbacks), calls)
     return {"activation": op.context.activation, "close-drain": canonical(op.close),
             "record": record, "mode-result": raw, "readbacks": canonical(readbacks),
-            "observed": canonical(run)}
+            "observed": canonical({key: run[key] for key in ("execution", "tasks", "outputs")})}
 
 
 def _closed(record: dict[str, Any], inputs: dict[str, bytes], kind: str) -> None:

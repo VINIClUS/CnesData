@@ -80,6 +80,19 @@ def _observed(tasks: list[Any] | None = None, output: Any = None,
             "failures": [], "outputs": [_output(unit_id) for unit_id in _UNITS]} | changes
 
 
+def observed_for(target: dict[str, str]) -> dict[str, Any]:
+    """Returns: Observado aceito do unit-start na máquina, cluster, revisão, tenant e run dados."""
+    machine, cluster = target["machine"], target["cluster"]
+    pairs = ((_EXECUTION.rpartition(":")[0], machine.replace(":stateMachine:", ":execution:")),
+             (_PREFIX.rstrip("/"), cluster.replace(":cluster/", ":task/", 1)),
+             (_CLUSTER, cluster), (_MACHINE, machine), (_REV["unit"], target["revision"]),
+             (_TENANT, target["tenant"]), (_RUN, target["run"]))
+    text = json.dumps(_observed())
+    for old, new in pairs:
+        text = text.replace(old, new)
+    return json.loads(text)
+
+
 def _execution(**changes: Any) -> dict[str, Any]:
     observed = _observed()
     observed["execution"] |= changes
@@ -161,8 +174,8 @@ _TASK_CASES: dict[str, tuple[dict[str, Any], list[str]]] = {
 
 _EXECUTION_CASES: dict[str, tuple[dict[str, Any], list[str]]] = {
     "chave-extra-no-input": (_execution(input=_input(extra=1)), _BROKEN_INPUT),
-    "chave-faltando-no-input": (_execution(input=_input().replace(f',"wave_id":"{_WAVE}"', "")),
-                                _BROKEN_INPUT),
+    "chave-faltando-no-input": (_execution(input=json.dumps(
+        {k: v for k, v in json.loads(_input()).items() if k != "wave_id"})), _BROKEN_INPUT),
     "tenant-diverge": (_execution(input=_input(tenant_id="prod-canary-x")), _BROKEN_INPUT),
     "run-fora-do-record": (_execution(input=_input(run_id="unit-x")), _BROKEN_INPUT),
     "unit-ids-vazio": (_execution(input=_input(unit_ids=[])), _BROKEN_INPUT),

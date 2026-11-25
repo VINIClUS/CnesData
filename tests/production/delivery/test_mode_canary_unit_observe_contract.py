@@ -1,4 +1,4 @@
-"""Fontes do unit-start: o caminho do produto gera a seção unit_observe e os construtores a reproduzem."""
+"""Fontes do unit-start: o produto gera a seção unit_observe e os construtores a reproduzem."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ import pytest
 from moto import mock_aws
 
 from cnes_contracts.manifests.outputs import OutputManifest
+from cnes_contracts.manifests.raw import SourceType
 from cnes_domain.control_plane.commands import ClaimRunUnit
 from cnes_domain.control_plane.entities import RunUnit
 from cnes_domain.control_plane.environment_gate import ClosePromotionFence
@@ -99,7 +100,7 @@ class _Steps:
 def _processor(unit: RunUnit, store: Any) -> tuple[OutputManifest, ...]:
     body = f"payload-{unit.unit_id}".encode()
     digest = hashlib.sha256(body).hexdigest()
-    source = cast("Any", unit.source_type)
+    source = SourceType(unit.source_type)
     key = f"normalized/{unit.tenant_id}/{source.value}/{unit.partition}/{unit.run_id}/part.parquet"
     store.put(key, BytesIO(body), digest)
     return (OutputManifest(
@@ -129,7 +130,7 @@ def _commit_units(client: Any, result: dict[str, Any], root: Path) -> list[Any]:
 def _product() -> tuple[dict[str, Any], list[Any], list[Any]]:
     now = dispatch_contract.CLOCKS["producao"][0]
     with mock_aws(), tempfile.TemporaryDirectory() as root:
-        client = boto3.client("dynamodb", region_name="us-east-1")
+        client: Any = boto3.client("dynamodb", region_name="us-east-1")
         dispatch_contract.dyn._create_table(dispatch_contract._Named(client))
         dispatch_contract._seeded(client, now)
         plane = DynamoDBControlPlane(client, dispatch_contract.TABLE, lambda: now)
@@ -256,7 +257,7 @@ def _case(section: dict[str, Any], name: str, execution: Any, described: Any) ->
 
 
 def product_unit_observe() -> dict[str, Any]:
-    """Returns: Seção `unit_observe`: caminho do produto, respostas sintéticas e pending do filho."""
+    """Returns: Seção `unit_observe`: caminho do produto, respostas sintéticas e pending."""
     dispatch, reads, items = _product()
     sfn = _Sfn(_execution(dispatch, [_sync(dispatch, index) for index in (0, 1)]))
     StepFunctionsExecutionProbe(cast("Any", sfn), MACHINE).probe(dispatch["dispatch_id"])

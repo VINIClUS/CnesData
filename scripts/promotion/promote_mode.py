@@ -30,9 +30,10 @@ from scripts.promotion.mode_canary import (
     _common,
     _record,
     _text,
-    _unit_checks,
     route_from_readbacks,
+    unit_binding,
 )
+from scripts.promotion.mode_canary_unit import observed_shape, unit_pending
 from scripts.promotion.promote_close import (
     ENVIRONMENT,
     _activation,
@@ -54,6 +55,7 @@ Node = dict[str, Any]
 NETWORK_FIELDS: Final = frozenset({"cluster", "subnets", "security_group", "public_ip",
                                    "platform"})
 OBSERVED_FIELDS: Final = frozenset({"execution", "tasks", "outputs"})
+_NO_FAILURES: Final = {"failures": []}
 _RECEIPTS: Final = (("execution_receipts", "execution"), ("task_receipts", "tasks"),
                     ("output_receipts", "outputs"))
 
@@ -81,7 +83,7 @@ def unit_observe(request: Mapping[str, Any], inputs: Mapping[str, bytes],
     state = _gate(request, context)
     checks = _unit_result(result, source, readbacks, close)
     if "canary=schema" not in checks:
-        checks |= _unit_effects(cast("Node", result), observed, record, readbacks)
+        checks |= _unit_effects(cast("Node", result), observed, source, readbacks)
         checks |= set(_verdict(lambda: assert_fence(state, close))[1])
     return _observation("unit", sorted(checks), request, inputs)
 
@@ -186,7 +188,7 @@ def _unit_result(result: Any, source: tuple[ModeCanaryRecord, str], readbacks: N
     return checks
 
 
-def _unit_effects(result: Node, observed: Node, record: ModeCanaryRecord,
+def _unit_effects(result: Node, observed: Node, source: tuple[ModeCanaryRecord, str],
                   readbacks: Node) -> set[str]:
     checks: set[str] = set()
     for receipts, name in _RECEIPTS:
@@ -195,15 +197,15 @@ def _unit_effects(result: Node, observed: Node, record: ModeCanaryRecord,
                  for receipt in result[receipts]]
         if bound != [sha(_text(item).encode()) for item in items]:
             checks.add("canary=receipts")
-    route, failures = _verdict(lambda: route_from_readbacks(record, readbacks, "unit"))
-    return checks | set(failures) | (set() if failures else _unit_checks(observed, route))
+    route, failures = _verdict(lambda: route_from_readbacks(source[0], readbacks, "unit"))
+    if failures:
+        return checks | set(failures)
+    return checks | unit_pending(observed | _NO_FAILURES, route, unit_binding(*source))
 
 
 def _observed(raw: bytes) -> Node:
     value = closed(document(raw, "observed"), OBSERVED_FIELDS, "mode", "observed")
-    if not (isinstance(value["execution"], dict) and isinstance(value["tasks"], list)
-            and isinstance(value["outputs"], list)
-            and all(isinstance(task, dict) for task in cast("list[Any]", value["tasks"]))):
+    if not observed_shape(value | _NO_FAILURES):
         raise ValueError("mode=observed")
     return value
 
