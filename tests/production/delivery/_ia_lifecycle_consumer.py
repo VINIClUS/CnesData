@@ -10,7 +10,8 @@ import json
 import re
 from typing import Any
 
-# infra-ansible cfdf3c62 (P35, re-pin ao merge pendente) tools/cnesdata_delivery/{contract,lifecycle_contract,lifecycle_runtime}.py.
+# infra-ansible cfdf3c62 (P35, re-pin ao merge pendente):
+# tools/cnesdata_delivery/{contract,lifecycle_contract,lifecycle_runtime}.py.
 IA_PIN = "cfdf3c62d56552a4de66996e325a6c885d5d8fbf"
 IA_MIRRORED_SOURCES = {
     "tools/cnesdata_delivery/contract.py": (

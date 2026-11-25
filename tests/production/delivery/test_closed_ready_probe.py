@@ -256,9 +256,9 @@ def test_publicado_dentro_do_relogio_devolve_o_hash() -> None:
     assert probe.wait_for_published(api, _target(), timed) == object_hash(READY)
 
 
-def test_timeout_do_job_cobre_o_teto_de_aprovacao_mais_o_relogio_e_cabe_no_limite_hospedado() -> None:
+def test_timeout_do_job_cobre_o_teto_mais_o_relogio_e_cabe_no_limite_hospedado() -> None:
     needed = -(-(probe.APPROVAL_CAP_SECONDS + probe.TIMEOUT_SECONDS) // 60)
-    assert probe.JOB_TIMEOUT_MINUTES == needed + 15
+    assert needed + 15 == probe.JOB_TIMEOUT_MINUTES
     job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["closed-ready"]
     assert job["timeout-minutes"] == probe.JOB_TIMEOUT_MINUTES
     assert job["timeout-minutes"] < 360

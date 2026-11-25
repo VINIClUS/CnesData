@@ -287,9 +287,11 @@ def test_bootstrap_tem_os_nove_campos_com_plano_e_inventory_nulos_e_listas_vazia
     value = static_bootstrap_input(_bootstrap_request())
     assert set(value) == set(ia.PRODUCT_STATIC_PROMOTION_FIELDS.split())
     assert value["mode"] == "observer-bootstrap"
-    assert value["inventory_sha256"] is None and value["binding"]["static_plan_sha256"] is None
+    assert value["inventory_sha256"] is None
+    assert value["binding"]["static_plan_sha256"] is None
     assert all(value[name] == [] for name in BOOTSTRAP_LISTS)
-    assert value["application_promotion"] == FRAGMENT and value["enabled_until"] == ENABLED
+    assert value["application_promotion"] == FRAGMENT
+    assert value["enabled_until"] == ENABLED
 
 
 def test_bootstrap_e_a_transformacao_do_modelo_de_infra_aplicada_ao_operacional() -> None:
@@ -337,6 +339,6 @@ def test_vetor_dos_dois_modos_e_regenerado_do_codigo_com_sha_e_fonte_do_gerador_
 
 def test_consumidor_do_espelho_admite_o_operacional_do_vetor() -> None:
     vector = json.loads(MODES_VECTOR.read_text(encoding="utf-8"))
-    plan, inventory = _plan()
+    plan, _ = _plan()
     value = json.loads(vector["cases"]["operational"]["canonical_utf8"])
     assert ia.product_static_promotion(value, plan, records.STATIC_BUCKET) == value
