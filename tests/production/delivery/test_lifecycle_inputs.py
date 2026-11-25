@@ -342,3 +342,42 @@ def test_consumidor_do_espelho_admite_o_operacional_do_vetor() -> None:
     plan, _ = _plan()
     value = json.loads(vector["cases"]["operational"]["canonical_utf8"])
     assert ia.product_static_promotion(value, plan, records.STATIC_BUCKET) == value
+
+
+def _admit_bootstrap(value: dict[str, Any]) -> dict[str, Any]:
+    return ia.product_static_promotion(value, None, records.STATIC_BUCKET)
+
+
+def test_espelho_admite_o_bootstrap_gerado_sem_plano() -> None:
+    value = static_bootstrap_input(_bootstrap_request())
+    assert _admit_bootstrap(value) == value
+
+
+def test_espelho_admite_o_bootstrap_do_vetor() -> None:
+    vector = json.loads(MODES_VECTOR.read_text(encoding="utf-8"))
+    value = json.loads(vector["cases"]["observer-bootstrap"]["canonical_utf8"])
+    assert _admit_bootstrap(value) == value
+
+
+@pytest.mark.parametrize("change", [
+    {"binding": {"static_plan_sha256": SHA}},
+    {"inventory_sha256": SHA},
+    {"candidate_keys": ["index.html"]},
+    {"multipart_keys": ["a"]},
+    {"rollback_versions": [{"key": "index.html", "version_id": "v", "sha256": SHA}]},
+    {"retire_versions": [{"key": "index.html", "version_id": "v", "sha256": SHA}]},
+    {"mode": "operational"},
+])
+def test_espelho_recusa_bootstrap_forjado(change: dict[str, Any]) -> None:
+    value = static_bootstrap_input(_bootstrap_request())
+    forged = value | {key: ({**value[key], **item} if key == "binding" else item)
+                      for key, item in change.items()}
+    with pytest.raises(ValueError):
+        _admit_bootstrap(forged)
+
+
+def test_espelho_recusa_operacional_com_mode_bootstrap_e_plano() -> None:
+    plan, inventory = _plan()
+    value = static_promotion_input(_request(), plan, inventory) | {"mode": "observer-bootstrap"}
+    with pytest.raises(ValueError):
+        ia.product_static_promotion(value, plan, records.STATIC_BUCKET)

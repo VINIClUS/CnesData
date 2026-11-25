@@ -213,9 +213,26 @@ def static_plan(raw: bytes, *, bucket: str) -> dict[str, Any]:
     return plan
 
 
-def product_static_promotion(value: dict[str, Any], plan_raw: bytes, bucket: str) -> dict[str, Any]:
+def _bootstrap_static_promotion(value: dict[str, Any]) -> dict[str, Any]:
+    require(value["binding"].get("static_plan_sha256") is None, "static bootstrap plan binding")
+    static_session_binding(value["binding"] | {"static_plan_sha256": "0" * 64})
+    require(value["inventory_sha256"] is None, "static bootstrap inventory binding")
+    require(all(value[key] == [] for key in (
+        "candidate_keys", "rollback_versions", "retire_versions", "multipart_keys")),
+        "static bootstrap lists")
+    return value
+
+
+def product_static_promotion(
+    value: dict[str, Any], plan_raw: bytes | None, bucket: str
+) -> dict[str, Any]:
     closed(value, PRODUCT_STATIC_PROMOTION_FIELDS)
     require(value["mode"] in {"observer-bootstrap", "operational"}, "static mode")
+    if value["mode"] == "observer-bootstrap":
+        require(plan_raw is None, "static bootstrap carries no plan")
+        return _bootstrap_static_promotion(value)
+    if plan_raw is None:
+        raise Refused("static operational plan")
     plan = static_plan(plan_raw, bucket=bucket)
     static_session_binding(value["binding"])
     require(value["binding"]["static_plan_sha256"] == sha(plan_raw), "static plan binding")
