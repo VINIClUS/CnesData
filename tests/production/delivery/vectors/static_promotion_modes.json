@@ -1,0 +1,13 @@
+{
+ "cases": {
+  "observer-bootstrap": {
+   "canonical_utf8": "{\"application_promotion\":{\"account_id\":\"111122223333\",\"fragment_version\":4},\"binding\":{\"generation\":3,\"product_source_sha\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"release_id\":\"r1\",\"run_attempt\":1,\"run_id\":42,\"shared_source_sha\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"static_plan_sha256\":null},\"candidate_keys\":[],\"enabled_until\":\"2027-02-12T00:00:00Z\",\"inventory_sha256\":null,\"mode\":\"observer-bootstrap\",\"multipart_keys\":[],\"retire_versions\":[],\"rollback_versions\":[]}\n",
+   "sha256": "987246d189e61bc15d2de24abd1f61fcb59f1325ea643665e4dfd37152c85a40"
+  },
+  "operational": {
+   "canonical_utf8": "{\"application_promotion\":{\"account_id\":\"111122223333\",\"fragment_version\":4},\"binding\":{\"generation\":3,\"product_source_sha\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"release_id\":\"r1\",\"run_attempt\":1,\"run_id\":42,\"shared_source_sha\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"static_plan_sha256\":\"dad9ffbf2f95a1aa8e76b1aa04424b67947fd3d0726af5ea59d8dac628ed07f3\"},\"candidate_keys\":[\"assets/app.js\",\"index.html\",\"theme-init.js\"],\"enabled_until\":\"2027-02-12T00:00:00Z\",\"inventory_sha256\":\"e450708c07b620837a2801cdd34e8d376e8bd64fde798bdf291e050bb5cfe7cf\",\"mode\":\"operational\",\"multipart_keys\":[],\"retire_versions\":[],\"rollback_versions\":[{\"key\":\"index.html\",\"version_id\":\"Prev.Index_1\"},{\"key\":\"theme-init.js\",\"version_id\":\"Prev+Theme=2\"}]}\n",
+   "sha256": "ca8798def7034da9e8b355da7dcb6750fbac2f3783d47b03981350e0e92df611"
+  }
+ },
+ "generator_sha256": "230aa4fe1a03850c9141939f44b18935a41d6d8355fec71f31e28d1940669b88"
+}
