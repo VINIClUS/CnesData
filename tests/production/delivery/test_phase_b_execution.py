@@ -114,8 +114,9 @@ class Boundary:
 
 
 @pytest.fixture
-def operation(case, activation, ddb, tmp_path, monkeypatch):
+def operation(request, case, activation, ddb, tmp_path, monkeypatch):
     contract, *_ = case
+    promotion = getattr(request.module, "PROMOTION_ID", contract["release_id"])
     context = _context_from_admitted(contract, prepare(activation))
     adapter, client = ddb
     assert context.activation is not None
@@ -127,14 +128,14 @@ def operation(case, activation, ddb, tmp_path, monkeypatch):
             for key in ("repository", "release_id", "source_sha", "candidate_sha256", "canary_id")
         },
         "activation_sha256": hashlib.sha256(context.activation).hexdigest(),
-        "promotion_id": contract["release_id"],
+        "promotion_id": promotion,
     }
     close = close_and_drain(
         adapter,
         StepFunctionsExecutionProbe(cast("Any", Probe()), MACHINE_ARN),
         None,
         "prod",
-        contract["release_id"],
+        promotion,
         now,
         clock=Clock(),
         common=common,

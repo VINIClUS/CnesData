@@ -83,6 +83,12 @@ def owner_identity(request: Mapping[str, Any]) -> dict[str, Any]:
             "promotion_id": owner["owner_sha256"]}
 
 
+def bound_to_owner(common: Mapping[str, Any], request: Mapping[str, Any]) -> bool:
+    """Returns: True se o common carrega a identidade completa do owner autenticado do request."""
+    identity = owner_identity(request)
+    return {key: common.get(key) for key in identity} == identity
+
+
 class FenceShim:
     """Restringe context.call ao vetor do close-drain; escrita só até o confirm do close."""
 

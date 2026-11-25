@@ -18,6 +18,7 @@ from tests.production.delivery.test_promote_close import canonical, sha
 phase_c, operation, activation = pc.phase_c, pc.operation, pc.activation
 case, ddb, github = pc.case, pc.ddb, pc.github
 STAMP = "%Y-%m-%dT%H:%M:%SZ"
+PROMOTION_ID = fx.OWNER_SHA
 
 
 def _record(op: Any, mode: str) -> bytes:
@@ -26,7 +27,7 @@ def _record(op: Any, mode: str) -> bytes:
     return canonical(mc._record(
         mode, activation_sha256=ctx.activation_sha256, machine_arn=op.context.machine["arn"],
         revisions=dict(ctx.revisions), promotion_generation=common["promotion_generation"],
-        owner_sha256=fx.OWNER_SHA, run_ids=fx.runs(mode),
+        owner_sha256=fx.OWNER_SHA, promotion_id=fx.OWNER_SHA, run_ids=fx.runs(mode),
         fixture_manifest_sha256=sha(fx.fixtures()["fixture-manifest"]),
         **dict.fromkeys(pc.DEADLINES, fixed), **{key: op.context.canary[key] for key in (
             "candidate_sha256", "source_sha", "release_id", "canary_id")}))
@@ -44,8 +45,9 @@ def _request(op: Any, name: str, inputs: dict[str, bytes]) -> dict[str, Any]:
     now = int(datetime.now(UTC).timestamp())
     stage = fx.API | {"stage": MODE_OPERATIONS[name][1], "close": now - 120,
                       "fixed_deadline": now + 900, "admitted_at": now - 5, "deadline": now + 600}
+    owner = fx.OWNER | {"generation": op.close["common"]["promotion_generation"]}
     return fx.request(name, inputs) | {"activation_sha256": sha(op.context.activation),
-                                       "stage": stage}
+                                       "stage": stage, "owner": owner}
 
 
 def _start(op: Any, mode: str, **extra: Any) -> fx.Keeper:

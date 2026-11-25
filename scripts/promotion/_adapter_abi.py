@@ -71,6 +71,8 @@ MODE_OPERATIONS: Final[dict[str, tuple[str, str]]] = {
     "recovery-start": ("recovery", "phase-c-recovery"),
     "recovery-observe": ("recovery", "phase-c-recovery"),
     "audit-start": ("audit", "phase-c-audit"), "audit-observe": ("audit", "phase-c-audit"),
+    "unit-record": ("unit", "unit"), "recovery-record": ("recovery", "phase-c-recovery"),
+    "audit-record": ("audit", "phase-c-audit"),
 }
 MODE_OBSERVATION_FIELDS: Final = frozenset({"version", "kind", "accepted", "checks", "commitments"})
 MODE_OBSERVATION_KIND: Final = "mode"
@@ -79,6 +81,7 @@ _SCHEDULED_INPUTS: Final = frozenset({"activation", "network", "close-drain", "p
 _SEED_INPUTS: Final = frozenset({"record", "mode-start", "fixture-manifest", "fixture-cnes-local",
                                  "fixture-cnes-nacional"})
 _START_INPUTS: Final = frozenset({"record", "readbacks", "previous", "mode-seed", "mode-start"})
+_RECORD_INPUTS: Final = frozenset({"activation", "close-drain", "fixture-manifest", "mode-input"})
 MODE_INPUTS: Final[dict[str, frozenset[str]]] = {
     "unit-seed": _SEED_INPUTS, "recovery-seed": _SEED_INPUTS,
     "unit-start": _START_INPUTS, "recovery-start": _START_INPUTS,
@@ -87,10 +90,13 @@ MODE_INPUTS: Final[dict[str, frozenset[str]]] = {
                                "observed"}),
     "recovery-observe": _SCHEDULED_INPUTS,
     "audit-observe": _SCHEDULED_INPUTS | {"recovery-result", "recovery-readbacks"},
+    "unit-record": _RECORD_INPUTS, "recovery-record": _RECORD_INPUTS,
+    "audit-record": _RECORD_INPUTS | {"mode-seed"},
 }
+_MODE_ARTIFACTS: Final = {"seed": "mode-seed", "start": "mode-result", "record": "mode-record"}
 MODE_OBSERVATIONS: Final[dict[str, str]] = {
-    name: "mode-seed" if name.endswith("-seed") else "mode-result" if name.endswith("-start")
-    else MODE_OBSERVATION_KIND for name in MODE_OPERATIONS
+    name: _MODE_ARTIFACTS.get(name.rsplit("-", 1)[1], MODE_OBSERVATION_KIND)
+    for name in MODE_OPERATIONS
 }
 _SEED_CALLS: Final = frozenset({
     ("mode_seed", "dynamodb", "put_item"), ("mode_seed", "dynamodb", "get_item"),

@@ -4,16 +4,20 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from copy import deepcopy
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any, Final, cast
 
 from scripts.promotion._phase_c_core import (
+    MODES,
     PhaseBContext,
     PhaseCContext,
     PhaseCWatchdog,
+    _canonical,
     _require_utc,
     accept_mode_canary,
     accept_recovery_canary,
@@ -26,7 +30,7 @@ from scripts.promotion.accept_routing import observe_gate, read_routes
 from scripts.promotion.phase_b import _assert_task_revisions_unchanged, _context_from_admitted
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable
 
     from scripts.promotion.verify_routes import NativePhaseB
 
@@ -40,6 +44,10 @@ VARIABLES: Final = {
     "audit": "scheduler_audit_task_definition_arn",
 }
 _SCHEDULERS: Final = "module.schedulers."
+_HEX: Final = frozenset("0123456789abcdef")
+# Why: tests freeze the clock by replacing this module's datetime with a subclass; the
+# observed_at type check keeps the class bound at import.
+_INSTANT: Final = datetime
 _EVENTS: Final = {"recovery": ("recovery_failed",), "audit": ("audit_failed", "audit_succeeded")}
 INITIAL: Final = {
     mode: (
@@ -240,9 +248,73 @@ def _apply_reviewed(native: NativePhaseB, raw: bytes, review: Callable[[Node], N
     return applied
 
 
+def _checkpoint(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    lineage, serial = cast("Node", value).get("lineage"), cast("Node", value).get("serial")
+    return isinstance(lineage, str) and bool(lineage) and type(serial) is int
+
+
+def _digest(value: object) -> bool:
+    return type(value) is str and len(value) == 64 and all(char in _HEX for char in value)
+
+
 def _advanced(before: Node, after: Node) -> None:
     _require(after["lineage"] == before["lineage"] and after["serial"] > before["serial"],
              "phase_c=checkpoint_not_advanced")
+
+
+@dataclass(frozen=True, slots=True)
+class PhaseCEvidence:
+    """Insumos do elemento phase-c: o deploy C do keeper fornece todos menos a forma."""
+
+    mode: str
+    close: Mapping[str, Any]
+    before: Node
+    after: Node
+    plan_sha256: str
+    audit_sha256: str
+    apply_output: bytes
+    routes: Any
+    observed_at: datetime
+
+
+def _projected(mode: str, routes: Any) -> bool:
+    if mode not in MODES or type(routes) is not dict:
+        return False
+    values = cast("Node", routes)
+    applied = ("unit", *MODES[: MODES.index(mode) + 1])
+    return (set(values) == {"unit", *MODES}
+            and all(value is None or type(value) is str for value in values.values())
+            and all(type(values[name]) is str and values[name] for name in applied))
+
+
+def phase_c_evidence(evidence: PhaseCEvidence) -> bytes:
+    """Returns: Bytes canônicos do elemento `phase-c-<mode>` com apply_sha256 da saída do apply.
+
+    Raises: ValueError: phase_c=checkpoint_invalid, phase_c=close_invalid,
+    phase_c=apply_output_invalid, phase_c=observed_at_invalid, phase_c=digest_invalid,
+    phase_c=checkpoint_not_advanced, phase_c=routes ou relógio não UTC.
+    """
+    _require(_checkpoint(evidence.before) and _checkpoint(evidence.after),
+             "phase_c=checkpoint_invalid")
+    close = evidence.close
+    _require(isinstance(close, Mapping) and isinstance(close.get("common"), dict),
+             "phase_c=close_invalid")
+    _require(type(evidence.apply_output) is bytes, "phase_c=apply_output_invalid")
+    _require(isinstance(evidence.observed_at, _INSTANT), "phase_c=observed_at_invalid")
+    _require(_digest(evidence.plan_sha256) and _digest(evidence.audit_sha256),
+             "phase_c=digest_invalid")
+    _advanced(evidence.before, evidence.after)
+    _require(_projected(evidence.mode, evidence.routes), "phase_c=routes")
+    return _canonical({
+        "version": 1, "kind": f"phase-c-{evidence.mode}", "common": dict(close["common"]),
+        "close_drain_sha256": object_hash(close), "before": evidence.before,
+        "after": evidence.after, "plan_sha256": evidence.plan_sha256,
+        "audit_sha256": evidence.audit_sha256,
+        "apply_sha256": hashlib.sha256(evidence.apply_output).hexdigest(),
+        "routes": evidence.routes, "observed_at": _require_utc(evidence.observed_at),
+    })
 
 
 def execute_reviewed_phase_c(context: PhaseCContext, native: NativePhaseB,
@@ -266,14 +338,9 @@ def execute_reviewed_phase_c(context: PhaseCContext, native: NativePhaseB,
     routes = read_routes(native, context, state)
     _require(routes == context.routes_for(str(mode)), "phase_c=routes")
     assert_fence(observe_gate(native)[1], close)
-    return {
-        "version": 1, "kind": f"phase-c-{mode}", "common": dict(close["common"]),
-        "close_drain_sha256": object_hash(close), "before": before, "after": after,
-        "plan_sha256": hashlib.sha256(raw).hexdigest(),
-        "audit_sha256": hashlib.sha256(audit).hexdigest(),
-        "apply_sha256": hashlib.sha256(applied).hexdigest(), "routes": routes,
-        "observed_at": _require_utc(datetime.now(UTC)),
-    }
+    return json.loads(phase_c_evidence(PhaseCEvidence(
+        str(mode), close, before, after, hashlib.sha256(raw).hexdigest(),
+        hashlib.sha256(audit).hexdigest(), applied, routes, datetime.now(UTC))))
 
 
 __all__ = [
@@ -283,11 +350,13 @@ __all__ = [
     "SCHEDULE",
     "VARIABLES",
     "PhaseCContext",
+    "PhaseCEvidence",
     "accept_mode_canary",
     "accept_recovery_canary",
     "execute_reviewed_phase_c",
     "mode_result",
     "phase_c_context",
+    "phase_c_evidence",
     "review_recovery_plan",
     "review_scheduler_plan",
     "verify_mode_route",
