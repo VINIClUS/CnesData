@@ -11,7 +11,16 @@ import boto3
 import pytest
 from moto import mock_aws
 
-from cnes_domain.control_plane.environment_gate import PermitHolder
+from cnes_domain.control_plane.commands import ClaimRunDispatchStart
+from cnes_domain.control_plane.dispatch_start import DispatchStartClaim
+from cnes_domain.control_plane.enums import DispatchState
+from cnes_domain.control_plane.environment_gate import (
+    AcquireUnitPermit,
+    AcquisitionStatus,
+    ClosePromotionFence,
+    PermitAcquisition,
+    PermitHolder,
+)
 from cnes_domain.orchestration.mode_canary import (
     ModeCanaryBinding,
     ModeCanaryRecord,
@@ -261,3 +270,36 @@ def test_dispatch_nativo_do_keeper_e_binding_for_pelo_get_run_dispatch_real_nao_
     assert [ticket["effect_id"] for ticket in _tickets(client)] == [keeper_effect]
     assert stored is not None
     assert _payload(client, binding_sk, binding_pk) == stored
+
+
+def _under_closed_fence(client: Any, closer: str) -> tuple[Any, Any, PermitAcquisition]:
+    binding, _ = _seed(client, "unit")
+    plan = unit_dispatch(binding, _SEEDED_UNITS, 2, _NOW)
+    plane = DynamoDBControlPlane(client, _TABLE_NAME, lambda: _NOW)
+    assert plane.close_promotion_fence(ClosePromotionFence("prod", closer, _NOW))
+    reserved = DispatchStep("RESERVED", _NOW + timedelta(seconds=90))
+    client.put_item(TableName=_TABLE_NAME, Item=run_dispatch_item(plan, reserved))
+    holder = PermitHolder(plan.tenant_id, plan.run_id, plan.dispatch_id)
+    return plan, plane, plane.acquire_unit_permit(
+        AcquireUnitPermit("prod", holder, _NOW, 90, _OWNER))
+
+
+def test_dispatch_nativo_do_unit_passa_com_o_fence_fechado_pelo_owner(client: Any) -> None:
+    plan, plane, acquired = _under_closed_fence(client, _OWNER)
+    assert acquired.status is AcquisitionStatus.ACQUIRED
+    assert acquired.permit is not None
+    fence = plane.observe_environment_gate("prod").fence
+    assert (fence.state.value, fence.promotion_id) == ("CLOSED", _OWNER)
+    claim = DispatchStartClaim(**start_claim(plan, acquired.permit.token, fence.version, _OWNER))
+    claimed = plane.claim_run_dispatch_start(ClaimRunDispatchStart(
+        tenant_id=plan.tenant_id, run_id=plan.run_id, dispatch_id=plan.dispatch_id, claim=claim,
+        now=_NOW, lease_seconds=90))
+    assert claimed is not None
+    assert (claimed.state, claimed.start_claim) == (DispatchState.STARTING, claim)
+
+
+def test_fence_fechado_por_outra_promocao_recusa_o_permit_do_dispatch_nativo(
+        client: Any) -> None:
+    _, plane, acquired = _under_closed_fence(client, "b" * 64)
+    assert (acquired.status, acquired.permit) == (AcquisitionStatus.FENCE_CLOSED, None)
+    assert plane.observe_environment_gate("prod").fence.promotion_id == "b" * 64
