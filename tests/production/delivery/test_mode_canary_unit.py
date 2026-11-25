@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -295,7 +296,10 @@ def test_unit_fica_pendente_sem_cluster_unico_igual_ao_dos_schedules(readbacks: 
     {k: v for k, v in _observed().items() if k != "failures"},
     _observed(extra=[]),
     [],
-], ids=["sem-failures", "chave-extra", "nao-objeto"])
+    _observed(failures=[{"arn": _TASKS["u1"], "at": datetime(2026, 11, 13, tzinfo=UTC)}]),
+    _execution(startDate=datetime(2026, 11, 13, tzinfo=UTC)),
+], ids=["sem-failures", "chave-extra", "nao-objeto", "failure-nao-serializavel",
+        "execucao-nao-serializavel"])
 def test_unit_observado_fora_do_formato_vira_unknown(observed: Any) -> None:
     result = _result(observed)
     assert (result["pending"], result["unknown"]) == ([], ["unit_dispatch"])
