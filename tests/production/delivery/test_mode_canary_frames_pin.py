@@ -42,7 +42,8 @@ TABLE: str = VECTOR["table"]
 CASES: dict[str, dict[str, Any]] = {case["name"]: case for case in VECTOR["cases"]}
 BUILT = [name for name, case in CASES.items() if "refusal" not in case]
 REFUSED = [name for name, case in CASES.items() if "refusal" in case]
-ENTRIES = ("cnes_infra.aws.mode_canary_frames", "cnes_infra.aws.mode_canary_dispatch")
+ENTRIES = ("cnes_infra.aws.mode_canary_frames", "cnes_infra.aws.mode_canary_dispatch",
+           "cnes_infra.aws.mode_canary_unit_observe")
 FIRST_PARTY = frozenset({"cnes_domain", "cnes_infra", "cnes_contracts"})
 
 
