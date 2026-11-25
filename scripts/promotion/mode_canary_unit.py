@@ -42,8 +42,12 @@ def scheduled_cluster(readbacks: Node, definition: str) -> str | None:
 
 
 def observed_shape(observed: Any) -> bool:
-    """Returns: Observado do dispatch_unit no formato fechado de quatro campos."""
+    """Returns: Observado do dispatch_unit serializável no formato fechado de quatro campos."""
     if type(observed) is not dict or set(observed) != OBSERVED_FIELDS:
+        return False
+    try:
+        json.dumps(observed)
+    except (TypeError, ValueError):
         return False
     return type(observed["execution"]) is dict and all(
         _records(observed[name]) for name in ("tasks", "failures", "outputs"))
