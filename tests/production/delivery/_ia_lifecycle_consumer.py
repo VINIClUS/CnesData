@@ -10,17 +10,17 @@ import json
 import re
 from typing import Any
 
-# infra-ansible b4ea93a7 tools/cnesdata_delivery/{contract,lifecycle_contract,lifecycle_runtime}.py.
-IA_PIN = "b4ea93a7e8721923dfc0df0d3d9bafda4f57f028"
+# infra-ansible cfdf3c62 (P35, re-pin ao merge pendente) tools/cnesdata_delivery/{contract,lifecycle_contract,lifecycle_runtime}.py.
+IA_PIN = "cfdf3c62d56552a4de66996e325a6c885d5d8fbf"
 IA_MIRRORED_SOURCES = {
     "tools/cnesdata_delivery/contract.py": (
-        "7006c783b5cc29cd6744ca61d82946ef7a7f43e7d999f565552b902368cd0322"
+        "1f881e85cd21ab45ea5be22d12e81d3515c7ea7849b5c90aa6c54cb1e8b13d3b"
     ),
     "tools/cnesdata_delivery/lifecycle_contract.py": (
-        "de82b6ca28a82cbbd2af318faa7dffd45bc4670db6e61f8ce3730769d41ebc22"
+        "c41dc15ebdabf4fcc84607f848e4710eb83a89900bac2446a00ef2e2b51b779c"
     ),
     "tools/cnesdata_delivery/lifecycle_runtime.py": (
-        "507c47893f008979f47b6448e53dcc1dd03e1610b0b5fff276f9f1d67319cb32"
+        "7577891279856bbfd3ba2694caefaf34059eba9489399d23fb879bef663dbeba"
     ),
 }
 REPOSITORY = "VINIClUS/CnesData"
@@ -149,6 +149,9 @@ def admit_request(raw: bytes, raw_sha256: str, governance: dict[str, Any], calle
     jobs: Any = step["input_jobs"]
     require(type(payloads) is dict, "complete payload inventory")
     require(set(payloads) == set(jobs), "complete payload inventory")
+    for name, named in payloads.items():
+        closed(named, "step")
+        require(named["step"] == jobs[name]["step"], "payload producer step")
     require(request["application_purpose"] == caller["application_purpose"]
             and request["caller_binding_sha256"] == sha(canonical(caller)),
             "original requested application caller")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -16,9 +17,12 @@ from scripts.promotion.lifecycle_request import (
 )
 from tests.production.delivery import _ia_lifecycle_consumer as ia
 
+VECTORS = Path(__file__).parent / "vectors"
+IA_VECTOR = VECTORS / "ia_lifecycle_request_names_vector.json"
+FULL_VECTOR = VECTORS / "lifecycle_request_names_vector.json"
 SOURCE = "a" * 40
 PRODUCER = {"workflow_sha": "b" * 40, "source_closure_sha256": "c" * 64}
-REFERENCE = {"artifact_id": 7, "artifact_digest": "sha256:" + "d" * 64, "job_id": 9}
+REFERENCE = {"step": "inputs"}
 STEPS = {
     "application-inventory": {"role": "application", "purpose": "application-prepare",
                               "input_jobs": {}},
@@ -191,16 +195,34 @@ def test_consumidor_recusa_binding_de_outro_run_attempt() -> None:
 
 
 @pytest.mark.parametrize("payload", [
-    {"artifact_id": 0, "artifact_digest": "sha256:" + "d" * 64, "job_id": 9},
-    {"artifact_id": 7, "artifact_digest": "d" * 64, "job_id": 9},
-    {"artifact_id": 7, "artifact_digest": "sha256:" + "d" * 64},
-    {"artifact_id": 7, "artifact_digest": "sha256:" + "d" * 64, "job_id": 9, "x": 1},
+    {"artifact_id": 7, "artifact_digest": "sha256:" + "d" * 64, "job_id": 9},
+    {"step": "inputs", "artifact_id": 7},
+    {"step": "Inputs"},
+    {"step": ""},
+    {"step": 7},
+    {},
 ])
-def test_gerador_recusa_referencia_de_payload_fora_da_forma_fechada(
+def test_gerador_recusa_referencia_de_payload_fora_da_forma_fechada_so_por_nome(
     payload: dict[str, Any],
 ) -> None:
     with pytest.raises(ValueError, match="payloads=reference"):
         _descriptor(_claim(), "plan-operational", {"inputs": payload})
+
+
+def test_fragmento_de_payloads_e_o_texto_canonico_do_vetor_do_infra_ansible() -> None:
+    vector = json.loads(IA_VECTOR.read_text(encoding="utf-8"))
+    payloads = {"plan": {"step": "prepared"}, "audit": {"step": "audited"}}
+    document = json.loads(vector["descriptor_canonical_utf8"])
+    assert ia.canonical(payloads) == ia.canonical(document["payloads"])
+
+
+def test_vetor_do_descritor_completo_tem_o_sha256_fixado_e_o_consumidor_o_admite() -> None:
+    vector = json.loads(FULL_VECTOR.read_text(encoding="utf-8"))
+    claim = _claim()
+    raw = _descriptor(claim, "plan-operational", {"inputs": REFERENCE})
+    assert raw.decode() == vector["descriptor_canonical_utf8"]
+    assert descriptor_sha256(raw) == vector["descriptor_sha256"]
+    assert _admit(raw, claim, "plan-operational")["payloads"] == {"inputs": REFERENCE}
 
 
 def test_gerador_recusa_step_fora_do_formato_do_consumidor() -> None:
@@ -211,3 +233,16 @@ def test_gerador_recusa_step_fora_do_formato_do_consumidor() -> None:
 def test_sha_do_descriptor_e_o_que_o_consumidor_confere() -> None:
     raw = _descriptor(_claim(), "application-inventory", {})
     assert descriptor_sha256(raw) == ia.sha(raw)
+
+
+@pytest.mark.parametrize("payload", [
+    {"artifact_id": 7, "artifact_digest": "sha256:" + "d" * 64, "job_id": 9},
+    {"step": "outro"},
+    {"step": "inputs", "job_id": 9},
+])
+def test_consumidor_recusa_payload_por_id_ou_de_outro_produtor(payload: dict[str, Any]) -> None:
+    claim = _claim()
+    raw = _rewrite(_descriptor(claim, "plan-operational", {"inputs": REFERENCE}),
+                   payloads={"inputs": payload})
+    with pytest.raises(ia.Refused):
+        _admit(raw, claim, "plan-operational")

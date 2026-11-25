@@ -19,8 +19,7 @@ _CALLERS: Final = {
 _STEP: Final = re.compile(r"[a-z][a-z0-9-]{0,63}")
 _HEX40: Final = re.compile(r"[0-9a-f]{40}")
 _HEX64: Final = re.compile(r"[0-9a-f]{64}")
-_DIGEST: Final = re.compile(r"sha256:[0-9a-f]{64}")
-_REFERENCE_FIELDS: Final = frozenset({"artifact_id", "artifact_digest", "job_id"})
+_REFERENCE_FIELDS: Final = frozenset({"step"})
 _MAX_ID: Final = 2**53 - 1
 
 
@@ -83,9 +82,7 @@ def caller_binding_sha256(claim: CallerClaim) -> str:
 
 def _check_reference(reference: Any) -> None:
     _require(type(reference) is dict and set(reference) == _REFERENCE_FIELDS, "payloads=reference")
-    _require(_positive(reference["artifact_id"]) and _positive(reference["job_id"]),
-             "payloads=reference")
-    _require(_matches(_DIGEST, reference["artifact_digest"]), "payloads=reference")
+    _require(_matches(_STEP, reference["step"]), "payloads=reference")
 
 
 def _check_payloads(payloads: dict[str, Any], input_jobs: frozenset[str]) -> None:

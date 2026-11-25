@@ -5,12 +5,14 @@ from __future__ import annotations
 import io
 import json
 import logging
+import math
 import os
 import subprocess
 import sys
 import time
 import zipfile
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, Protocol
 
@@ -26,6 +28,10 @@ API_ATTEMPTS: Final = 3
 API_RETRY_SECONDS: Final = 2
 MARGIN_SECONDS: Final = 300
 TIMEOUT_SECONDS: Final = STAGE_SUM_CEILING + FINAL_RESERVE + MARGIN_SECONDS
+APPROVAL_CAP_SECONDS: Final = 7200
+JOB_TIMEOUT_MARGIN_MINUTES: Final = 15
+JOB_TIMEOUT_MINUTES: Final = (
+    math.ceil((APPROVAL_CAP_SECONDS + TIMEOUT_SECONDS) / 60) + JOB_TIMEOUT_MARGIN_MINUTES)
 _KINDS: Final = {"close-drain.json": "close-drain", "phase-b.json": "phase-b",
                  "closed-ready.json": "closed-ready"}
 
@@ -74,6 +80,7 @@ class Clock:
 
     sleep: Callable[[float], None] = time.sleep
     monotonic: Callable[[], float] = time.monotonic
+    wall: Callable[[], float] = time.time
 
 
 def _published(api: Api, name: str) -> str | None:
@@ -105,6 +112,50 @@ def wait_for_closed_ready(
             return digest
         clock.sleep(POLL_SECONDS)
     raise ValueError("closed_ready_probe=deadline")
+
+
+def _application_job(api: Api, name: str) -> dict[str, Any] | None:
+    found = [job for job in api.jobs() if job.get("name") == name]
+    if len(found) > 1:
+        raise ValueError("closed_ready_probe=job_count")
+    return found[0] if found else None
+
+
+def _seconds_running(job: dict[str, Any], clock: Clock) -> int:
+    started_at = job.get("started_at")
+    if type(started_at) is not str:
+        raise ValueError("closed_ready_probe=started_at")
+    try:
+        started = datetime.fromisoformat(started_at).astimezone(UTC).timestamp()
+    except ValueError as error:
+        raise ValueError("closed_ready_probe=started_at") from error
+    elapsed = clock.wall() - started
+    if elapsed < 0:
+        logger.info("closed_ready_probe=started_at_ahead skew_seconds=%d", math.ceil(-elapsed))
+        return 0
+    return int(elapsed)
+
+
+def wait_for_application_start(
+    api: Api, target: Target, clock: Clock = Clock(), cap_seconds: int = APPROVAL_CAP_SECONDS,
+) -> int:
+    """Returns: segundos desde o started_at do job do application, visto em andamento.
+
+    Raises: ValueError: teto de aprovação, jobs duplicados ou started_at ausente.
+    """
+    started = clock.monotonic()
+    while clock.monotonic() - started < cap_seconds:
+        job = _application_job(api, target.application_job)
+        if job is not None and job.get("status") in {"in_progress", "completed"}:
+            return _seconds_running(job, clock)
+        clock.sleep(POLL_SECONDS)
+    raise ValueError(f"closed_ready_probe=approval_cap seconds={cap_seconds}")
+
+
+def wait_for_published(api: Api, target: Target, clock: Clock = Clock()) -> str:
+    """Returns: hash do closed-ready, com o relógio de TIMEOUT_SECONDS contado do started_at."""
+    running = wait_for_application_start(api, target, clock)
+    return wait_for_closed_ready(api, target, clock, max(0, TIMEOUT_SECONDS - running))
 
 
 class GhApi:
@@ -142,7 +193,7 @@ class GhApi:
 def main() -> int:
     run_id, attempt = int(os.environ["RUN_ID"]), int(os.environ["RUN_ATTEMPT"])
     try:
-        digest = wait_for_closed_ready(
+        digest = wait_for_published(
             GhApi(os.environ["REPOSITORY"], run_id, attempt),
             Target(run_id, attempt, os.environ["APPLICATION_JOB"]))
     except ValueError as error:
