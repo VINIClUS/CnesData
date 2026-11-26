@@ -678,3 +678,32 @@ def test_abertura_da_api_com_urlerror_de_timeout_repete() -> None:
     api, opener, _ = _api(urllib.error.URLError(TimeoutError()), Response(_listing()))
     api.artifacts("n")
     assert len(opener.requests) == 2
+
+
+@pytest.mark.parametrize("on_download", [False, True])
+@pytest.mark.parametrize(
+    "failure", [http.client.IncompleteRead(b"par"), http.client.BadStatusLine("x")]
+)
+def test_http_exception_em_toda_tentativa_termina_como_chave_valor_sem_traceback(
+    on_download: bool, failure: http.client.HTTPException
+) -> None:
+    attempts = probe.API_ATTEMPTS
+    if on_download:
+        follower = Follower(*[BrokenBody(failure) for _ in range(attempts)])
+        api, opener, clock = _api(*[_error(302, Location=BLOB)] * attempts, follow=follower)
+    else:
+        api, opener, clock = _api(*[BrokenBody(failure) for _ in range(attempts)])
+    with pytest.raises(ValueError, match=r"^closed_ready_probe=api$"):
+        api.archive(9) if on_download else api.jobs()
+    assert len(opener.requests) == attempts
+    assert clock.sleeps == [probe.API_RETRY_SECONDS] * (attempts - 1)
+
+
+def test_download_429_e_permanente_porque_o_azure_limita_com_503() -> None:
+    follower = Follower(_blob_error(429))
+    api, opener, clock = _api(_error(302, Location=BLOB), follow=follower)
+    with pytest.raises(ValueError, match=r"^closed_ready_probe=api$"):
+        api.archive(9)
+    assert len(opener.requests) == 1
+    assert len(follower.urls) == 1
+    assert clock.sleeps == []
