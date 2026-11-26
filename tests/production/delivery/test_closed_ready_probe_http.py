@@ -603,7 +603,7 @@ def test_download_4xx_permanente_nao_repete(code: int) -> None:
 @pytest.mark.parametrize(
     "failure",
     [TimeoutError(), ConnectionResetError(), ConnectionRefusedError(),
-     http.client.RemoteDisconnected()],
+     http.client.RemoteDisconnected("closed")],
 )
 def test_download_com_falha_de_rede_repete(failure: OSError) -> None:
     follower = Follower(failure, Response(b"ZIP"))
