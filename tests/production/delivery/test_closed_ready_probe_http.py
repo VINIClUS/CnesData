@@ -613,3 +613,68 @@ def test_download_com_falha_de_rede_repete(failure: OSError) -> None:
     assert api.archive(9) == b"ZIP"
     assert len(opener.requests) == 2
     assert clock.sleeps == [probe.API_RETRY_SECONDS]
+
+
+class BrokenBody(Response):
+    def __init__(self, failure: BaseException, **headers: str) -> None:
+        super().__init__(b"", **headers)
+        self.failure = failure
+
+    def read(self) -> bytes:
+        raise self.failure
+
+
+def _body_failures() -> list[BaseException]:
+    return [
+        TimeoutError(),
+        ConnectionResetError(),
+        http.client.IncompleteRead(b"par"),
+        urllib.error.URLError(TimeoutError()),
+    ]
+
+
+@pytest.mark.parametrize("call", ["artifacts", "jobs"])
+@pytest.mark.parametrize("failure", _body_failures())
+def test_leitura_do_corpo_da_listagem_falha_e_repete_ate_o_sucesso(
+    call: str, failure: BaseException
+) -> None:
+    good = Response(json.dumps({"artifacts": [], "jobs": []}).encode())
+    api, opener, clock = _api(BrokenBody(failure), good)
+    getattr(api, call)(*(["n"] if call == "artifacts" else []))
+    assert len(opener.requests) == 2
+    assert clock.sleeps == [probe.API_RETRY_SECONDS]
+
+
+@pytest.mark.parametrize("call", ["artifacts", "jobs"])
+def test_leitura_do_corpo_em_toda_tentativa_falha_apos_o_limite(call: str) -> None:
+    api, opener, clock = _api(*[BrokenBody(TimeoutError()) for _ in range(probe.API_ATTEMPTS)])
+    with pytest.raises(ValueError, match=r"^closed_ready_probe=api$"):
+        getattr(api, call)(*(["n"] if call == "artifacts" else []))
+    assert len(opener.requests) == probe.API_ATTEMPTS
+    assert clock.sleeps == [probe.API_RETRY_SECONDS] * (probe.API_ATTEMPTS - 1)
+
+
+def test_corpo_parcial_nao_grava_etag_no_cache_condicional() -> None:
+    steps = [BrokenBody(TimeoutError(), ETag='"v1"') for _ in range(probe.API_ATTEMPTS)]
+    api, opener, _ = _api(*steps, Response(_listing(1), ETag='"v2"'))
+    with pytest.raises(ValueError, match=r"^closed_ready_probe=api$"):
+        api.artifacts("n")
+    api.artifacts("n")
+    assert "if-none-match" not in _sent(opener, probe.API_ATTEMPTS)
+
+
+@pytest.mark.parametrize("failure", _body_failures())
+def test_leitura_do_corpo_do_download_repete(failure: BaseException) -> None:
+    follower = Follower(BrokenBody(failure), Response(b"ZIP"))
+    api, opener, clock = _api(
+        _error(302, Location=BLOB), _error(302, Location=BLOB), follow=follower
+    )
+    assert api.archive(9) == b"ZIP"
+    assert len(opener.requests) == 2
+    assert clock.sleeps == [probe.API_RETRY_SECONDS]
+
+
+def test_abertura_da_api_com_urlerror_de_timeout_repete() -> None:
+    api, opener, _ = _api(urllib.error.URLError(TimeoutError()), Response(_listing()))
+    api.artifacts("n")
+    assert len(opener.requests) == 2

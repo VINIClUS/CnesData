@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import http.client
 import io
 import json
 import logging
@@ -35,6 +36,7 @@ PROBE_JOBS_READS_PER_MINUTE: Final = 1
 PROBE_END_STAGES: Final = {"closed-ready": "api"}
 CONCLUDED_CHECK_SECONDS: Final = 60 // PROBE_JOBS_READS_PER_MINUTE
 _REDIRECTS: Final = (301, 302, 303, 307)
+_NETWORK_ERRORS: Final = (OSError, http.client.HTTPException)
 _TRANSIENT_STATUS: Final = (500, 502, 503, 504)
 _BLOB_SUFFIXES: Final = (".blob.core.windows.net", ".actions.githubusercontent.com")
 MARGIN_SECONDS: Final = 300
@@ -245,15 +247,14 @@ class HttpApi:
             headers["If-None-Match"] = cached[0]
         request = urllib.request.Request(f"https://api.github.com/{path}", headers=headers)
         try:
-            response = self._transport.opener.open(request, timeout=API_TIMEOUT_SECONDS)
+            with self._transport.opener.open(request, timeout=API_TIMEOUT_SECONDS) as response:
+                self._record(response.headers)
+                return response.read(), response.headers.get("ETag")
         except urllib.error.HTTPError as error:
             self._record(error.headers)
             return self._on_error(error, cached), None
-        except OSError as error:
+        except _NETWORK_ERRORS as error:
             raise _Transient from error
-        with response:
-            self._record(response.headers)
-            return response.read(), response.headers.get("ETag")
 
     def _on_error(self, error: urllib.error.HTTPError, cached: tuple[str, bytes] | None) -> bytes:
         if error.code == 304 and cached is not None:
@@ -276,7 +277,7 @@ class HttpApi:
             if error.code in _TRANSIENT_STATUS:
                 raise _Transient from error
             raise ValueError("closed_ready_probe=api") from error
-        except OSError as error:
+        except _NETWORK_ERRORS as error:
             raise _Transient from error
 
     def _get(self, path: str, *, conditional: bool) -> bytes:
