@@ -24,8 +24,12 @@ def test_workflow_so_tem_workflow_dispatch_e_actions_fixadas() -> None:
     assert set(triggers) == {"workflow_dispatch"}
     assert workflow["permissions"] == {}
     jobs = workflow["jobs"]
-    assert list(jobs) == ["admit", "preamble", "descriptor", "application", "closed-ready",
-                          "host-gate", "host-outcome"]
+    gates = [f"{chain}{suffix}" for chain in (
+        "observer-bootstrap", "application-prepare-operational", "phase-b", "phase-c-recovery",
+        "phase-c-audit") for suffix in ("-plan", "-audit", "")]
+    assert list(jobs) == ["admit", "preamble", "descriptor", "application", *gates,
+                          "static-inputs", "static-inventory", "closed-ready", "host-gate",
+                          "host-outcome"]
     assert CALLER_REF in jobs["preamble"]["if"]
     for job in jobs.values():
         if "uses" not in job:

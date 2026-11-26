@@ -152,7 +152,7 @@ def test_cadeia_de_checkpoint_dos_planos_segue_o_deploy_anterior() -> None:
     assert all("inputs" not in step["input_jobs"] for step in steps.values())
 
 
-def _triggers(document: dict[str, Any]) -> set[str]:
+def _triggers(document: dict[Any, Any]) -> set[str]:
     on = document.get("on", document.get(True))
     if isinstance(on, str):
         return {on}

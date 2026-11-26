@@ -61,13 +61,13 @@ def test_envelope_aceita_o_artefato_do_workflow_host_archive() -> None:
     assert json.loads(raw)["ci_evidence"]["workflow"] == ".github/workflows/host-archive.yml"
 
 
-def _document() -> dict[str, Any]:
+def _document() -> dict[Any, Any]:
     return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
 
 
 def test_workflow_so_roda_por_dispatch_em_main_no_sha_pedido() -> None:
     document = _document()
-    assert set(document.get("on", document.get(True))) == {"workflow_dispatch"}
+    assert set(document["on"] if "on" in document else document[True]) == {"workflow_dispatch"}
     assert document["permissions"] == {}
     (name, job), = document["jobs"].items()
     assert name == "archive"

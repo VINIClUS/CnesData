@@ -1,0 +1,87 @@
+---
+name: host-archive
+
+"on":
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: SHA completo da release, contido em main
+        required: true
+        type: string
+      api_image:
+        description: Imagem do API por digest GHCR
+        required: true
+        type: string
+      platform_plan:
+        description: JSON com os seis campos da evidência do platform plan
+        required: true
+        type: string
+      static_release:
+        description: release_id do candidato de produção
+        required: true
+        type: string
+      requested_action:
+        required: true
+        type: choice
+        options:
+          - deploy
+          - validate
+          - rollback-previous
+      port:
+        description: Porta local do API no host
+        required: true
+        type: string
+      config:
+        description: config.json do API, sem segredo
+        required: true
+        type: string
+      lifetime_hours:
+        description: Validade do manifest em horas, de 1 a 24
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: host-archive
+  cancel-in-progress: false
+
+jobs:
+  archive:
+    if: github.ref == 'refs/heads/main' && github.sha == inputs.source_sha
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+      - name: Montar o archive de host do SHA pedido
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          API_IMAGE: ${{ inputs.api_image }}
+          PLATFORM_PLAN: ${{ inputs.platform_plan }}
+          STATIC_RELEASE: ${{ inputs.static_release }}
+          REQUESTED_ACTION: ${{ inputs.requested_action }}
+          PORT: ${{ inputs.port }}
+          CONFIG: ${{ inputs.config }}
+          LIFETIME_HOURS: ${{ inputs.lifetime_hours }}
+          OUTPUT: ${{ runner.temp }}/host-archive.tgz
+        run: |
+          set -euo pipefail
+          python -m scripts.promotion.build_host_archive --source-sha "$SOURCE_SHA" \
+            --api-image "$API_IMAGE" --platform-plan "$PLATFORM_PLAN" \
+            --static-release "$STATIC_RELEASE" --requested-action "$REQUESTED_ACTION" \
+            --port "$PORT" --config "$CONFIG" --lifetime-hours "$LIFETIME_HOURS" \
+            --output "$OUTPUT"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: cnesdata-host-archive-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/host-archive.tgz
+          if-no-files-found: error
+          retention-days: 2

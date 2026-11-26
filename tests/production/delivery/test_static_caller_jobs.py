@@ -82,9 +82,9 @@ def _archive_bytes(raw: bytes) -> bytes:
 
 
 @pytest.mark.parametrize(("archive", "candidate", "field"), [
-    (dict(source="b" * 40), {}, "archive_binding"),
-    (dict(release=f"candidate-{SOURCE}-78-1"), {}, "archive_binding"),
-    (dict(release=None), {}, "archive_binding"),
+    ({"source": "b" * 40}, {}, "archive_binding"),
+    ({"release": f"candidate-{SOURCE}-78-1"}, {}, "archive_binding"),
+    ({"release": None}, {}, "archive_binding"),
     ({}, {"source_sha": "b" * 40}, "candidate_source"),
 ], ids=["fonte-do-archive", "release-do-archive", "archive-sem-release", "fonte-do-candidato"])
 def test_static_inputs_recusa_archive_ou_candidato_de_outra_release(
@@ -173,6 +173,12 @@ def test_sonda_recusa_artefato_duplicado_ou_fora_dos_membros(
         static_inventory_probe.wait_for_inventory(Api([listing], _zip(members)), TARGET, Clock())
 
 
+def test_sonda_espera_o_marker_do_estagio_pelo_nome_exato_do_run() -> None:
+    api = Api([[], [{"id": 31}]], _zip({"index.json": b"{}\n"}))
+    assert static_inventory_probe.wait_for_marker(api, TARGET, Clock()) == b"{}\n"
+    assert set(api.names) == {"cnesdata-stage-open-application-prepare-7-1"}
+
+
 def test_sonda_falha_fechado_no_prazo_sem_inventory() -> None:
     with pytest.raises(ValueError, match=r"^static_inventory_probe=deadline$"):
         static_inventory_probe.wait_for_inventory(Api([[]], b""), TARGET, Clock(), 30)
@@ -203,7 +209,9 @@ def test_jobs_estaticos_rodam_em_paralelo_sem_environment_e_publicam_os_nomes_do
         assert job["runs-on"] == "ubuntu-latest"
     run = "${{ github.run_id }}-${{ github.run_attempt }}"
     assert set(_uploads(inputs)) == {f"cnesdata-static-inputs-{run}"}
-    assert set(_uploads(inventory)) == {f"cnesdata-static-plan-{run}"}
+    assert set(_uploads(inventory)) == {f"cnesdata-static-plan-{run}",
+                                        f"cnesdata-lifecycle-inputs-{run}"}
     assert "scripts.promotion.static_inputs_job" in json.dumps(inputs)
     assert "scripts.promotion.static_inventory_probe" in json.dumps(inventory)
-    assert "secrets.CNESDATA_STATIC_DISTRIBUTION_ARN" in json.dumps(inventory)
+    assert "secrets.CNESDATA_MODE_CONTEXT" in json.dumps(inventory)
+    assert "secrets." not in json.dumps(inputs)
