@@ -10,18 +10,18 @@ import json
 import re
 from typing import Any
 
-# infra-ansible cfdf3c62 (P35, re-pin ao merge pendente):
+# infra-ansible fcdb61d6 (P35 mergeado):
 # tools/cnesdata_delivery/{contract,lifecycle_contract,lifecycle_runtime}.py.
-IA_PIN = "cfdf3c62d56552a4de66996e325a6c885d5d8fbf"
+IA_PIN = "fcdb61d68af9d6c42db20300c5b15fdf150dfa3a"
 IA_MIRRORED_SOURCES = {
     "tools/cnesdata_delivery/contract.py": (
         "1f881e85cd21ab45ea5be22d12e81d3515c7ea7849b5c90aa6c54cb1e8b13d3b"
     ),
     "tools/cnesdata_delivery/lifecycle_contract.py": (
-        "c41dc15ebdabf4fcc84607f848e4710eb83a89900bac2446a00ef2e2b51b779c"
+        "51c611fe1961069de4e3478c2757b97bed7b2d13f653604983cd607dfce2012f"
     ),
     "tools/cnesdata_delivery/lifecycle_runtime.py": (
-        "7577891279856bbfd3ba2694caefaf34059eba9489399d23fb879bef663dbeba"
+        "c0bd20758c63128abc8fac420887d322750b87198808d634aace99c6eb9677c4"
     ),
 }
 REPOSITORY = "VINIClUS/CnesData"

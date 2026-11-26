@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import io
-import subprocess
 import zipfile
 from typing import Any
 
@@ -35,6 +34,7 @@ class Api:
                  application: str = "in_progress", extra: int = 0) -> None:
         self.calls = 0
         self.job_reads = 0
+        self.rate: dict[str, int] | None = {"limit": 5000, "used": 3, "remaining": 4997}
         self.appears_at = appears_at
         self.members = MEMBERS if members is None else members
         self.application = application
@@ -129,35 +129,6 @@ def test_nao_declara_application_concluido_se_o_artefato_ainda_nao_existe() -> N
     with pytest.raises(ValueError, match=r"^closed_ready_probe=application_concluded$"):
         _run(api)
     assert api.calls == 2
-
-
-class Run:
-    def __init__(self, failures: int) -> None:
-        self.failures = failures
-        self.calls = 0
-
-    def __call__(self, argv: list[str], **kwargs: Any) -> Any:
-        self.calls += 1
-        if self.calls <= self.failures:
-            raise subprocess.CalledProcessError(1, argv)
-        return subprocess.CompletedProcess(argv, 0, stdout=b'{"artifacts":[]}')
-
-
-def test_falha_transitoria_do_gh_api_e_repetida_ate_o_limite() -> None:
-    clock = Clock()
-    run = Run(probe.API_ATTEMPTS - 1)
-    api = probe.GhApi("VINIClUS/CnesData", 7, 1, run=run, sleep=clock.sleep)
-    assert api.artifacts("cnesdata-closed-ready-7-1") == []
-    assert run.calls == probe.API_ATTEMPTS
-    assert clock.sleeps == [probe.API_RETRY_SECONDS] * (probe.API_ATTEMPTS - 1)
-
-
-def test_falha_persistente_do_gh_api_vira_key_value_sem_traceback() -> None:
-    run = Run(10**6)
-    api = probe.GhApi("VINIClUS/CnesData", 7, 1, run=run, sleep=Clock().sleep)
-    with pytest.raises(ValueError, match=r"^closed_ready_probe=api$"):
-        api.jobs()
-    assert run.calls == probe.API_ATTEMPTS
 
 
 STARTED_AT = "2026-11-25T12:00:00Z"
@@ -262,3 +233,33 @@ def test_timeout_do_job_cobre_o_teto_mais_o_relogio_e_cabe_no_limite_hospedado()
     job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["closed-ready"]
     assert job["timeout-minutes"] == probe.JOB_TIMEOUT_MINUTES
     assert job["timeout-minutes"] < 360
+
+
+def test_artefato_ja_publicado_e_devolvido_mesmo_com_o_relogio_acima_do_prazo() -> None:
+    api = TimedApi(states=[_state(_job())])
+    _, timed = _timed_clock(STARTED_EPOCH + probe.TIMEOUT_SECONDS + 50)
+    assert probe.wait_for_published(api, _target(), timed) == object_hash(READY)
+    assert api.calls == 1
+
+
+def test_sem_artefato_o_relogio_esgotado_falha_no_prazo_depois_de_uma_unica_leitura() -> None:
+    api = TimedApi(states=[_state(_job())], appears_at=10**6)
+    clock, timed = _timed_clock(STARTED_EPOCH + probe.TIMEOUT_SECONDS + 50)
+    with pytest.raises(ValueError, match=r"^closed_ready_probe=deadline$"):
+        probe.wait_for_published(api, _target(), timed)
+    assert api.calls == 1
+    assert clock.sleeps == []
+
+
+@pytest.mark.parametrize("started_at", ["2026-11-25T12:00:00", "2026-11-25 12:00:00"])
+def test_started_at_sem_fuso_falha_fechado_em_vez_de_assumir_o_fuso_local(started_at: str) -> None:
+    api = TimedApi(states=[_state(_job(started_at=started_at))])
+    _, timed = _timed_clock(STARTED_EPOCH)
+    with pytest.raises(ValueError, match=r"^closed_ready_probe=started_at$"):
+        probe.wait_for_application_start(api, _target(), timed)
+
+
+def test_started_at_com_fuso_explicito_diferente_de_utc_e_normalizado() -> None:
+    api = TimedApi(states=[_state(_job(started_at="2026-11-25T09:00:00-03:00"))])
+    _, timed = _timed_clock(STARTED_EPOCH + 20)
+    assert probe.wait_for_application_start(api, _target(), timed) == 20

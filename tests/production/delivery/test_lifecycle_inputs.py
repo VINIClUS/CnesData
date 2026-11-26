@@ -32,8 +32,9 @@ OWNER = {"repository": "VINIClUS/CnesData", "run_id": 42, "run_attempt": 1, "gen
          "owner_sha256": "2" * 64}
 ACCOUNT = "111122223333"
 PRINCIPAL = f"arn:aws:iam::{ACCOUNT}:role/cnesdata-prod-application"
-FRAGMENT = {"fragment_version": 4, "account_id": ACCOUNT}
 ENABLED = "2027-02-12T00:00:00Z"
+APPLICATION_ENABLED = "2027-02-13T00:00:00Z"
+FRAGMENT = {"fragment_version": 4, "account_id": ACCOUNT, "enabled_until": APPLICATION_ENABLED}
 
 
 def _inventory(**override: Any) -> bytes:
@@ -381,3 +382,39 @@ def test_espelho_recusa_operacional_com_mode_bootstrap_e_plano() -> None:
     value = static_promotion_input(_request(), plan, inventory) | {"mode": "observer-bootstrap"}
     with pytest.raises(ValueError):
         ia.product_static_promotion(value, plan, records.STATIC_BUCKET)
+
+
+def _generate(mode: str, **override: Any) -> dict[str, Any]:
+    if mode == "operational":
+        plan, inventory = _plan()
+        return static_promotion_input(_request(**override), plan, inventory)
+    return static_bootstrap_input(_bootstrap_request(**override))
+
+
+@pytest.mark.parametrize("mode", ["operational", "observer-bootstrap"])
+def test_gerador_recusa_janela_estatica_depois_da_janela_do_application(mode: str) -> None:
+    with pytest.raises(ValueError, match=r"lifecycle_inputs field=enabled_until=after_application"):
+        _generate(mode, enabled_until="2027-02-13T00:00:01Z")
+
+
+@pytest.mark.parametrize("mode", ["operational", "observer-bootstrap"])
+def test_gerador_aceita_janela_estatica_igual_a_do_application(mode: str) -> None:
+    assert _generate(mode, enabled_until=APPLICATION_ENABLED)["enabled_until"] == APPLICATION_ENABLED
+
+
+@pytest.mark.parametrize("mode", ["operational", "observer-bootstrap"])
+@pytest.mark.parametrize("fragment", [
+    {"fragment_version": 4}, {"fragment_version": 4, "enabled_until": "2027-02-13"},
+    {"fragment_version": 4, "enabled_until": 1},
+])
+def test_gerador_recusa_fragmento_do_application_sem_janela_valida(
+    mode: str, fragment: dict[str, Any],
+) -> None:
+    with pytest.raises(ValueError, match=r"lifecycle_inputs field=application_promotion=enabled_until"):
+        _generate(mode, application_promotion=fragment)
+
+
+def test_espelho_recusa_bootstrap_que_carrega_plano() -> None:
+    value = static_bootstrap_input(_bootstrap_request())
+    with pytest.raises(ia.Refused, match=r"^static bootstrap carries no plan$"):
+        ia.product_static_promotion(value, b"{}", records.STATIC_BUCKET)
