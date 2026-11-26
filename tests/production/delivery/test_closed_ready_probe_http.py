@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import contextlib
 import email.message
+import http.server
 import io
 import json
 import logging
+import threading
 import urllib.error
+import urllib.request
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -26,6 +30,7 @@ from tests.production.delivery.test_closed_ready_probe import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from pathlib import Path
 
 TARGET = probe.Target(7, 1, "application / execute")
@@ -416,3 +421,118 @@ def test_membros_do_zip_do_cliente_real_passam_pela_mesma_validacao() -> None:
     api, _, _ = _api(Response(_listing(9)), Response(_zip(MEMBERS)))
     assert probe._published(api, "n") is not None
     assert READY["kind"] == "closed-ready"
+
+
+class _Recorder(http.server.BaseHTTPRequestHandler):
+    seen: list[dict[str, str]]
+    location: str | None = None
+
+    def do_GET(self) -> None:
+        self.seen.append({key.lower(): value for key, value in self.headers.items()})
+        if self.location is None:
+            self.send_response(200)
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+            self.wfile.write(b"ok")
+            return
+        self.send_response(302)
+        self.send_header("Location", self.location)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def log_message(self, *args: Any) -> None:
+        return
+
+
+@contextlib.contextmanager
+def _loopback(location: str | None = None) -> Iterator[tuple[str, list[dict[str, str]]]]:
+    seen: list[dict[str, str]] = []
+    handler = type("Handler", (_Recorder,), {"seen": seen, "location": location})
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}/target", seen
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def test_opener_real_recusa_o_redirecionamento_e_o_token_nunca_chega_ao_destino() -> None:
+    with _loopback() as (target, target_seen), _loopback(location=target) as (origin, origin_seen):
+        request = urllib.request.Request(origin, headers={"Authorization": "Bearer t0k3n"})
+        with pytest.raises(urllib.error.HTTPError) as refused:
+            probe.Transport().opener.open(request, timeout=5)
+        assert refused.value.code == 302
+        assert [seen["authorization"] for seen in origin_seen] == ["Bearer t0k3n"]
+        assert target_seen == []
+
+
+def test_follow_padrao_busca_o_destino_sem_cabecalho_de_autorizacao() -> None:
+    with _loopback() as (target, target_seen):
+        with probe.Transport().follow(target) as response:
+            assert response.read() == b"ok"
+        assert len(target_seen) == 1
+        assert "authorization" not in target_seen[0]
+
+
+def test_dois_304_seguidos_reenviam_o_mesmo_etag_sem_perder_o_cache() -> None:
+    api, opener, _ = _api(Response(_listing(9), ETag='"v1"'), _error(304), _error(304))
+    assert api.artifacts("n") == api.artifacts("n") == api.artifacts("n") == [{"id": 9}]
+    assert _sent(opener, 1)["if-none-match"] == '"v1"'
+    assert _sent(opener, 2)["if-none-match"] == '"v1"'
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://evilblob.core.windows.net/a",
+        "https://evilactions.githubusercontent.com/a",
+        "https://blob.core.windows.net/a",
+        "https://actions.githubusercontent.com/a",
+    ],
+)
+def test_host_de_download_so_vale_como_subdominio_com_ponto_inicial(url: str) -> None:
+    api, _, _ = _api(_error(302, Location=url), follow=lambda _url: Response(b"ZIP"))
+    with pytest.raises(ValueError, match=r"^closed_ready_probe=api$"):
+        api.archive(9)
+
+
+def test_host_de_download_com_subdominio_legitimo_e_aceito() -> None:
+    for host in ("x.blob.core.windows.net", "pipelines.actions.githubusercontent.com"):
+        api, _, _ = _api(
+            _error(302, Location=f"https://{host}/a"), follow=lambda _url: Response(b"ZIP")
+        )
+        assert api.archive(9) == b"ZIP"
+
+
+def test_tentativas_e_espera_da_api_sao_as_declaradas() -> None:
+    assert (probe.API_ATTEMPTS, probe.API_RETRY_SECONDS) == (3, 2)
+    api, opener, _ = _api(*[_error(500)] * 5)
+    with pytest.raises(ValueError, match=r"^closed_ready_probe=api$"):
+        api.artifacts("n")
+    assert len(opener.requests) == 3
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {"x-ratelimit-limit": "abc", "x-ratelimit-used": "3", "x-ratelimit-remaining": "4997"},
+        {"x-ratelimit-limit": "5000", "x-ratelimit-used": "-3", "x-ratelimit-remaining": "4997"},
+        {"x-ratelimit-limit": "5000", "x-ratelimit-used": "3"},
+    ],
+)
+def test_cabecalhos_de_limite_nao_numericos_ou_ausentes_deixam_o_registro_vazio(
+    headers: dict[str, str],
+) -> None:
+    api, _, _ = _api(Response(_listing(), **headers))
+    api.artifacts("n")
+    assert api.rate is None
+
+
+def test_cabecalhos_de_limite_invalidos_nao_apagam_o_ultimo_registro_valido() -> None:
+    api, _, _ = _api(Response(_listing(), **RATE), Response(_listing(), x_ratelimit_limit="abc"))
+    api.artifacts("n")
+    api.artifacts("n")
+    assert api.rate == {"limit": 5000, "used": 3, "remaining": 4997}
