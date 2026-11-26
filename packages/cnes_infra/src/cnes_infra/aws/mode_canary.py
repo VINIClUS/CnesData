@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
-from datetime import timedelta
-from hashlib import sha256
 from typing import TYPE_CHECKING, Any, Final, Protocol, cast
 
 from botocore.exceptions import ClientError
@@ -15,72 +12,55 @@ from cnes_domain.orchestration.mode_canary import (
     ModeCanaryControl,
     ModeCanaryGrant,
     ModeCanaryRecord,
-    SyntheticContextRequired,
-    SyntheticEffectTicket,
     is_canonical_mode_canary_tenant,
 )
-from cnes_infra.control_plane.dynamodb_keys import run_partition, tenant_partition
+from cnes_infra.aws.mode_canary_frames import (
+    ATTEMPTS,
+    CONTROL_ENTITY,
+    GENESIS_LEDGER_SHA256,
+    INSERT_ONLY,
+    SWAP,
+    TENANT_PREFIX,
+    Effect,
+    LedgerState,
+    admission,
+    canonical_text,
+    control_key,
+    digest,
+    dispatch_effect,
+    effect_id,
+    ledger_effect,
+    parse_control,
+    parse_mapping,
+    parse_ticket,
+    put,
+    record_key,
+    refuse,
+    require_bound,
+    require_control,
+    stamp,
+    start_request,
+    ticket_key,
+    transition,
+)
+from cnes_infra.control_plane.dynamodb_keys import tenant_partition
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from datetime import datetime
 
     from cnes_domain.control_plane.environment_gate import PermitHolder
+    from cnes_domain.orchestration.mode_canary import SyntheticEffectTicket
     from cnes_domain.ports.processing import StartRunExecution
 
-_TENANT_PREFIX: Final = "prod-canary-"
-GENESIS_LEDGER_SHA256: Final = sha256(b"[]\n").hexdigest()
-_CEILINGS: Final = {
-    "promotion": {"unit_tasks": 8, "recovery_resumes": 8, "recovery_hangs": 1},
-    "readiness": {"unit_tasks": 8, "recovery_resumes": 8, "recovery_hangs": 2},
-}
-_COUNTERS: Final = {
-    "start-execution": "unit_tasks", "run-recovery": "recovery_resumes",
-    "run-hang": "recovery_hangs",
-}
-_KINDS: Final = frozenset({*_COUNTERS, "native-mutation", "settle-permit"})
-_ATTEMPTS: Final = 3
 _SEAL_ATTEMPTS: Final = 64
-
-
-def canonical_text(mapping: dict[str, Any]) -> str:
-    """Returns: JSON ordenado e compacto em UTF-8 com LF terminal único."""
-    return json.dumps(mapping, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n"
-
-
-def _digest(text: str) -> str:
-    return sha256(text.encode()).hexdigest()
-
-
-def _stamp(moment: datetime) -> str:
-    if moment.utcoffset() != timedelta(0):
-        raise _refuse("clock_not_utc")
-    return moment.isoformat(timespec="seconds")
-
-
-def _refuse(reason: str) -> SyntheticContextRequired:
-    return SyntheticContextRequired(f"reason={reason} field=tenant_id")
 
 
 def start_effect_id(
     record_sha256: str, holder: PermitHolder | StartRunExecution, unit_ids: Sequence[str],
 ) -> str:
     """Returns: effect_id do start nativo ligado ao record e ao request do dispatch."""
-    return _effect_id(record_sha256, "start-execution", _start_request(holder, unit_ids))
-
-
-def _start_request(holder: PermitHolder | StartRunExecution, unit_ids: Sequence[str]) -> str:
-    return _digest(canonical_text({
-        "dispatch_id": holder.dispatch_id, "run_id": holder.run_id,
-        "tenant_id": holder.tenant_id, "unit_ids": list(unit_ids),
-    }))
-
-
-def _effect_id(record_sha256: str, kind: str, request_sha256: str) -> str:
-    return _digest(canonical_text({
-        "effect_kind": kind, "phase_record_sha256": record_sha256,
-        "request_sha256": request_sha256,
-    }))
+    return effect_id(record_sha256, "start-execution", start_request(holder, unit_ids))
 
 
 class DispatchReader(Protocol):
@@ -98,25 +78,6 @@ class RuntimeBounds:
     fault: str
 
 
-@dataclass(frozen=True, slots=True)
-class _Effect:
-    kind: str
-    request_sha256: str
-    target_sha256: str
-    amount: int
-    binding_item: dict[str, Any] | None
-
-
-def _put(table: str, item: dict[str, str], condition: str, values: dict[str, Any] | None):
-    put: dict[str, Any] = {
-        "TableName": table, "Item": {name: {"S": value} for name, value in item.items()},
-        "ConditionExpression": condition,
-    }
-    if values:
-        put["ExpressionAttributeValues"] = values
-    return {"Put": put}
-
-
 def _cancelled(error: ClientError) -> bool:
     code = error.response.get("Error", {}).get("Code")
     return code in {"TransactionCanceledException", "ConditionalCheckFailedException"}
@@ -128,45 +89,34 @@ class _Store:
         self.table = table_name
         self.pk = tenant_partition(tenant_id)
 
-    def payload(self, sort_key: str, pk: str | None = None) -> str | None:
-        key = {"pk": {"S": pk or self.pk}, "sk": {"S": sort_key}}
+    def payload(self, sort_key: str) -> str | None:
+        key = {"pk": {"S": self.pk}, "sk": {"S": sort_key}}
         item = self.client.get_item(TableName=self.table, Key=key, ConsistentRead=True).get("Item")
         return None if item is None else cast("str", item["payload"]["S"])
 
-    def item(self, sort_key: str, entity: str, text: str) -> dict[str, str]:
-        return {"pk": self.pk, "sk": sort_key, "entity": entity, "payload": text}
-
-    def cas(self, item: dict[str, str], old: str | None) -> bool:
-        condition = "attribute_not_exists(pk)" if old is None else "payload = :old"
-        values = None if old is None else {":old": {"S": old}}
+    def write(self, request: dict[str, Any]) -> bool:
         try:
-            self.client.put_item(**_put(self.table, item, condition, values)["Put"])
+            self.client.put_item(**request)
         except ClientError as error:
             if not _cancelled(error):
                 raise
             return False
         return True
 
+    def transact(self, items: list[dict[str, Any]]) -> bool:
+        try:
+            self.client.transact_write_items(TransactItems=items)
+        except ClientError as error:
+            if not _cancelled(error):
+                raise
+            return False
+        return True
 
-def _mapping(text: str, kind: str) -> dict[str, Any]:
-    try:
-        mapping = json.loads(text)
-    except json.JSONDecodeError as error:
-        raise _refuse(f"{kind}_invalid") from error
-    if type(mapping) is not dict:
-        raise _refuse(f"{kind}_invalid")
-    if canonical_text(cast("dict[str, Any]", mapping)) != text:
-        raise _refuse(f"{kind}_not_canonical")
-    return cast("dict[str, Any]", mapping)
-
-
-def _parse_control(text: str) -> ModeCanaryControl:
-    try:
-        return ModeCanaryControl.from_mapping(_mapping(text, "control"))
-    except ValueError as error:
-        if isinstance(error, SyntheticContextRequired):
-            raise
-        raise _refuse("control_invalid") from error
+    def control_put(self, sort_key: str, text: str, old: str | None) -> dict[str, Any]:
+        item = {"pk": self.pk, "sk": sort_key, "entity": CONTROL_ENTITY, "payload": text}
+        if old is None:
+            return cast("dict[str, Any]", put(self.table, item, INSERT_ONLY, None)["Put"])
+        return cast("dict[str, Any]", put(self.table, item, SWAP, {":old": {"S": old}})["Put"])
 
 
 def initialize_control(client: Any, table_name: str, tenant_id: str, control: dict[str, Any]):
@@ -175,22 +125,33 @@ def initialize_control(client: Any, table_name: str, tenant_id: str, control: di
     Raises: SyntheticContextRequired: Tenant, control inválido ou divergente do gravado.
     """
     if not is_canonical_mode_canary_tenant(tenant_id):
-        raise _refuse("tenant_invalid")
+        raise refuse("tenant_invalid")
     try:
         parsed = ModeCanaryControl.from_mapping(control)
     except ValueError as error:
-        raise _refuse("control_invalid") from error
+        raise refuse("control_invalid") from error
     initial = (parsed.admission_state == "ACTIVE" and not any(parsed.admitted_counts.values())
                and parsed.ledger_sha256 == GENESIS_LEDGER_SHA256)
     if not initial:
-        raise _refuse("control_invalid")
+        raise refuse("control_invalid")
     store = _Store(client, table_name, tenant_id)
-    sort_key = f"PROD_CANARY_CONTROL#{parsed.owner_sha256}"
+    sort_key = control_key(parsed.owner_sha256)
     text = canonical_text(control)
-    if store.cas(store.item(sort_key, "MODECANARYCONTROL", text), None):
+    if store.write(store.control_put(sort_key, text, None)):
         return
     if store.payload(sort_key) != text:
-        raise _refuse("control_conflict")
+        raise refuse("control_conflict")
+
+
+def require_seeded_control(
+    client: Any, table_name: str, record: ModeCanaryRecord,
+) -> ModeCanaryControl:
+    """Returns: Control ACTIVE do owner lido forte, antes de qualquer escrita do recovery-seed.
+
+    Raises: SyntheticContextRequired: control_missing, control_mismatch ou control_sealed.
+    """
+    store = _Store(client, table_name, f"{TENANT_PREFIX}{record.canary_id}")
+    return require_control(store.payload(control_key(record.owner_sha256)), record)
 
 
 class ModeCanaryContext:
@@ -216,20 +177,14 @@ class ModeCanaryContext:
                 adulterado, divergente, selado, vencido, dispatch divergente ou orçamento esgotado.
         """
         if not self._binding.permits(holder.tenant_id, holder.run_id):
-            raise _refuse("run_not_bound")
+            raise refuse("run_not_bound")
         record = self._record()
-        if holder.run_id not in record.run_ids:
-            raise _refuse("run_not_bound")
+        require_bound(self._binding, record, holder)
         dispatch = self._dispatches.get_run_dispatch(holder.tenant_id, holder.run_id)
         if dispatch is None or dispatch.dispatch_id != holder.dispatch_id:
-            raise _refuse("dispatch_mismatch")
+            raise refuse("dispatch_mismatch")
         units = tuple(cast("Sequence[str]", dispatch.unit_ids))
-        effect = _Effect(
-            "start-execution",
-            _start_request(holder, units),
-            _digest(record.machine_arn), len(units), self._binding_item(holder),
-        )
-        self._admit(record, effect, now)
+        self._admit(record, dispatch_effect(self._binding, record, holder, units), now)
         return ModeCanaryGrant(record.promotion_id)
 
     def admit_effect(
@@ -240,11 +195,8 @@ class ModeCanaryContext:
         Raises: SyntheticContextRequired: Tipo fora do enum, contexto inválido, selado, vencido
             ou orçamento esgotado.
         """
-        if kind not in _KINDS:
-            raise _refuse("effect_kind_invalid")
-        record = self._record()
-        self._admit(record, _Effect(kind, request_sha256, target_sha256, 1, None), now)
-        return _effect_id(self._binding.record_sha256, kind, request_sha256)
+        effect = ledger_effect(kind, request_sha256, target_sha256)
+        return self._admit(self._record(), effect, now)
 
     def runtime_bounds(self) -> RuntimeBounds:
         """Returns: Menor prazo entre record e control e o fault do record.
@@ -252,208 +204,105 @@ class ModeCanaryContext:
         Raises: SyntheticContextRequired: Record ou control ausente, divergente ou selado.
         """
         record = self._record()
-        _, control = self._control(record)
+        control = self._control(record)
         deadline = min(record.expires_at, record.canary_deadline, control.deadline)
         return RuntimeBounds(deadline, record.fault)
 
     def require_live(self, effect_id: str, now: datetime) -> None:
         """Raises: SyntheticContextRequired: Control selado/vencido ou ticket não pendente."""
         record = self._record()
-        _, control = self._control(record)
+        control = self._control(record)
         ticket = self._ticket(effect_id)
         if ticket is None:
-            raise _refuse("ticket_missing")
+            raise refuse("ticket_missing")
         if ticket.state != "PENDING":
-            raise _refuse(f"ticket_{ticket.state.lower()}")
+            raise refuse(f"ticket_{ticket.state.lower()}")
         if now >= min(ticket.deadline, control.deadline, record.canary_deadline):
-            raise _refuse("context_expired")
+            raise refuse("context_expired")
 
     def settle(self, effect_id: str, receipt_sha256: str) -> None:
         """Liquida o ticket com o recibo original; permitido depois do seal.
 
         Raises: SyntheticContextRequired: Ticket ausente ou já liquidado com outro recibo.
         """
-        self._transition(effect_id, "SETTLED", receipt_sha256)
+        self._transition(effect_id, ("SETTLED", receipt_sha256))
 
     def mark_unknown(self, effect_id: str) -> None:
         """Raises: SyntheticContextRequired: Ticket ausente ou já liquidado."""
-        self._transition(effect_id, "UNKNOWN", None)
+        self._transition(effect_id, ("UNKNOWN", None))
 
     def seal(self, now: datetime) -> None:
         """Sela a admissão ACTIVE→SEALED por CAS, insistindo contra admissões concorrentes.
 
         Raises: SyntheticContextRequired: Control ausente, inválido ou de outro owner.
         """
-        sort_key = f"PROD_CANARY_CONTROL#{self._binding.owner_sha256}"
+        sort_key = control_key(self._binding.owner_sha256)
         for _ in range(_SEAL_ATTEMPTS):
             text = self._store.payload(sort_key)
             if text is None:
-                raise _refuse("control_missing")
-            control = _parse_control(text)
+                raise refuse("control_missing")
+            control = parse_control(text)
             if control.owner_sha256 != self._binding.owner_sha256:
-                raise _refuse("control_mismatch")
+                raise refuse("control_mismatch")
             if control.admission_state == "SEALED":
                 return
-            sealed = _mapping(text, "control") | {"admission_state": "SEALED",
-                                                  "sealed_at": _stamp(now)}
-            item = self._store.item(sort_key, "MODECANARYCONTROL", canonical_text(sealed))
-            if self._store.cas(item, text):
+            sealed = parse_mapping(text, "control") | {"admission_state": "SEALED",
+                                                      "sealed_at": stamp(now)}
+            if self._store.write(self._store.control_put(sort_key, canonical_text(sealed), text)):
                 return
-        raise _refuse("ledger_contended")
-
-    def _binding_item(self, holder: PermitHolder) -> dict[str, Any]:
-        return {
-            "schema": "cnesdata.mode-canary-binding/v1", "tenant_id": holder.tenant_id,
-            "run_id": holder.run_id, "dispatch_id": holder.dispatch_id,
-            "owner_sha256": self._binding.owner_sha256,
-            "record_sha256": self._binding.record_sha256, "phase": self._binding.phase,
-            "context_kind": self._binding.context_kind,
-        }
-
-    def _ticket_key(self, effect_id: str) -> str:
-        return f"PROD_CANARY_EFFECT#{self._binding.owner_sha256}#{effect_id}"
+        raise refuse("ledger_contended")
 
     def _ticket_text(self, effect_id: str) -> str | None:
-        return self._store.payload(self._ticket_key(effect_id))
+        return self._store.payload(ticket_key(self._binding.owner_sha256, effect_id))
 
     def _ticket(self, effect_id: str) -> SyntheticEffectTicket | None:
         text = self._ticket_text(effect_id)
-        if text is None:
-            return None
-        try:
-            return SyntheticEffectTicket.from_mapping(_mapping(text, "ticket"))
-        except ValueError as error:
-            if isinstance(error, SyntheticContextRequired):
-                raise
-            raise _refuse("ticket_invalid") from error
+        return None if text is None else parse_ticket(text)
 
-    def _transition(self, effect_id: str, state: str, receipt: str | None) -> None:
-        for _ in range(_ATTEMPTS):
-            text = self._ticket_text(effect_id)
-            ticket = self._ticket(effect_id)
-            if text is None or ticket is None:
-                raise _refuse("ticket_missing")
-            if ticket.state == state and ticket.receipt_sha256 == receipt:
+    def _transition(self, effect_id: str, change: tuple[str, str | None]) -> None:
+        for _ in range(ATTEMPTS):
+            ticket = (effect_id, self._ticket_text(effect_id))
+            request = transition(self._store.table, self._binding, ticket, change)
+            if request is None or self._store.write(request):
                 return
-            if ticket.state == "SETTLED":
-                raise _refuse("ticket_settled")
-            changed = _mapping(text, "ticket") | {"state": state, "receipt_sha256": receipt}
-            item = self._store.item(self._ticket_key(effect_id), "MODECANARYEFFECT",
-                                    canonical_text(changed))
-            if self._store.cas(item, text):
-                return
-        raise _refuse("ledger_contended")
+        raise refuse("ledger_contended")
 
-    def _admit(self, record: ModeCanaryRecord, effect: _Effect, now: datetime) -> None:
-        effect_id = _effect_id(self._binding.record_sha256, effect.kind, effect.request_sha256)
-        for _ in range(_ATTEMPTS):
-            control_text, control = self._control(record)
-            deadline = min(record.expires_at, record.canary_deadline, control.deadline)
-            if now >= deadline:
-                raise _refuse("context_expired")
-            existing = self._ticket(effect_id)
-            if existing is not None:
-                self._check_reentry(existing, effect)
-                return
-            ticket = canonical_text(self._new_ticket(effect_id, effect, control, (now, deadline)))
-            if self._commit(control_text, ticket, effect, effect_id):
-                return
-        raise _refuse("ledger_contended")
-
-    @staticmethod
-    def _check_reentry(ticket: SyntheticEffectTicket, effect: _Effect) -> None:
-        if (ticket.effect_kind, ticket.request_sha256) != (effect.kind, effect.request_sha256):
-            raise _refuse("ticket_conflict")
-
-    def _new_ticket(
-        self, effect_id: str, effect: _Effect, control: ModeCanaryControl,
-        window: tuple[datetime, datetime],
-    ) -> dict[str, Any]:
-        return {
-            "schema": "cnesdata.mode-canary-effect/v1", "effect_id": effect_id,
-            "owner_sha256": control.owner_sha256, "generation": control.generation,
-            "context_manifest_sha256": control.context_manifest_sha256,
-            "phase_record_sha256": self._binding.record_sha256, "effect_kind": effect.kind,
-            "request_sha256": effect.request_sha256, "target_sha256": effect.target_sha256,
-            "admitted_at": _stamp(window[0]), "deadline": _stamp(window[1]),
-            "state": "PENDING", "receipt_sha256": None,
-        }
-
-    def _commit(self, control_text: str, ticket: str, effect: _Effect, effect_id: str) -> bool:
-        control = _mapping(control_text, "control")
-        counter = _COUNTERS.get(effect.kind)
-        if counter is not None:
-            total = control["admitted_counts"][counter] + effect.amount
-            if total > _CEILINGS[control["context_kind"]][counter]:
-                raise _refuse("budget_exhausted")
-            control["admitted_counts"] = control["admitted_counts"] | {counter: total}
-        control["ledger_sha256"] = _digest(canonical_text({
-            "previous_ledger_sha256": control["ledger_sha256"], "ticket_sha256": _digest(ticket),
-        }))
-        store = self._store
-        control_key = f"PROD_CANARY_CONTROL#{self._binding.owner_sha256}"
-        items = [
-            _put(store.table, store.item(self._ticket_key(effect_id), "MODECANARYEFFECT", ticket),
-                 "attribute_not_exists(pk)", None),
-            _put(store.table, store.item(control_key, "MODECANARYCONTROL",
-                                         canonical_text(control)),
-                 "payload = :old", {":old": {"S": control_text}}),
-        ]
-        if effect.binding_item is not None:
-            items.append(_put(store.table, self._binding_put(effect.binding_item),
-                              "attribute_not_exists(pk)", None))
-        try:
-            store.client.transact_write_items(TransactItems=items)
-        except ClientError as error:
-            if not _cancelled(error):
-                raise
-            return False
-        return True
-
-    def _binding_put(self, binding: dict[str, Any]) -> dict[str, str]:
-        return {
-            "pk": run_partition(binding["tenant_id"], binding["run_id"]),
-            "sk": f"PROD_CANARY#{binding['dispatch_id']}", "entity": "MODECANARYBINDING",
-            "payload": canonical_text(binding),
-        }
+    def _admit(self, record: ModeCanaryRecord, effect: Effect, now: datetime) -> str:
+        identifier = effect_id(self._binding.record_sha256, effect.kind, effect.request_sha256)
+        owner = self._binding.owner_sha256
+        for _ in range(ATTEMPTS):
+            control = self._store.payload(control_key(owner))
+            require_control(control, record)
+            state = LedgerState(self._binding, record, control, self._ticket_text(identifier))
+            plan = admission(self._store.table, state, effect, now)
+            if plan.items is None or self._store.transact(plan.items):
+                return plan.effect_id
+        raise refuse("ledger_contended")
 
     def _record(self) -> ModeCanaryRecord:
         binding = self._binding
-        text = self._store.payload(f"PROD_CANARY#{binding.owner_sha256}#{binding.phase}")
+        text = self._store.payload(record_key(binding.owner_sha256, binding.phase))
         if text is None:
-            raise _refuse("record_missing")
-        if _digest(text) != binding.record_sha256:
-            raise _refuse("record_hash_mismatch")
-        mapping = _mapping(text, "record")
+            raise refuse("record_missing")
+        if digest(text) != binding.record_sha256:
+            raise refuse("record_hash_mismatch")
+        mapping = parse_mapping(text, "record")
         try:
             record = ModeCanaryRecord.from_mapping(mapping)
         except ValueError as error:
-            raise _refuse("record_invalid") from error
+            raise refuse("record_invalid") from error
         if (
             record.owner_sha256 != binding.owner_sha256
             or record.phase != binding.phase
             or record.context_kind != binding.context_kind
-            or binding.tenant_id != f"{_TENANT_PREFIX}{record.canary_id}"
+            or binding.tenant_id != f"{TENANT_PREFIX}{record.canary_id}"
         ):
-            raise _refuse("record_mismatch")
+            raise refuse("record_mismatch")
         return record
 
-    def _control(self, record: ModeCanaryRecord) -> tuple[str, ModeCanaryControl]:
-        text = self._store.payload(f"PROD_CANARY_CONTROL#{self._binding.owner_sha256}")
-        if text is None:
-            raise _refuse("control_missing")
-        control = _parse_control(text)
-        generation = record.promotion_generation
-        if (
-            control.owner_sha256 != record.owner_sha256
-            or control.context_kind != record.context_kind
-            or control.context_manifest_sha256 != record.context_manifest_sha256
-            or (generation is not None and control.generation != generation)
-        ):
-            raise _refuse("control_mismatch")
-        if control.admission_state != "ACTIVE":
-            raise _refuse("control_sealed")
-        return text, control
+    def _control(self, record: ModeCanaryRecord) -> ModeCanaryControl:
+        return require_control(self._store.payload(control_key(self._binding.owner_sha256)),
+                               record)
 
 
 __all__ = [
@@ -463,5 +312,6 @@ __all__ = [
     "RuntimeBounds",
     "canonical_text",
     "initialize_control",
+    "require_seeded_control",
     "start_effect_id",
 ]

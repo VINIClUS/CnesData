@@ -26,6 +26,7 @@ OBSERVES = {"unit-observe": "unit", "recovery-observe": "phase-c-recovery",
 SCHEDULED = frozenset({"activation", "network", "close-drain", "phase-b", "phase-c",
                        "mode-result", "readbacks"})
 FIELDS = {"version", "kind", "accepted", "checks", "commitments"}
+PROMOTION_ID = OWNER["owner_sha256"]
 
 
 class GateContext(Context):
@@ -45,9 +46,16 @@ def _stage(name: str) -> dict[str, Any]:
                   "admitted_at": now - 5, "deadline": now + 600}
 
 
+def _owner(close: dict[str, Any]) -> dict[str, Any]:
+    common = close["common"]
+    return OWNER | {"owner_sha256": common["promotion_id"],
+                    "generation": common["promotion_generation"]}
+
+
 def _request(op: Any, name: str, inputs: dict[str, bytes]) -> dict[str, Any]:
     return {"abi_version": 3, "operation": name, "repository": OWNER["repository"],
-            "source_sha": SHA, "owner": OWNER, "checkpoint_sha256": API["checkpoint_sha256"],
+            "source_sha": SHA, "owner": _owner(op.close),
+            "checkpoint_sha256": API["checkpoint_sha256"],
             "activation_sha256": sha(op.context.activation), "stage": _stage(OBSERVES[name]),
             "inputs": {key: {"sha256": sha(raw), "size": len(raw)}
                        for key, raw in sorted(inputs.items())}}
@@ -102,6 +110,7 @@ def _unit(op: Any, revision: str | None = None) -> dict[str, bytes]:
         "unit", activation_sha256=ctx.activation_sha256, machine_arn=op.context.machine["arn"],
         revisions=dict(ctx.revisions) | {"unit": unit},
         promotion_generation=common["promotion_generation"],
+        owner_sha256=common["promotion_id"], promotion_id=common["promotion_id"],
         **dict.fromkeys(pc.DEADLINES, fixed), **{key: op.context.canary[key] for key in (
             "candidate_sha256", "source_sha", "release_id", "canary_id")}))
     run = _unit_observed(op, unit)
@@ -120,15 +129,18 @@ def _unit(op: Any, revision: str | None = None) -> dict[str, bytes]:
 def _closed(record: dict[str, Any], inputs: dict[str, bytes], kind: str) -> None:
     assert set(record) == FIELDS
     assert (record["version"], record["kind"]) == (1, kind)
-    expected = {"owner": OWNER["owner_sha256"]} | {name: sha(raw) for name, raw in inputs.items()}
+    owner = _owner(json.loads(inputs["close-drain"]))["owner_sha256"]
+    expected = {"owner": owner} | {name: sha(raw) for name, raw in inputs.items()}
     assert record["commitments"] == expected
 
 
 def test_tabela_de_modo_separa_observe_dos_efeitos() -> None:
-    assert set(promote_api.MODE_INPUTS) == set(OBSERVES) | set(EFFECTS)
+    records = {"unit-record", "recovery-record", "audit-record"}
+    assert set(promote_api.MODE_INPUTS) == set(OBSERVES) | set(EFFECTS) | records
     assert {promote_api.MODE_OBSERVATIONS[name] for name in OBSERVES} == {"mode"}
     assert {promote_api.MODE_OBSERVATIONS[name] for name in EFFECTS} == {"mode-seed",
                                                                          "mode-result"}
+    assert {promote_api.MODE_OBSERVATIONS[name] for name in records} == {"mode-record"}
     assert {name: promote_api.MODE_OPERATIONS[name][1] for name in OBSERVES} == OBSERVES
     assert promote_api.MODE_INPUTS["recovery-observe"] == SCHEDULED
     assert promote_api.MODE_INPUTS["audit-observe"] == SCHEDULED | {"recovery-result",
@@ -319,6 +331,30 @@ def test_audit_observe_reprova_quando_o_recovery_anterior_nao_reaceita(phase_c: 
 def test_unit_observe_recusa_record_de_outra_revisao_unit(phase_c: Any) -> None:
     other = phase_c.ctx.revisions["unit"].rsplit(":", 1)[0] + ":99"
     _refused(phase_c, "unit-observe", _unit(phase_c, other), "mode=record_binding")
+
+
+@pytest.mark.parametrize("campo", ["promotion_id", "promotion_generation", "caller"])
+def test_unit_observe_recusa_close_drain_de_outro_owner_da_mesma_activation(
+        phase_c: Any, campo: str) -> None:
+    common = phase_c.close["common"]
+    foreign = {"promotion_id": "8" * 64, "promotion_generation": common["promotion_generation"],
+               "caller": common["caller"] | {"run_id": 456}}
+    inputs = _unit(phase_c)
+    if campo == "promotion_generation":
+        inputs["record"] = canonical(json.loads(inputs["record"]) | {"promotion_generation": 8})
+        foreign["promotion_generation"] = 8
+    close = phase_c.close | {"common": common | {campo: foreign[campo]}}
+    inputs["close-drain"] = canonical(close)
+    _refused(phase_c, "unit-observe", inputs, "mode=record_binding")
+
+
+@pytest.mark.parametrize(("campo", "valor"), [
+    ("owner_sha256", "8" * 64), ("promotion_id", "8" * 64), ("promotion_generation", 8)],
+    ids=["owner_sha256", "promotion_id", "promotion_generation"])
+def test_unit_observe_recusa_record_de_outro_owner(phase_c: Any, campo: str, valor: Any) -> None:
+    inputs = _unit(phase_c)
+    inputs["record"] = canonical(json.loads(inputs["record"]) | {campo: valor})
+    _refused(phase_c, "unit-observe", inputs, "^mode=record_binding$")
 
 
 @pytest.mark.parametrize("name", ["unit-observe", "recovery-observe", "audit-observe"])

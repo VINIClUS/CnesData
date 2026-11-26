@@ -8,6 +8,8 @@ from datetime import UTC, datetime
 from io import BytesIO
 from typing import TYPE_CHECKING, Any, Final, cast
 
+from cnes_infra.aws.mode_canary import initialize_control, require_seeded_control
+from cnes_infra.aws.mode_canary_frames import initial_control, record_item
 from scripts.promotion._adapter_abi import (
     MODE_EFFECT_CALLS,
     MODE_EFFECT_METHODS,
@@ -31,10 +33,11 @@ from scripts.promotion.mode_canary_seed import (
     SEED_SCHEMA,
     SeedBinding,
     SeedClients,
+    _put_item,
     build_mode_seed,
     execute_mode_seed,
 )
-from scripts.promotion.promote_close import TABLE
+from scripts.promotion.promote_close import TABLE, owner_identity
 from scripts.promotion.promote_mode import _mapping
 
 if TYPE_CHECKING:
@@ -195,7 +198,13 @@ def _seed(name: str, request: Mapping[str, Any], inputs: Mapping[str, bytes],
                           _instant(start["started_at"]), BUCKET)
     seed = build_mode_seed(binding, _fixtures(inputs))
     channel = _SeedChannel(calls)
+    if record.mode == "recovery":
+        require_seeded_control(channel, TABLE, record)
     execute_mode_seed(seed, SeedClients(channel, channel), TABLE)
+    _put_item(channel, TABLE, record_item(record, inputs["record"].decode()))
+    if record.mode == "unit":
+        control = initial_control(record, _instant(start["started_at"]))
+        initialize_control(channel, TABLE, binding.tenant_id, control)
     return seed.manifest
 
 
@@ -220,8 +229,11 @@ def _start(name: str, request: Mapping[str, Any], inputs: Mapping[str, bytes],
 def _bound(name: str, request: Mapping[str, Any],
            inputs: Mapping[str, bytes]) -> tuple[ModeCanaryRecord, str, Node]:
     record, record_sha = _record({"record": inputs["record"]}, MODE_OPERATIONS[name][0])
-    if (record.activation_sha256, record.owner_sha256) != (
-        request["activation_sha256"], request["owner"]["owner_sha256"]
+    identity = owner_identity(request)
+    if (record.activation_sha256, record.owner_sha256, record.promotion_id,
+            record.promotion_generation) != (
+        request["activation_sha256"], request["owner"]["owner_sha256"],
+        identity["promotion_id"], identity["promotion_generation"],
     ):
         raise ValueError("mode=record_binding")
     start = versioned(inputs["mode-start"], "mode-start", _START_FIELDS, "mode")
