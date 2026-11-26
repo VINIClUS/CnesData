@@ -216,18 +216,18 @@ def _synthetic(dispatch: dict[str, Any]) -> dict[str, tuple[Any, Any]]:
 
 
 def _readbacks() -> dict[str, Any]:
-    target = {"Target": {"Arn": CLUSTER}}
+    unit = {"taskDefinitionArn": REVISIONS["unit"], "containerDefinitions": [{"name": "processor"}]}
     return {"state_machine": {"stateMachineArn": MACHINE, "definition": rendered_definition()},
-            "schedules": {"recovery": target, "audit": target}}
+            "task_definitions": {"unit": {"taskDefinition": unit}}}
 
 
-def child_pending(observed: dict[str, Any]) -> list[str]:
-    """Returns: Pending do filho do unit-start sobre o observado montado pelo keeper."""
+def child_pending(observed: dict[str, Any], readbacks: dict[str, Any]) -> list[str]:
+    """Returns: Pending do filho do unit-start sobre o observado e o ModeReadback do keeper."""
     record = _record("unit", machine_arn=MACHINE, revisions=REVISIONS,
                      canary_id=dispatch_contract.TENANT.removeprefix("prod-canary-"),
                      owner_sha256=dispatch_contract.OWNER, run_ids=[dispatch_contract.RUN])
-    originals = {"record": canonical_text(record).encode(), "readbacks": _readbacks(),
-                 "readbacks_after": _readbacks(), "previous": None, "frozen": False,
+    originals = {"record": canonical_text(record).encode(), "readbacks": readbacks,
+                 "readbacks_after": readbacks, "previous": None, "frozen": False,
                  "seed_sha256": "5" * 64, "started_at": "2026-11-13T12:01:00Z"}
     result = execute_mode_canary("unit", originals, _Context({"unit": observed}))
     return json.loads(result)["pending"]
@@ -253,7 +253,7 @@ def _case(section: dict[str, Any], name: str, execution: Any, described: Any) ->
             "task_arns": list(arns),
             "describe_request": describe_tasks_request(section["cluster_arn"], arns)
             if arns else None}
-    return case | {"pending": child_pending(keeper_observed(section, case))}
+    return case | {"pending": child_pending(keeper_observed(section, case), section["readbacks"])}
 
 
 def product_unit_observe() -> dict[str, Any]:
@@ -264,7 +264,7 @@ def product_unit_observe() -> dict[str, Any]:
     section = {"table": dispatch_contract.TABLE, "machine_arn": MACHINE, "cluster_arn": CLUSTER,
                "revision": REVISIONS["unit"], "definition": rendered_definition(),
                "dispatch": dispatch, "execution_request": sfn.calls[0], "output_reads": reads,
-               "unit_items": items}
+               "unit_items": items, "readbacks": _readbacks()}
     section["outputs"] = unit_outputs(dispatch["tenant_id"], dispatch["run_id"],
                                       dispatch["unit_ids"], items)
     section["cases"] = [_case(section, name, execution, described)
@@ -310,6 +310,16 @@ def test_cluster_da_maquina_renderizada_do_template_e_o_do_alvo() -> None:
     assert SECTION["definition"] == rendered_definition()
 
 
+def test_readbacks_da_secao_sao_o_conjunto_unit_do_keeper_sem_schedules() -> None:
+    readbacks = SECTION["readbacks"]
+    assert set(readbacks) == {"state_machine", "task_definitions"}
+    assert set(readbacks["task_definitions"]) == {"unit"}
+    assert readbacks["state_machine"] == {"stateMachineArn": MACHINE,
+                                          "definition": SECTION["definition"]}
+    assert readbacks["task_definitions"]["unit"]["taskDefinition"]["taskDefinitionArn"] == (
+        SECTION["revision"])
+
+
 def test_respostas_sinteticas_rotuladas_sobre_os_campos_do_produto() -> None:
     assert set(CASES) == set(EXPECTED)
     dispatch = SECTION["dispatch"]
@@ -328,4 +338,5 @@ def test_construtores_e_filho_reproduzem_o_caso(name: str) -> None:
     assert list(arns) == case["task_arns"]
     if arns:
         assert describe_tasks_request(SECTION["cluster_arn"], arns) == case["describe_request"]
-    assert child_pending(keeper_observed(SECTION, case)) == case["pending"] == EXPECTED[name]
+    assert child_pending(keeper_observed(SECTION, case), SECTION["readbacks"]) == case[
+        "pending"] == EXPECTED[name]

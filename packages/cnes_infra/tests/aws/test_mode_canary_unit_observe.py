@@ -82,6 +82,7 @@ def test_request_da_execucao_e_o_arn_exato_do_dispatch() -> None:
 @pytest.mark.parametrize(("machine", "dispatch", "reason"), [
     (MACHINE, DISPATCH.upper(), "unit_dispatch_id"),
     (MACHINE, DISPATCH[:-1], "unit_dispatch_id"),
+    (MACHINE, DISPATCH + "0", "unit_dispatch_id"),
     (f"{ACCOUNT}:cluster/cnesdata-prod", DISPATCH, "unit_machine"),
     (f"{MACHINE}:v1", DISPATCH, "unit_machine"),
 ])

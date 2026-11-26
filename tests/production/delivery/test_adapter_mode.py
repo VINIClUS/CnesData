@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -18,6 +18,9 @@ from tests.production.delivery import test_mode_canary_unit as mu
 from tests.production.delivery import test_phase_c as pc
 from tests.production.delivery.test_adapter_handlers import API, OWNER, SHA
 from tests.production.delivery.test_promote_close import Context, Probe, canonical, sha
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 phase_c, operation, activation = pc.phase_c, pc.operation, pc.activation
 case, ddb, github = pc.case, pc.ddb, pc.github
@@ -102,7 +105,8 @@ def _unit_observed(op: Any, revision: str | None = None, run: str = mu._RUN) -> 
         "tenant": f"prod-canary-{op.context.canary['canary_id']}"})
 
 
-def _unit(op: Any, revision: str | None = None) -> dict[str, bytes]:
+def _unit(op: Any, revision: str | None = None,
+          shape: Callable[[dict[str, Any]], dict[str, Any]] = dict) -> dict[str, bytes]:
     ctx, common = op.ctx, op.close["common"]
     unit = revision or ctx.revisions["unit"]
     fixed = pc._instant(op.close["fixed_deadline"]).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -116,7 +120,7 @@ def _unit(op: Any, revision: str | None = None) -> dict[str, bytes]:
     run = _unit_observed(op, unit)
     calls = mc._Context({"unit": run})
     calls.now = lambda: datetime.now(UTC)
-    readbacks = pc._readbacks(ctx)
+    readbacks = shape(pc._readbacks(ctx))
     machine = readbacks["state_machine"]
     machine["definition"] = machine["definition"].replace(ctx.revisions["unit"], unit)
     raw = mc.execute_mode_canary("unit", mc._originals(
@@ -211,6 +215,24 @@ def test_unit_observe_aceita_execucao_e_task_concluidas(phase_c: Any) -> None:
     record = _observe(phase_c, "unit-observe", inputs)
     _closed(record, inputs, "unit")
     assert (record["accepted"], record["checks"]) == (True, [])
+
+
+def test_unit_observe_aceita_sobre_o_readback_unit_real_do_keeper(phase_c: Any) -> None:
+    inputs = _unit(phase_c, shape=mu.keeper_readbacks)
+    assert set(json.loads(inputs["readbacks"])) == {"state_machine", "task_definitions"}
+    record = _observe(phase_c, "unit-observe", inputs)
+    assert (record["accepted"], record["checks"]) == (True, [])
+
+
+def test_unit_observe_reprova_maquina_sem_cluster_unico(phase_c: Any) -> None:
+    inputs = _unit(phase_c, shape=mu.keeper_readbacks)
+    readbacks = json.loads(inputs["readbacks"])
+    machine = readbacks["state_machine"]
+    machine["definition"] = machine["definition"].replace('"Cluster"', '"ClusterName"')
+    inputs["readbacks"] = canonical(readbacks)
+    record = _observe(phase_c, "unit-observe", inputs)
+    assert (record["accepted"], record["checks"]) == (
+        False, ["canary=routing", "reason=invalid field=cluster.unit"])
 
 
 def test_unit_observe_reprova_pelas_checagens_do_unit(phase_c: Any) -> None:

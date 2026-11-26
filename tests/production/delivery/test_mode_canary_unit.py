@@ -47,6 +47,11 @@ def _overrides(unit_id: str, name: str = "processor", **changes: str) -> dict[st
     return {"containerOverrides": [{"name": name, "environment": _environment(unit_id, **changes)}]}
 
 
+def _repeated(name: str, first: str, last: str) -> dict[str, Any]:
+    environment = [*_environment("u1", **{name: first}), {"name": name, "value": last}]
+    return {"containerOverrides": [{"name": "processor", "environment": environment}]}
+
+
 def _task(unit_id: str, arn: str | None = None, **changes: Any) -> dict[str, Any]:
     return {"taskArn": arn or _TASKS[unit_id], "clusterArn": _CLUSTER, "lastStatus": "STOPPED",
             "taskDefinitionArn": _REV["unit"],
@@ -141,6 +146,10 @@ _TASK_CASES: dict[str, tuple[dict[str, Any], list[str]]] = {
         {"name": "processor", "environment": [*_environment("u1"),
                                               {"name": "UNIT_ID", "value": "u2"}]}]}),
                               ["unit_task_unbound"]),
+    "env-repetido-com-o-ultimo-certo": (_first_task(overrides=_repeated(
+        "UNIT_ID", "u9", "u1")), ["unit_task_unbound"]),
+    "owner-repetido-com-o-ultimo-certo": (_first_task(overrides=_repeated(
+        "EXECUTION_OWNER", _EXECUTION + "0", _EXECUTION)), ["unit_task_unbound"]),
     "sem-overrides": (_first_task(overrides={}), ["unit_task_unbound"]),
     "duas-tasks-um-unit": (_observed(
         tasks=[_task("u1"), _task("u1", _TASKS["bis"]), _task("u2")],
@@ -154,6 +163,9 @@ _TASK_CASES: dict[str, tuple[dict[str, Any], list[str]]] = {
         {"arn": _TASKS[u], "reason": "MISSING"} for u in _UNITS]), ["unit_task_missing"]),
     "falha-de-outro-motivo": (_observed(tasks=[_task("u2")], failures=[
         {"arn": _TASKS["u1"], "reason": "ACCESS_DENIED"}]), ["unit_task_unbound"]),
+    "missing-misturado-com-outro-motivo": (_observed(tasks=[], failures=[
+        {"arn": _TASKS["u1"], "reason": "MISSING"},
+        {"arn": _TASKS["u2"], "reason": "ACCESS_DENIED"}]), ["unit_task_unbound"]),
     "missing-fora-do-scan": (_observed(failures=[{"arn": _TASKS["bis"], "reason": "MISSING"}]),
                              ["unit_task_unbound"]),
     "running": (_first_task(lastStatus="RUNNING"), ["unit_task_not_stopped"]),
@@ -190,6 +202,9 @@ _EXECUTION_CASES: dict[str, tuple[dict[str, Any], list[str]]] = {
     "dispatch-invalido": (_execution(input=_input(dispatch_id="XYZ"), name="XYZ",
                                      executionArn=_EXECUTION.replace(_DISPATCH, "XYZ")),
                           _BROKEN_INPUT),
+    "dispatch-de-17-caracteres": (_execution(input=_input(dispatch_id=_DISPATCH + "0"),
+                                             name=_DISPATCH + "0",
+                                             executionArn=_EXECUTION + "0"), _BROKEN_INPUT),
     "execucao-failed": (_execution(status="FAILED"),
                         ["unit_execution_not_succeeded", "unit_task_unbound"]),
     "maquina-diverge": (_execution(stateMachineArn=_MACHINE + "-clone"),
@@ -201,6 +216,8 @@ _OUTPUT_CASES: dict[str, tuple[dict[str, Any], list[str]]] = {
     "output-de-outro-dispatch": (_first_output(dispatch_id="0" * 16), ["unit_output_invalid"]),
     "output-nao-succeeded": (_first_output(state="RUNNING"), ["unit_output_invalid"]),
     "output-attempt-zero": (_first_output(attempt=0), ["unit_output_invalid"]),
+    "output-attempt-zero-com-chave-zero": (_first_output(attempt=0, output_manifests=_key(0)),
+                                           ["unit_output_invalid"]),
     "output-attempt-bool": (_first_output(attempt=True), ["unit_output_invalid"]),
     "output-sem-manifest": (_first_output(output_manifests=[]), ["unit_output_invalid"]),
     "manifest-de-outro-attempt": (_first_output(output_manifests=_key(2)),
@@ -264,32 +281,46 @@ def test_unit_fica_pendente_com_o_output_divergente(name: str) -> None:
     assert len(result["output_receipts"]) == len(observed["outputs"])
 
 
-def _cluster_diverge() -> dict[str, Any]:
-    readbacks = _readbacks()
-    readbacks["schedules"]["recovery"]["Target"]["Arn"] = f"{_ACCOUNT}:cluster/outro"
-    return readbacks
+def keeper_readbacks(readbacks: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Returns: ModeReadback unit do keeper: só `state_machine` e `task_definitions.unit`."""
+    full = readbacks or _readbacks()
+    return {"state_machine": full["state_machine"],
+            "task_definitions": {"unit": full["task_definitions"]["unit"]}}
 
 
-def _schedule_absent() -> dict[str, Any]:
-    readbacks = _readbacks()
-    del readbacks["schedules"]["audit"]
-    return readbacks
-
-
-def _two_clusters() -> dict[str, Any]:
-    readbacks = _readbacks()
+def _definition(change: Any) -> dict[str, Any]:
+    readbacks = keeper_readbacks()
     definition = json.loads(readbacks["state_machine"]["definition"])
-    definition["States"]["Outro"] = {"Parameters": {"Cluster": f"{_ACCOUNT}:cluster/outro"}}
+    change(definition, definition["States"]["Units"]["ItemProcessor"]["States"]["Run"])
     readbacks["state_machine"]["definition"] = json.dumps(definition)
     return readbacks
 
 
-@pytest.mark.parametrize("readbacks", [_cluster_diverge, _schedule_absent, _two_clusters],
-                         ids=["cluster-do-schedule-diverge", "schedule-ausente", "dois-clusters"])
-def test_unit_fica_pendente_sem_cluster_unico_igual_ao_dos_schedules(readbacks: Any) -> None:
-    built = readbacks()
-    result = _result(_observed(), readbacks=built, readbacks_after=built)
-    assert result["pending"] == ["unit_task_unbound"]
+_NO_CLUSTER = {
+    "dois-clusters": lambda asl, run: asl["States"].update(
+        {"Outro": {"Parameters": {"Cluster": f"{_ACCOUNT}:cluster/outro"}}}),
+    "sem-cluster": lambda asl, run: run["Parameters"].pop("Cluster"),
+    "cluster-sem-marcador": lambda asl, run: run["Parameters"].update(Cluster="cnesdata-prod"),
+    "cluster-nao-texto": lambda asl, run: run["Parameters"].update(Cluster=[_CLUSTER]),
+}
+
+
+def test_unit_aceita_sobre_o_readback_unit_real_do_keeper() -> None:
+    readbacks = keeper_readbacks()
+    context = _Context({"unit": _observed()})
+    result = json.loads(execute_mode_canary("unit", _originals(
+        "unit", readbacks=readbacks, readbacks_after=readbacks), context))
+    assert (result["pending"], result["unknown"], len(context.units)) == ([], [], 1)
+
+
+@pytest.mark.parametrize("name", list(_NO_CLUSTER))
+def test_unit_sem_cluster_unico_na_maquina_recusa_antes_do_dispatch(name: str) -> None:
+    readbacks = _definition(_NO_CLUSTER[name])
+    blocked = _Context({"unit": _observed()})
+    with pytest.raises(ContractError, match=r"^reason=invalid field=cluster\.unit$"):
+        execute_mode_canary("unit", _originals(
+            "unit", readbacks=readbacks, readbacks_after=readbacks), blocked)
+    assert blocked.units == []
 
 
 @pytest.mark.parametrize("observed", [
@@ -298,8 +329,14 @@ def test_unit_fica_pendente_sem_cluster_unico_igual_ao_dos_schedules(readbacks: 
     [],
     _observed(failures=[{"arn": _TASKS["u1"], "at": datetime(2026, 11, 13, tzinfo=UTC)}]),
     _execution(startDate=datetime(2026, 11, 13, tzinfo=UTC)),
+    _observed(tasks=[_task("u1"), "u2"]),
+    _observed(failures=[{"arn": _TASKS["u1"], "reason": "MISSING"}, None]),
+    _observed(outputs=[_output("u1"), ["u2"]]),
+    _observed(tasks=[{**_task("u1"), 1: "x"}, _task("u2")]),
+    _observed(failures=[{"arn": _TASKS["u1"], "reason": "MISSING", 1: "x"}]),
 ], ids=["sem-failures", "chave-extra", "nao-objeto", "failure-nao-serializavel",
-        "execucao-nao-serializavel"])
+        "execucao-nao-serializavel", "task-nao-objeto", "failure-nao-objeto",
+        "output-nao-objeto", "task-com-chaves-mistas", "failure-com-chaves-mistas"])
 def test_unit_observado_fora_do_formato_vira_unknown(observed: Any) -> None:
     result = _result(observed)
     assert (result["pending"], result["unknown"]) == ([], ["unit_dispatch"])
