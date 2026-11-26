@@ -20,6 +20,7 @@ from scripts.promotion.mode_canary_contract import ContractError
 from scripts.promotion.mode_canary_seed import SeedBinding, build_mode_seed
 from scripts.promotion.promote_mode_effects import ModeCalls
 from tests.production.delivery import test_mode_canary as mc
+from tests.production.delivery import test_mode_canary_unit as mu
 from tests.production.delivery.test_adapter_handlers import API, SHA
 from tests.production.delivery.test_promote_close import OWNER, canonical, sha
 
@@ -167,8 +168,8 @@ def request(name: str, inputs: dict[str, bytes], late: bool = False) -> dict[str
 
 
 def keeper(mode: str, inputs: dict[str, bytes]) -> Keeper:
-    unit = {"execution": {"status": "SUCCEEDED", "stateMachineArn": mc._MACHINE},
-            "tasks": mc._stopped("unit")["tasks"], "outputs": [{"sha256": "6" * 64, "size": 10}]}
+    unit = mu.observed_for({"machine": mc._MACHINE, "cluster": mc._CLUSTER, "tenant": TENANT,
+                            "revision": mc._REV["unit"], "run": runs("unit")[0]})
     responses = {} if mode == "unit" else {"run_task": mc._launched(mode),
                                            "describe_tasks": mc._stopped(mode)}
     return Keeper(inputs, responses, unit, mc._readbacks())
@@ -313,7 +314,7 @@ def test_unit_start_despacha_pelo_keeper_com_o_locator_do_binding(
         TENANT, tuple(runs("unit")), OWNER_SHA)
     assert (binding.record_sha256, binding.phase) == (sha(context.inputs["record"]), "unit")
     assert [kind for kind, _ in context.observed] == [
-        "unit-execution", "unit-task", "unit-output", "mode-result"]
+        "unit-execution", "unit-task", "unit-task", "unit-output", "unit-output", "mode-result"]
     assert context.calls == []
 
 

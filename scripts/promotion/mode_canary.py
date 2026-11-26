@@ -9,11 +9,13 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Final, Protocol, cast
 
 from cnes_domain.orchestration.mode_canary import ModeCanaryBinding, ModeCanaryRecord
+from cnes_infra.aws.mode_canary_unit_observe import describe_tasks_request, unit_cluster
 from scripts.promotion.mode_canary_contract import (
     SESSION_OPERATIONS,
     ContractError,
     record_bytes,
 )
+from scripts.promotion.mode_canary_unit import OBSERVED_FIELDS, records, unit_pending
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -66,6 +68,18 @@ def _text(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n"
 
 
+def observed_shape(observed: Any) -> bool:
+    """Returns: Observado do dispatch_unit nos quatro campos fechados e serializável no recibo."""
+    if type(observed) is not dict or set(observed) != OBSERVED_FIELDS:
+        return False
+    try:
+        _text(observed)
+    except (TypeError, ValueError):
+        return False
+    return type(observed["execution"]) is dict and all(
+        records(observed[name]) for name in ("tasks", "failures", "outputs"))
+
+
 def _sha(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
@@ -103,7 +117,9 @@ def _unit_route(record: ModeCanaryRecord, readbacks: Node) -> ModeRoute:
     _require(machine["stateMachineArn"] == record.machine_arn, "machine_arn")
     targets = set(_task_definitions(json.loads(machine["definition"])))
     _require(targets == {record.revisions["unit"]}, "revisions.unit")
-    return ModeRoute("unit", record.machine_arn, record.revisions["unit"])
+    cluster = unit_cluster(machine["definition"])
+    _require(cluster is not None, "cluster.unit")
+    return ModeRoute("unit", record.machine_arn, record.revisions["unit"], cluster)
 
 
 def _network(configuration: Node) -> Node:
@@ -234,7 +250,7 @@ def _admit(context: ModeCanaryCalls, record: ModeCanaryRecord, request: Node,
 def _observe_task(context: ModeCanaryCalls, route: ModeRoute, task_arn: str,
                   fault: str) -> tuple[Node | None, str | None]:
     response = context.call(_LAUNCHERS[route.mode], "ecs:DescribeTasks",
-                            {"cluster": route.cluster_arn, "tasks": [task_arn]})
+                            describe_tasks_request(cast("str", route.cluster_arn), [task_arn]))
     tasks = response.get("tasks") or []
     if len(tasks) != 1 or tasks[0].get("lastStatus") != "STOPPED":
         return None, f"{route.mode}_task_not_stopped"
@@ -288,33 +304,23 @@ def _scheduled(context: ModeCanaryCalls, record: ModeCanaryRecord, record_sha: s
     return parts
 
 
-def _unit_checks(observed: Node, route: ModeRoute) -> set[str]:
-    pending: set[str] = set()
-    execution, tasks = observed["execution"], observed["tasks"]
-    if (execution.get("status"), execution.get("stateMachineArn")) != ("SUCCEEDED",
-                                                                       route.machine_arn):
-        pending.add("unit_execution_not_succeeded")
-    stopped = [task for task in tasks if task.get("lastStatus") == "STOPPED"
-               and task.get("taskDefinitionArn") == route.revision]
-    if not tasks or len(stopped) != len(tasks):
-        pending.add("unit_task_not_stopped")
-    if any(c.get("exitCode") != 0 for task in stopped for c in task.get("containers", [])):
-        pending.add("unit_task_failed")
-    if not observed["outputs"]:
-        pending.add("unit_output_missing")
-    return pending
+def unit_binding(record: ModeCanaryRecord, record_sha: str) -> ModeCanaryBinding:
+    """Returns: Binding do unit-start: tenant sintético, runs, owner e sha do record."""
+    return ModeCanaryBinding(f"prod-canary-{record.canary_id}", record.run_ids,
+                             record.owner_sha256, record_sha, "unit", record.context_kind)
 
 
 def _unit(context: ModeCanaryCalls, record: ModeCanaryRecord, record_sha: str,
           originals: Node) -> _Parts:
     route = route_from_readbacks(record, originals["readbacks"], "unit")
-    binding = ModeCanaryBinding(f"prod-canary-{record.canary_id}", record.run_ids,
-                                record.owner_sha256, record_sha, "unit", record.context_kind)
+    binding = unit_binding(record, record_sha)
     parts = _Parts(binding_sha256=_sha(_text({"record_sha256": record_sha,
                                                "run_ids": list(record.run_ids)})))
     try:
-        observed = context.dispatch_unit(binding)
+        observed: Any = context.dispatch_unit(binding)
     except Exception:
+        observed = None
+    if not observed_shape(observed):
         parts.unknown.add("unit_dispatch")
         return parts
     parts.executions.append(context.observe("unit-execution",
@@ -323,7 +329,7 @@ def _unit(context: ModeCanaryCalls, record: ModeCanaryRecord, record_sha: str,
                    for task in observed["tasks"]]
     parts.outputs = [context.observe("unit-output", _text(item).encode())
                      for item in observed["outputs"]]
-    parts.pending = _unit_checks(observed, route)
+    parts.pending = unit_pending(observed, route, binding)
     return parts
 
 
@@ -423,7 +429,9 @@ __all__ = [
     "ModeRoute",
     "client_token",
     "execute_mode_canary",
+    "observed_shape",
     "route_from_readbacks",
     "run_task_request",
+    "unit_binding",
     "validate_run_task_request",
 ]

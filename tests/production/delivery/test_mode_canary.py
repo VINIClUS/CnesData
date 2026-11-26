@@ -11,7 +11,6 @@ import pytest
 
 from cnes_infra.aws.mode_canary import canonical_text
 from scripts.promotion.mode_canary import (
-    RESULT_FIELDS,
     ModeCanaryDenied,
     client_token,
     execute_mode_canary,
@@ -69,7 +68,7 @@ def _task_definition(mode: str) -> dict[str, Any]:
 
 def _readbacks() -> dict[str, Any]:
     definition = {"States": {"Units": {"ItemProcessor": {"States": {"Run": {
-        "Parameters": {"TaskDefinition": _REV["unit"]}}}}}}}
+        "Parameters": {"Cluster": _CLUSTER, "TaskDefinition": _REV["unit"]}}}}}}}
     return {
         "state_machine": {"stateMachineArn": _MACHINE, "definition": json.dumps(definition)},
         "schedules": {m: _schedule(m) for m in ("recovery", "audit")},
@@ -143,27 +142,6 @@ def _route(mode: str) -> Any:
     from cnes_domain.orchestration.mode_canary import ModeCanaryRecord
 
     return route_from_readbacks(ModeCanaryRecord.from_mapping(_record(mode)), _readbacks(), mode)
-
-
-def test_unit_usa_maquina_prod_e_revision_pos_b() -> None:
-    unit = {"execution": {"status": "SUCCEEDED", "stateMachineArn": _MACHINE},
-            "tasks": _stopped("unit")["tasks"], "outputs": [{"sha256": "6" * 64, "size": 10}]}
-    context = _Context({"unit": unit})
-    result = json.loads(execute_mode_canary("unit", _originals("unit"), context))
-    assert context.units[0].run_ids == (f"unit-{_OWNER[:16]}",)
-    assert (result["pending"], result["unknown"]) == ([], [])
-    assert set(result) == set(RESULT_FIELDS)
-    readbacks = _readbacks()
-    readbacks["state_machine"]["stateMachineArn"] += "-clone"
-    with pytest.raises(ContractError):
-        execute_mode_canary("unit", _originals("unit", readbacks=readbacks), _Context())
-    other = _readbacks()
-    other["state_machine"]["definition"] = other["state_machine"]["definition"].replace(
-        ":17", ":16")
-    blocked = _Context({"unit": unit})
-    with pytest.raises(ContractError):
-        execute_mode_canary("unit", _originals("unit", readbacks=other), blocked)
-    assert blocked.units == []
 
 
 def test_recovery_usa_target_pos_c_sem_role_override() -> None:
@@ -259,23 +237,6 @@ def test_timeout_run_task_preserva_unknown_e_client_token() -> None:
     assert again.calls[0][2]["clientToken"] == lost.calls[0][2]["clientToken"]
     assert len(lost.calls[0][2]["clientToken"]) <= 64
     assert set(first["unknown"]) <= set(second["unknown"])
-
-
-def test_sfn_terminal_sem_task_stopped_nao_libera() -> None:
-    running = _stopped("unit")["tasks"]
-    running[0]["lastStatus"] = "DEPROVISIONING"
-    unit = {"execution": {"status": "SUCCEEDED", "stateMachineArn": _MACHINE},
-            "tasks": running, "outputs": [{"sha256": "6" * 64, "size": 10}]}
-    result = json.loads(execute_mode_canary("unit", _originals("unit"), _Context({"unit": unit})))
-    assert "unit_task_not_stopped" in result["pending"]
-
-
-def test_exit_zero_sem_output_nao_aceita() -> None:
-    unit = {"execution": {"status": "SUCCEEDED", "stateMachineArn": _MACHINE},
-            "tasks": _stopped("unit")["tasks"], "outputs": []}
-    result = json.loads(execute_mode_canary("unit", _originals("unit"), _Context({"unit": unit})))
-    assert "unit_output_missing" in result["pending"]
-    assert result["output_receipts"] == []
 
 
 def test_f_imutavel_atravessa_reentrada() -> None:

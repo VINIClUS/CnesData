@@ -95,7 +95,7 @@ def test_audit_start_alimenta_o_audit_observe(phase_c: Any) -> None:
 
 
 def test_unit_start_alimenta_o_unit_observe(phase_c: Any) -> None:
-    context = _start(phase_c, "unit", unit=am._unit_observed(phase_c))
+    context = _start(phase_c, "unit", unit=am._unit_observed(phase_c, run=fx.runs("unit")[0]))
     steps = [(kind, json.loads(raw)) for kind, raw in context.observed]
     observed = {"execution": next(body for kind, body in steps if kind == "unit-execution"),
                 "tasks": [body for kind, body in steps if kind == "unit-task"],
