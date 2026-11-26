@@ -86,7 +86,7 @@ jobs:
       id-token: write
     uses: "VINIClUS/infra-ansible/.github/workflows/\
       reusable-cnesdata-infra-plan-gate.yml@\
-      6cb0bb2f46007c3679d64f62106ee02bf8758c5d"
+      5f0e4068fc732adaf54d7497f395c0f071360f84"
     with:
       request_descriptor: ${{ needs.admit.outputs.request_descriptor }}
       request_descriptor_sha256: ${{ needs.admit.outputs.request_descriptor_sha256 }}

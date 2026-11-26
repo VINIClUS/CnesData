@@ -41,16 +41,16 @@ def test_fontes_espelhados_conferem_com_a_arvore_do_infra_ansible_no_pin() -> No
         assert hashlib.sha256(data).hexdigest() == expected, path
 
 
-def test_pin_do_espelho_e_o_merge_do_p35_com_os_tres_sha256() -> None:
-    assert ia.IA_PIN == "fcdb61d68af9d6c42db20300c5b15fdf150dfa3a"
+def test_pin_do_espelho_e_o_merge_do_p40_com_os_tres_sha256() -> None:
+    assert ia.IA_PIN == "5f0e4068fc732adaf54d7497f395c0f071360f84"
     assert ia.IA_MIRRORED_SOURCES == {
         "tools/cnesdata_delivery/contract.py": (
             "1f881e85cd21ab45ea5be22d12e81d3515c7ea7849b5c90aa6c54cb1e8b13d3b"
         ),
         "tools/cnesdata_delivery/lifecycle_contract.py": (
-            "51c611fe1961069de4e3478c2757b97bed7b2d13f653604983cd607dfce2012f"
+            "fdd7d8ccf92a987e5018a9f6d4e6d1a75524a7b788b1c37cd05f7c8d3d3d3511"
         ),
         "tools/cnesdata_delivery/lifecycle_runtime.py": (
-            "c0bd20758c63128abc8fac420887d322750b87198808d634aace99c6eb9677c4"
+            "0f86b67ad7d7075eb62a6c8a0335a3fc93de5c67922e277e029c052ed076ca1a"
         ),
     }
