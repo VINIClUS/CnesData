@@ -302,6 +302,8 @@ _NO_CLUSTER = {
     "sem-cluster": lambda asl, run: run["Parameters"].pop("Cluster"),
     "cluster-sem-marcador": lambda asl, run: run["Parameters"].update(Cluster="cnesdata-prod"),
     "cluster-nao-texto": lambda asl, run: run["Parameters"].update(Cluster=[_CLUSTER]),
+    "arn-de-servico": lambda asl, run: run["Parameters"].update(
+        Cluster=f"{_ACCOUNT}:service/cnesdata-prod"),
 }
 
 
