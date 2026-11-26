@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import email.message
+import http.client
 import http.server
 import io
 import json
@@ -536,3 +537,79 @@ def test_cabecalhos_de_limite_invalidos_nao_apagam_o_ultimo_registro_valido() ->
     api.artifacts("n")
     api.artifacts("n")
     assert api.rate == {"limit": 5000, "used": 3, "remaining": 4997}
+
+
+BLOB = "https://x.blob.core.windows.net/a?sig="
+
+
+class Follower:
+    def __init__(self, *steps: Any) -> None:
+        self.steps, self.urls = list(steps), []
+
+    def __call__(self, url: str) -> Response:
+        self.urls.append(url)
+        step = self.steps.pop(0)
+        if isinstance(step, BaseException):
+            raise step
+        return step
+
+
+def _blob_error(code: int) -> urllib.error.HTTPError:
+    return urllib.error.HTTPError(BLOB, code, "x", _headers(), io.BytesIO(b""))
+
+
+def test_download_com_5xx_transitorio_refaz_a_partir_do_endpoint_da_api() -> None:
+    follower = Follower(_blob_error(503), Response(b"ZIP"))
+    api, opener, clock = _api(
+        _error(302, Location=BLOB + "1"), _error(302, Location=BLOB + "2"), follow=follower
+    )
+    assert api.archive(9) == b"ZIP"
+    assert follower.urls == [BLOB + "1", BLOB + "2"]
+    assert len(opener.requests) == 2
+    assert clock.sleeps == [probe.API_RETRY_SECONDS]
+    assert all("authorization" in _sent(opener, i) for i in (0, 1))
+
+
+@pytest.mark.parametrize("code", [500, 502, 503, 504])
+def test_download_repete_cada_5xx_transitorio(code: int) -> None:
+    follower = Follower(_blob_error(code), Response(b"ZIP"))
+    api, opener, _ = _api(_error(302, Location=BLOB), _error(302, Location=BLOB), follow=follower)
+    assert api.archive(9) == b"ZIP"
+    assert len(opener.requests) == 2
+
+
+def test_download_5xx_em_toda_tentativa_falha_apos_o_limite_com_chave_valor() -> None:
+    follower = Follower(*[_blob_error(503)] * probe.API_ATTEMPTS)
+    api, opener, clock = _api(
+        *[_error(302, Location=BLOB)] * probe.API_ATTEMPTS, follow=follower
+    )
+    with pytest.raises(ValueError, match=r"^closed_ready_probe=api$"):
+        api.archive(9)
+    assert len(opener.requests) == probe.API_ATTEMPTS
+    assert len(follower.urls) == probe.API_ATTEMPTS
+    assert clock.sleeps == [probe.API_RETRY_SECONDS] * (probe.API_ATTEMPTS - 1)
+
+
+@pytest.mark.parametrize("code", [400, 403, 404])
+def test_download_4xx_permanente_nao_repete(code: int) -> None:
+    follower = Follower(_blob_error(code))
+    api, opener, clock = _api(_error(302, Location=BLOB), follow=follower)
+    with pytest.raises(ValueError, match=r"^closed_ready_probe=api$"):
+        api.archive(9)
+    assert len(opener.requests) == 1
+    assert clock.sleeps == []
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [TimeoutError(), ConnectionResetError(), ConnectionRefusedError(),
+     http.client.RemoteDisconnected()],
+)
+def test_download_com_falha_de_rede_repete(failure: OSError) -> None:
+    follower = Follower(failure, Response(b"ZIP"))
+    api, opener, clock = _api(
+        _error(302, Location=BLOB), _error(302, Location=BLOB), follow=follower
+    )
+    assert api.archive(9) == b"ZIP"
+    assert len(opener.requests) == 2
+    assert clock.sleeps == [probe.API_RETRY_SECONDS]

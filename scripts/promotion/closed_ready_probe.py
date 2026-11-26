@@ -35,6 +35,7 @@ PROBE_JOBS_READS_PER_MINUTE: Final = 1
 PROBE_END_STAGES: Final = {"closed-ready": "api"}
 CONCLUDED_CHECK_SECONDS: Final = 60 // PROBE_JOBS_READS_PER_MINUTE
 _REDIRECTS: Final = (301, 302, 303, 307)
+_TRANSIENT_STATUS: Final = (500, 502, 503, 504)
 _BLOB_SUFFIXES: Final = (".blob.core.windows.net", ".actions.githubusercontent.com")
 MARGIN_SECONDS: Final = 300
 TIMEOUT_SECONDS: Final = STAGE_SUM_CEILING + FINAL_RESERVE + MARGIN_SECONDS
@@ -271,8 +272,12 @@ class HttpApi:
         try:
             with self._transport.follow(url) as response:
                 return bytes(response.read())
-        except OSError as error:
+        except urllib.error.HTTPError as error:
+            if error.code in _TRANSIENT_STATUS:
+                raise _Transient from error
             raise ValueError("closed_ready_probe=api") from error
+        except OSError as error:
+            raise _Transient from error
 
     def _get(self, path: str, *, conditional: bool) -> bytes:
         cached = self._cache.get(path) if conditional else None
