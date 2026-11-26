@@ -17,6 +17,7 @@ from typing import Any
 import pytest
 import yaml
 
+from release.verify_activation import _reference as consumer_reference
 from scripts.promotion import verify_plan_artifact as admit
 from scripts.promotion import window_descriptors as wd
 from tests.production.delivery._plan_apply_fixtures import (
@@ -211,6 +212,19 @@ def test_ids_das_referencias_da_ativacao_sao_strings_decimais_como_o_consumidor_
     for name in ("candidate_reference", "phase_a_reference"):
         for key in ("run_id", "run_attempt", "artifact_id"):
             assert inputs[name][key] == str(spec[name][key])
+
+
+def test_consumidor_do_cnesdata_aceita_as_referencias_do_construtor() -> None:
+    inputs = json.loads(wd.activation_descriptor(_activation_spec()).raw)["inputs"]
+    for name in ("candidate_reference", "phase_a_reference"):
+        assert consumer_reference(inputs[name], SOURCE) == inputs[name]
+
+
+def test_consumidor_do_cnesdata_recusa_id_inteiro_semeado() -> None:
+    inputs = json.loads(wd.activation_descriptor(_activation_spec()).raw)["inputs"]
+    seeded = {**inputs["candidate_reference"], "run_id": 1}
+    with pytest.raises(ValueError, match=r"^activation=reference_id$"):
+        consumer_reference(seeded, SOURCE)
 
 
 def test_sha_da_ativacao_cobre_os_bytes_com_o_lf_final() -> None:
