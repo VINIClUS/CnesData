@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any, Final
 from cnes_infra.aws.mode_canary_unit_observe import (
     MANIFEST_FIELDS,
     OUTPUT_FIELDS,
-    unit_cluster,
     unit_execution_request,
     unit_task_arns,
 )
@@ -21,7 +20,6 @@ type Node = dict[str, Any]
 OBSERVED_FIELDS: Final = frozenset({"execution", "tasks", "failures", "outputs"})
 INPUT_FIELDS: Final = frozenset({"dispatch_id", "max_concurrency", "run_id", "tenant_id",
                                  "unit_ids", "wave_id"})
-_SCHEDULED: Final = ("recovery", "audit")
 
 
 def _dig(node: Any, *keys: str) -> Any:
@@ -30,27 +28,9 @@ def _dig(node: Any, *keys: str) -> Any:
     return node
 
 
-def _records(value: Any) -> bool:
+def records(value: Any) -> bool:
+    """Returns: Lista em que todo item é objeto."""
     return type(value) is list and all(type(item) is dict for item in value)
-
-
-def scheduled_cluster(readbacks: Node, definition: str) -> str | None:
-    """Returns: Cluster único da máquina se igual ao Target dos schedules recovery e audit."""
-    cluster = unit_cluster(definition)
-    targets = {_dig(readbacks, "schedules", mode, "Target", "Arn") for mode in _SCHEDULED}
-    return cluster if targets == {cluster} else None
-
-
-def observed_shape(observed: Any) -> bool:
-    """Returns: Observado do dispatch_unit serializável no formato fechado de quatro campos."""
-    if type(observed) is not dict or set(observed) != OBSERVED_FIELDS:
-        return False
-    try:
-        json.dumps(observed)
-    except (TypeError, ValueError):
-        return False
-    return type(observed["execution"]) is dict and all(
-        _records(observed[name]) for name in ("tasks", "failures", "outputs"))
 
 
 def _input(execution: Node, route: ModeRoute, binding: ModeCanaryBinding) -> Node | None:
@@ -73,7 +53,7 @@ def _environment(task: Node) -> dict[str, str]:
     found = [item for item in overrides if type(item) is dict
              and item.get("name") == "processor"] if type(overrides) is list else []
     entries: Any = _dig(found[0], "environment") if len(found) == 1 else None
-    if not _records(entries) or not all(
+    if not records(entries) or not all(
             type(entry.get("name")) is str and type(entry.get("value")) is str
             for entry in entries):
         return {}
@@ -96,7 +76,7 @@ def _bound(tasks: list[Node], route: ModeRoute, request: Node, execution_arn: st
 
 def _exited(task: Node) -> bool:
     containers = task.get("containers")
-    return _records(containers) and bool(containers) and all(
+    return records(containers) and bool(containers) and all(
         type(container.get("exitCode")) is int and container["exitCode"] == 0
         for container in containers)
 
@@ -125,7 +105,7 @@ def _task_pending(observed: Node, route: ModeRoute, request: Node | None) -> set
 def _output_valid(output: Node, request: Node) -> bool:
     attempt, manifests = output.get("attempt"), output.get("output_manifests")
     if set(output) != set(OUTPUT_FIELDS) or type(attempt) is not int or attempt < 1 or not (
-            _records(manifests) and manifests):
+            records(manifests) and manifests):
         return False
     prefix = f"tmp/{request['tenant_id']}/{request['run_id']}/{output['unit_id']}/{attempt}"
     return (output["state"], output["dispatch_id"]) == ("SUCCEEDED", request["dispatch_id"]) and all(
@@ -154,5 +134,4 @@ def unit_pending(observed: Node, route: ModeRoute, binding: ModeCanaryBinding) -
     return pending
 
 
-__all__ = ["INPUT_FIELDS", "OBSERVED_FIELDS", "observed_shape", "scheduled_cluster",
-           "unit_pending"]
+__all__ = ["INPUT_FIELDS", "OBSERVED_FIELDS", "records", "unit_pending"]

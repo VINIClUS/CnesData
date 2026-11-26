@@ -3895,6 +3895,24 @@
     "unit_id": "7687b440a8dd5123aa4000858436bdb6"
    }
   ],
+  "readbacks": {
+   "state_machine": {
+    "definition": "{\"StartAt\":\"RunUnits\",\"States\":{\"RunUnits\":{\"End\":true,\"ItemProcessor\":{\"ProcessorConfig\":{\"Mode\":\"INLINE\"},\"StartAt\":\"RunProcessor\",\"States\":{\"RunProcessor\":{\"End\":true,\"Parameters\":{\"Cluster\":\"arn:aws:ecs:us-east-2:111122223333:cluster/cnesdata-prod\",\"LaunchType\":\"FARGATE\",\"NetworkConfiguration\":{\"AwsvpcConfiguration\":{\"AssignPublicIp\":\"ENABLED\",\"SecurityGroups\":[\"sg-a\"],\"Subnets\":[\"subnet-a\"]}},\"Overrides\":{\"ContainerOverrides\":[{\"Environment\":[{\"Name\":\"TENANT_ID\",\"Value.$\":\"$.tenant_id\"},{\"Name\":\"RUN_ID\",\"Value.$\":\"$.run_id\"},{\"Name\":\"WAVE_ID\",\"Value.$\":\"$.wave_id\"},{\"Name\":\"DISPATCH_ID\",\"Value.$\":\"$.dispatch_id\"},{\"Name\":\"UNIT_ID\",\"Value.$\":\"$.unit_id\"},{\"Name\":\"EXECUTION_OWNER\",\"Value.$\":\"$$.Execution.Id\"},{\"Name\":\"LEASE_SECONDS\",\"Value\":\"3600\"}],\"Name\":\"processor\"}]},\"TaskDefinition\":\"arn:aws:ecs:us-east-2:111122223333:task-definition/cnesdata-prod-unit:17\"},\"Resource\":\"arn:aws:states:::ecs:runTask.sync\",\"Retry\":[{\"BackoffRate\":2,\"ErrorEquals\":[\"AmazonECS.Unknown\"],\"IntervalSeconds\":3,\"JitterStrategy\":\"FULL\",\"MaxAttempts\":3,\"MaxDelaySeconds\":5}],\"TimeoutSeconds\":3600,\"Type\":\"Task\"}}},\"ItemSelector\":{\"dispatch_id.$\":\"$.dispatch_id\",\"run_id.$\":\"$.run_id\",\"tenant_id.$\":\"$.tenant_id\",\"unit_id.$\":\"$$.Map.Item.Value\",\"wave_id.$\":\"$.wave_id\"},\"ItemsPath\":\"$.unit_ids\",\"MaxConcurrencyPath\":\"$.max_concurrency\",\"Type\":\"Map\"}}}",
+    "stateMachineArn": "arn:aws:states:us-east-2:111122223333:stateMachine:cnesdata-prod"
+   },
+   "task_definitions": {
+    "unit": {
+     "taskDefinition": {
+      "containerDefinitions": [
+       {
+        "name": "processor"
+       }
+      ],
+      "taskDefinitionArn": "arn:aws:ecs:us-east-2:111122223333:task-definition/cnesdata-prod-unit:17"
+     }
+    }
+   }
+  },
   "revision": "arn:aws:ecs:us-east-2:111122223333:task-definition/cnesdata-prod-unit:17",
   "table": "cnesdata-prod-control-plane",
   "unit_items": [

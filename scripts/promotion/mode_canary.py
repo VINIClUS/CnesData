@@ -9,13 +9,13 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Final, Protocol, cast
 
 from cnes_domain.orchestration.mode_canary import ModeCanaryBinding, ModeCanaryRecord
-from cnes_infra.aws.mode_canary_unit_observe import describe_tasks_request
+from cnes_infra.aws.mode_canary_unit_observe import describe_tasks_request, unit_cluster
 from scripts.promotion.mode_canary_contract import (
     SESSION_OPERATIONS,
     ContractError,
     record_bytes,
 )
-from scripts.promotion.mode_canary_unit import observed_shape, scheduled_cluster, unit_pending
+from scripts.promotion.mode_canary_unit import OBSERVED_FIELDS, records, unit_pending
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -68,6 +68,18 @@ def _text(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n"
 
 
+def observed_shape(observed: Any) -> bool:
+    """Returns: Observado do dispatch_unit nos quatro campos fechados e serializável no recibo."""
+    if type(observed) is not dict or set(observed) != OBSERVED_FIELDS:
+        return False
+    try:
+        _text(observed)
+    except (TypeError, ValueError):
+        return False
+    return type(observed["execution"]) is dict and all(
+        records(observed[name]) for name in ("tasks", "failures", "outputs"))
+
+
 def _sha(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
@@ -105,8 +117,9 @@ def _unit_route(record: ModeCanaryRecord, readbacks: Node) -> ModeRoute:
     _require(machine["stateMachineArn"] == record.machine_arn, "machine_arn")
     targets = set(_task_definitions(json.loads(machine["definition"])))
     _require(targets == {record.revisions["unit"]}, "revisions.unit")
-    return ModeRoute("unit", record.machine_arn, record.revisions["unit"],
-                     scheduled_cluster(readbacks, machine["definition"]))
+    cluster = unit_cluster(machine["definition"])
+    _require(cluster is not None, "cluster.unit")
+    return ModeRoute("unit", record.machine_arn, record.revisions["unit"], cluster)
 
 
 def _network(configuration: Node) -> Node:
@@ -416,6 +429,7 @@ __all__ = [
     "ModeRoute",
     "client_token",
     "execute_mode_canary",
+    "observed_shape",
     "route_from_readbacks",
     "run_task_request",
     "unit_binding",

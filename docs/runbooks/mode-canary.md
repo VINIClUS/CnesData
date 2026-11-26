@@ -32,8 +32,10 @@ Execução real depende do wiring de #473/#474 e do produtor shared (infra-ansib
 4. Seed com `mode_seed`: `build_mode_seed` produz o artifact `mode-seed` antes das
    chamadas; `execute_mode_seed` usa só PutItem/GetItem e PutObject/GetObject condicionais.
    Run nasce PROCESSING (estado sintético declarado), unidades PENDING do `plan_run`.
-5. Unit após B: `execute_mode_canary("unit", ...)` confere máquina e revisão unit na ASL e
-   chama `dispatch_unit` do context com o binding da fase. Só aceita SFN SUCCEEDED com
+5. Unit após B: `execute_mode_canary("unit", ...)` confere máquina, revisão unit e o
+   `Cluster` único da ASL (`unit_cluster`) e chama `dispatch_unit` do context com o binding
+   da fase. Sem um único `Cluster` em forma de ARN, recusa com
+   `reason=invalid field=cluster.unit` antes do dispatch. Só aceita SFN SUCCEEDED com
    task STOPPED/exit 0 na revisão e output real.
 6. Recovery após C-recovery: RunTask da revisão exata do target do Scheduler (retries 0,
    comando `recover-once`, rede do target), Count 1, sem ExecuteCommand, só
@@ -63,11 +65,12 @@ F, `started_at` e `common` não mudam. Códigos de pendência:
 | `unit_output_missing` | Exit 0 sem output de unidade |
 | `unit_output_invalid` | RUNUNIT fora do dispatch: estado, attempt ou sidecar `tmp/...` |
 | `unit_execution_not_succeeded` | SFN não SUCCEEDED na máquina PROD, ou input/nome/ARN fora |
-| `unit_task_unbound` | Scan sem ARN, cluster fora dos schedules ou binding `processor` |
+| `unit_task_unbound` | Scan sem ARN do cluster da máquina, ou binding `processor` divergente |
 | `unit_task_missing` | DescribeTasks `MISSING` para ARN do scan (retenção da task) |
 | `<modo>_task_failed` | Exit diferente do esperado (3 em `hang_no_dispatch`, senão 0) |
 | `routing_after_missing` / `routing_changed` | Readback pós-execução ausente ou divergente |
 | `run_task:<token>` (unknown) | RunTask sem resposta ou com falha; repetir o mesmo token |
+| `unit_dispatch` (unknown) | `dispatch_unit` falhou; ou observado fora dos 4 campos ou do recibo |
 
 ## Limites
 

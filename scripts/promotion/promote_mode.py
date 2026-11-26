@@ -30,10 +30,11 @@ from scripts.promotion.mode_canary import (
     _common,
     _record,
     _text,
+    observed_shape,
     route_from_readbacks,
     unit_binding,
 )
-from scripts.promotion.mode_canary_unit import observed_shape, unit_pending
+from scripts.promotion.mode_canary_unit import unit_pending
 from scripts.promotion.promote_close import (
     ENVIRONMENT,
     _activation,
