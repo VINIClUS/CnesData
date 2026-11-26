@@ -297,6 +297,12 @@ variable "canary_storage_enabled" {
   nullable    = false
 }
 
+variable "api_probe_role_arn" {
+  description = "API role ARN granted the host-gate missing-key probe on the canary bucket, or null."
+  type        = string
+  default     = null
+}
+
 variable "canary_verifier_role_id" {
   description = "Canary verifier role name receiving the audit RunTask grant, or null."
   type        = string
