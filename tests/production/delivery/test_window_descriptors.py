@@ -7,6 +7,9 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
+import tarfile
+from io import BytesIO
 from pathlib import Path
 from shutil import which
 from typing import Any
@@ -202,6 +205,14 @@ def test_descritor_de_ativacao_tem_os_cinco_campos_fechados_do_consumidor() -> N
                                     "retained_unit_task_definition_arns"}
 
 
+def test_ids_das_referencias_da_ativacao_sao_strings_decimais_como_o_consumidor_exige() -> None:
+    spec = _activation_spec()
+    inputs = json.loads(wd.activation_descriptor(spec).raw)["inputs"]
+    for name in ("candidate_reference", "phase_a_reference"):
+        for key in ("run_id", "run_attempt", "artifact_id"):
+            assert inputs[name][key] == str(spec[name][key])
+
+
 def test_sha_da_ativacao_cobre_os_bytes_com_o_lf_final() -> None:
     built = wd.activation_descriptor(_activation_spec())
     assert built.raw.endswith(b"}\n")
@@ -257,3 +268,55 @@ def test_cli_de_ativacao_escreve_o_descritor(tmp_path: Path) -> None:
     assert wd.main(["activation", "--spec", str(spec_path), "--output", str(tmp_path / "o")]) == 0
     written = (tmp_path / "o" / "request_descriptor.json").read_bytes()
     assert written == wd.activation_descriptor(_activation_spec()).raw
+
+
+IA_SIGNING_PIN = "249c9115557f142bfdd80b0cfe185b9cac6e1efb"
+DECODE_SCRIPT = (
+    "import json,sys;from tools.cnesdata_delivery import signing_gate as g;"
+    "raw=sys.stdin.buffer.read();"
+    "r=g.decode_request(raw,digest=sys.argv[1],source_sha=sys.argv[2],mode='activation');"
+    "sys.stdout.write(json.dumps(r,sort_keys=True))"
+)
+
+
+def _ia_tools(repository: str, target: Path) -> None:
+    archive = subprocess.run(  # noqa: S603 -- git fixo sobre o checkout do pin.
+        ["git", "-C", repository, "archive", IA_SIGNING_PIN, "tools"],  # noqa: S607 -- git do dev.
+        capture_output=True, check=True).stdout
+    with tarfile.open(fileobj=BytesIO(archive)) as tree:
+        tree.extractall(target, filter="data")
+
+
+def _ia_decode(target: Path, raw: bytes, sha: str) -> subprocess.CompletedProcess[bytes]:
+    return subprocess.run(  # noqa: S603 -- decode_request do pin sobre bytes do builder.
+        [sys.executable, "-c", DECODE_SCRIPT, sha, SOURCE], cwd=target, input=raw,
+        capture_output=True, check=False)
+
+
+@pytest.fixture
+def ia_tree(tmp_path: Path) -> Path:
+    repository = os.environ.get("INFRA_ANSIBLE_REPO")
+    if not repository:
+        pytest.skip("INFRA_ANSIBLE_REPO ausente")
+    target = tmp_path / "ia"
+    target.mkdir()
+    _ia_tools(repository, target)
+    return target
+
+
+@pytest.mark.ia_tree
+def test_decode_request_real_do_signing_gate_aceita_o_descritor_do_builder(ia_tree: Path) -> None:
+    built = wd.activation_descriptor(_activation_spec())
+    done = _ia_decode(ia_tree, built.raw, built.sha256)
+    assert done.returncode == 0, done.stderr.decode()
+    assert json.loads(done.stdout) == json.loads(built.raw)
+
+
+@pytest.mark.ia_tree
+def test_decode_request_real_recusa_descritor_com_campo_extra(ia_tree: Path) -> None:
+    value = json.loads(wd.activation_descriptor(_activation_spec()).raw)
+    value["inputs"]["latest"] = True
+    raw = wd.canonical_bytes(value, wd.REQUEST_LIMIT)
+    done = _ia_decode(ia_tree, raw, hashlib.sha256(raw).hexdigest())
+    assert done.returncode != 0
+    assert b"closed" in done.stderr or b"Refused" in done.stderr or b"Error" in done.stderr

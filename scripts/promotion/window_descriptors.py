@@ -22,6 +22,7 @@ PURPOSE = "phase-a"
 PHASE_A_FIELDS = "source_sha producer_pins baseline_artifacts payload_artifact"
 WORKFLOW_PATH = re.compile(r"\.github/workflows/[A-Za-z0-9_-]+\.yml")
 MAX_RETAINED = 128
+ID_FIELDS = ("run_id", "run_attempt", "artifact_id")
 OUTPUT_NAME = "request_descriptor.json"
 
 
@@ -99,11 +100,15 @@ def _check_activation_reference(reference: Node, source: str) -> None:
         raise _refuse("reference")
 
 
+def _consumer_reference(reference: Node) -> Node:
+    return reference | {key: str(reference[key]) for key in ID_FIELDS}
+
+
 def activation_descriptor(spec: Node) -> Descriptor:
     """Returns: descriptor de ativação do sign-activation com os cinco campos do consumidor.
 
-    Args: spec com source_sha, candidate_reference, phase_a_reference e as ARNs retidas
-    ordenadas e únicas. Raises: ValueError em campo fora do contrato.
+    Args: spec com source_sha, candidate_reference, phase_a_reference (ids inteiros, emitidos
+    como strings decimais) e as ARNs retidas ordenadas e únicas. Raises: ValueError.
     """
     closed(spec, "source_sha candidate_reference phase_a_reference "
                  "retained_unit_task_definition_arns")
@@ -115,10 +120,11 @@ def activation_descriptor(spec: Node) -> Descriptor:
         raise _refuse("retained_unit_task_definition_arns")
     for name in ("candidate_reference", "phase_a_reference"):
         _check_activation_reference(spec[name], source)
+    inputs: Node = {name: _consumer_reference(spec[name])
+              for name in ("candidate_reference", "phase_a_reference")}
+    inputs["retained_unit_task_definition_arns"] = retained
     value = {"request_version": REQUEST_VERSION, "mode": "activation", "source_sha": source,
-             "inputs": {name: spec[name] for name in (
-                 "candidate_reference", "phase_a_reference", "retained_unit_task_definition_arns")},
-             "ext2_post_upload_receipt_v1": None}
+             "inputs": inputs, "ext2_post_upload_receipt_v1": None}
     raw = canonical_bytes(value, REQUEST_LIMIT)
     return Descriptor(raw, _sha(raw), {})
 
