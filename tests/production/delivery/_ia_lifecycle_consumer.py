@@ -10,17 +10,18 @@ import json
 import re
 from typing import Any
 
-# infra-ansible b4ea93a7 tools/cnesdata_delivery/{contract,lifecycle_contract,lifecycle_runtime}.py.
-IA_PIN = "b4ea93a7e8721923dfc0df0d3d9bafda4f57f028"
+# infra-ansible fcdb61d6 (P35 mergeado):
+# tools/cnesdata_delivery/{contract,lifecycle_contract,lifecycle_runtime}.py.
+IA_PIN = "fcdb61d68af9d6c42db20300c5b15fdf150dfa3a"
 IA_MIRRORED_SOURCES = {
     "tools/cnesdata_delivery/contract.py": (
-        "7006c783b5cc29cd6744ca61d82946ef7a7f43e7d999f565552b902368cd0322"
+        "1f881e85cd21ab45ea5be22d12e81d3515c7ea7849b5c90aa6c54cb1e8b13d3b"
     ),
     "tools/cnesdata_delivery/lifecycle_contract.py": (
-        "de82b6ca28a82cbbd2af318faa7dffd45bc4670db6e61f8ce3730769d41ebc22"
+        "51c611fe1961069de4e3478c2757b97bed7b2d13f653604983cd607dfce2012f"
     ),
     "tools/cnesdata_delivery/lifecycle_runtime.py": (
-        "507c47893f008979f47b6448e53dcc1dd03e1610b0b5fff276f9f1d67319cb32"
+        "c0bd20758c63128abc8fac420887d322750b87198808d634aace99c6eb9677c4"
     ),
 }
 REPOSITORY = "VINIClUS/CnesData"
@@ -149,6 +150,9 @@ def admit_request(raw: bytes, raw_sha256: str, governance: dict[str, Any], calle
     jobs: Any = step["input_jobs"]
     require(type(payloads) is dict, "complete payload inventory")
     require(set(payloads) == set(jobs), "complete payload inventory")
+    for name, named in payloads.items():
+        closed(named, "step")
+        require(named["step"] == jobs[name]["step"], "payload producer step")
     require(request["application_purpose"] == caller["application_purpose"]
             and request["caller_binding_sha256"] == sha(canonical(caller)),
             "original requested application caller")
@@ -209,9 +213,26 @@ def static_plan(raw: bytes, *, bucket: str) -> dict[str, Any]:
     return plan
 
 
-def product_static_promotion(value: dict[str, Any], plan_raw: bytes, bucket: str) -> dict[str, Any]:
+def _bootstrap_static_promotion(value: dict[str, Any]) -> dict[str, Any]:
+    require(value["binding"].get("static_plan_sha256") is None, "static bootstrap plan binding")
+    static_session_binding(value["binding"] | {"static_plan_sha256": "0" * 64})
+    require(value["inventory_sha256"] is None, "static bootstrap inventory binding")
+    require(all(value[key] == [] for key in (
+        "candidate_keys", "rollback_versions", "retire_versions", "multipart_keys")),
+        "static bootstrap lists")
+    return value
+
+
+def product_static_promotion(
+    value: dict[str, Any], plan_raw: bytes | None, bucket: str
+) -> dict[str, Any]:
     closed(value, PRODUCT_STATIC_PROMOTION_FIELDS)
     require(value["mode"] in {"observer-bootstrap", "operational"}, "static mode")
+    if value["mode"] == "observer-bootstrap":
+        require(plan_raw is None, "static bootstrap carries no plan")
+        return _bootstrap_static_promotion(value)
+    if plan_raw is None:
+        raise Refused("static operational plan")
     plan = static_plan(plan_raw, bucket=bucket)
     static_session_binding(value["binding"])
     require(value["binding"]["static_plan_sha256"] == sha(plan_raw), "static plan binding")

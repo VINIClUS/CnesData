@@ -14,6 +14,7 @@ from scripts.promotion.prepare_mode_canary import check_mode_canary_input
 
 INPUTS_LIMIT: Final = 131072
 OPERATIONAL: Final = "operational"
+OBSERVER_BOOTSTRAP: Final = "observer-bootstrap"
 _RELEASE_ID: Final = re.compile(r"[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?")
 _HEX40: Final = re.compile(r"[0-9a-f]{40}")
 _TIMESTAMP: Final = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
@@ -63,11 +64,15 @@ def _check_binding(binding: StaticBinding) -> None:
         _require(type(value) is str and bool(_HEX40.fullmatch(value)), f"{name}=hex40")
 
 
-def _check_request(request: StaticPromotion) -> None:
-    _require(request.mode == OPERATIONAL, "mode=operational_only")
+def _check_request(request: StaticPromotion, mode: str) -> None:
+    _require(request.mode == mode, f"mode={mode}_only")
     _require(type(request.application_promotion) is dict, "application_promotion=object")
     _require(type(request.enabled_until) is str
              and bool(_TIMESTAMP.fullmatch(request.enabled_until)), "enabled_until=utc_instant")
+    application_until = request.application_promotion.get("enabled_until")
+    if type(application_until) is not str or not _TIMESTAMP.fullmatch(application_until):
+        raise ValueError("lifecycle_inputs field=application_promotion=enabled_until")
+    _require(request.enabled_until <= application_until, "enabled_until=after_application")
     _check_binding(request.binding)
 
 
@@ -76,7 +81,7 @@ def static_promotion_input(request: StaticPromotion, plan: bytes, inventory: byt
 
     Raises: ValueError: pedido fora do contrato; PublicationError: plano de outra inventory.
     """
-    _check_request(request)
+    _check_request(request, OPERATIONAL)
     record = read_plan(plan, inventory)
     binding = {
         "release_id": request.binding.release_id, "run_id": request.binding.run_id,
@@ -89,6 +94,25 @@ def static_promotion_input(request: StaticPromotion, plan: bytes, inventory: byt
         "mode": request.mode, "application_promotion": request.application_promotion,
         "binding": binding, "inventory_sha256": record["inventory_sha256"],
         "enabled_until": request.enabled_until, **{name: record[name] for name in _PLAN_FIELDS},
+    }
+
+
+def static_bootstrap_input(request: StaticPromotion) -> dict[str, Any]:
+    """Returns: o input `static_promotion` de nove campos do bootstrap, sem plano nem inventory.
+
+    Raises: ValueError: pedido fora do contrato ou de outro modo.
+    """
+    _check_request(request, OBSERVER_BOOTSTRAP)
+    binding = {
+        "release_id": request.binding.release_id, "run_id": request.binding.run_id,
+        "run_attempt": request.binding.run_attempt, "generation": request.binding.generation,
+        "product_source_sha": request.binding.product_source_sha,
+        "shared_source_sha": request.binding.shared_source_sha, "static_plan_sha256": None,
+    }
+    return {
+        "mode": request.mode, "application_promotion": request.application_promotion,
+        "binding": binding, "inventory_sha256": None, "enabled_until": request.enabled_until,
+        **{name: [] for name in _PLAN_FIELDS},
     }
 
 

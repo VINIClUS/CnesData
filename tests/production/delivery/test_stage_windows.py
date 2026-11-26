@@ -343,11 +343,11 @@ def test_espelho_do_close_drain_recusa_janela_so_com_prazo_fixo_diferente() -> N
     assert "fixed_deadline_seconds" in str(refused.value)
 
 
-def test_pin_do_espelho_e_o_commit_do_p36_mergeado_com_os_dois_sha256() -> None:
-    assert ia.IA_PIN == "b4ea93a7e8721923dfc0df0d3d9bafda4f57f028"
+def test_pin_do_espelho_e_o_merge_do_p35_com_os_dois_sha256() -> None:
+    assert ia.IA_PIN == "fcdb61d68af9d6c42db20300c5b15fdf150dfa3a"
     assert ia.IA_MIRRORED_SOURCES == {
         "tools/cnesdata_delivery/lifecycle_contract.py":
-            "de82b6ca28a82cbbd2af318faa7dffd45bc4670db6e61f8ce3730769d41ebc22",
+            "51c611fe1961069de4e3478c2757b97bed7b2d13f653604983cd607dfce2012f",
         "tools/cnesdata_delivery/host_gate.py":
             "7e3e103b85c29e83a2a37032c6dc34f85f2a90c98c0613a603a617b205a509d6",
     }
