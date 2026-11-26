@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _HEALTH_PATH = "/api/v1/system/health"
+_READINESS_PATH = "/health/ready"
 _TENANT_SCOPED_PREFIX = "/api/v1/dashboard/"
 _DISCOVERY_PATHS = frozenset({
     "/api/v1/dashboard/auth/me", "/api/v1/dashboard/memberships",
@@ -45,7 +46,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
         self, request: Request, call_next: RequestResponseEndpoint,
     ) -> Response:
         path = request.url.path
-        if path.startswith(("/oauth/", "/provision/", "/api/v1/public/")):
+        if path == _READINESS_PATH or path.startswith(
+            ("/oauth/", "/provision/", "/api/v1/public/"),
+        ):
             return await call_next(request)
         verifier = getattr(request.app.state, "oidc_verifier", None)
         if verifier is not None:
