@@ -15,8 +15,8 @@ import zipfile
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from urllib.parse import urlparse
 from typing import TYPE_CHECKING, Any, Final, Protocol
+from urllib.parse import urlparse
 
 from scripts.promotion._closed_ready import object_hash
 from scripts.promotion._stage_windows import FINAL_RESERVE, STAGE_SUM_CEILING
@@ -198,7 +198,7 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def _download(url: str) -> Any:
-    return urllib.request.urlopen(url, timeout=API_TIMEOUT_SECONDS)  # noqa: S310 -- host validado.
+    return urllib.request.urlopen(url, timeout=API_TIMEOUT_SECONDS)
 
 
 @dataclass(frozen=True, slots=True)
@@ -242,7 +242,7 @@ class HttpApi:
                    "X-GitHub-Api-Version": "2022-11-28"}
         if cached is not None:
             headers["If-None-Match"] = cached[0]
-        request = urllib.request.Request(f"https://api.github.com/{path}", headers=headers)  # noqa: S310
+        request = urllib.request.Request(f"https://api.github.com/{path}", headers=headers)
         try:
             response = self._transport.opener.open(request, timeout=API_TIMEOUT_SECONDS)
         except urllib.error.HTTPError as error:

@@ -70,8 +70,8 @@ def _check_request(request: StaticPromotion, mode: str) -> None:
     _require(type(request.enabled_until) is str
              and bool(_TIMESTAMP.fullmatch(request.enabled_until)), "enabled_until=utc_instant")
     application_until = request.application_promotion.get("enabled_until")
-    _require(type(application_until) is str and bool(_TIMESTAMP.fullmatch(application_until)),
-             "application_promotion=enabled_until")
+    if type(application_until) is not str or not _TIMESTAMP.fullmatch(application_until):
+        raise ValueError("lifecycle_inputs field=application_promotion=enabled_until")
     _require(request.enabled_until <= application_until, "enabled_until=after_application")
     _check_binding(request.binding)
 

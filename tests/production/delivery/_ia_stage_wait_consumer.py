@@ -1,4 +1,4 @@
-"""Espelho das constantes de sonda do modelo de REST do stage_wait do infra-ansible, fixado por commit."""
+"""Espelho das constantes de sonda do stage_wait do infra-ansible, fixado por commit."""
 
 from __future__ import annotations
 

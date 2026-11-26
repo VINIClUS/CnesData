@@ -399,7 +399,8 @@ def test_gerador_recusa_janela_estatica_depois_da_janela_do_application(mode: st
 
 @pytest.mark.parametrize("mode", ["operational", "observer-bootstrap"])
 def test_gerador_aceita_janela_estatica_igual_a_do_application(mode: str) -> None:
-    assert _generate(mode, enabled_until=APPLICATION_ENABLED)["enabled_until"] == APPLICATION_ENABLED
+    value = _generate(mode, enabled_until=APPLICATION_ENABLED)
+    assert value["enabled_until"] == APPLICATION_ENABLED
 
 
 @pytest.mark.parametrize("mode", ["operational", "observer-bootstrap"])
@@ -410,7 +411,8 @@ def test_gerador_aceita_janela_estatica_igual_a_do_application(mode: str) -> Non
 def test_gerador_recusa_fragmento_do_application_sem_janela_valida(
     mode: str, fragment: dict[str, Any],
 ) -> None:
-    with pytest.raises(ValueError, match=r"lifecycle_inputs field=application_promotion=enabled_until"):
+    expected = r"lifecycle_inputs field=application_promotion=enabled_until"
+    with pytest.raises(ValueError, match=expected):
         _generate(mode, application_promotion=fragment)
 
 

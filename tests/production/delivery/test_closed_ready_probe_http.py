@@ -8,8 +8,7 @@ import json
 import logging
 import urllib.error
 from datetime import UTC, datetime
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -25,6 +24,9 @@ from tests.production.delivery.test_closed_ready_probe import (
     _state,
     _zip,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 TARGET = probe.Target(7, 1, "application / execute")
 LISTING = "repos/VINIClUS/CnesData/actions/runs/7/artifacts?name=cnesdata-closed-ready-7-1"
@@ -53,7 +55,9 @@ class Response:
 
 
 def _error(code: int, **headers: str) -> urllib.error.HTTPError:
-    return urllib.error.HTTPError("https://api.github.com/x", code, "x", _headers(**headers), io.BytesIO(b""))
+    return urllib.error.HTTPError(
+        "https://api.github.com/x", code, "x", _headers(**headers), io.BytesIO(b"")
+    )
 
 
 class Opener:
@@ -70,8 +74,18 @@ class Opener:
 
 def _api(*steps: Any, follow: Any = None) -> tuple[probe.HttpApi, Opener, Clock]:
     opener, clock = Opener(*steps), Clock()
-    return probe.HttpApi("VINIClUS/CnesData", TARGET, "t0k3n", probe.Transport(
-        opener=opener, follow=follow or (lambda url: Response(b"")), sleep=clock.sleep)), opener, clock
+    return (
+        probe.HttpApi(
+            "VINIClUS/CnesData",
+            TARGET,
+            "t0k3n",
+            probe.Transport(
+                opener=opener, follow=follow or (lambda url: Response(b"")), sleep=clock.sleep
+            ),
+        ),
+        opener,
+        clock,
+    )
 
 
 def _listing(*ids: int) -> bytes:
@@ -83,12 +97,18 @@ def _sent(opener: Opener, index: int) -> dict[str, str]:
 
 
 def test_primeira_leitura_nao_envia_etag_e_a_segunda_envia_o_guardado_no_mesmo_caminho() -> None:
-    api, opener, _ = _api(Response(_listing(9), ETag='"v1"', **RATE), _error(304, ETag='"v1"', **RATE))
+    api, opener, _ = _api(
+        Response(_listing(9), ETag='"v1"', **RATE), _error(304, ETag='"v1"', **RATE)
+    )
     assert api.artifacts("cnesdata-closed-ready-7-1") == [{"id": 9}]
     assert api.artifacts("cnesdata-closed-ready-7-1") == [{"id": 9}]
     assert "if-none-match" not in _sent(opener, 0)
     assert _sent(opener, 1)["if-none-match"] == '"v1"'
-    assert opener.requests[0].full_url == opener.requests[1].full_url == "https://api.github.com/" + LISTING
+    assert (
+        opener.requests[0].full_url
+        == opener.requests[1].full_url
+        == "https://api.github.com/" + LISTING
+    )
 
 
 def test_304_devolve_o_corpo_completo_em_cache_e_nunca_uma_listagem_vazia() -> None:
@@ -99,8 +119,11 @@ def test_304_devolve_o_corpo_completo_em_cache_e_nunca_uma_listagem_vazia() -> N
 
 
 def test_corpo_novo_substitui_o_cache_e_o_etag() -> None:
-    api, opener, _ = _api(Response(_listing(9), ETag='"v1"'), Response(_listing(11), ETag='"v2"'),
-                          _error(304, ETag='"v2"'))
+    api, opener, _ = _api(
+        Response(_listing(9), ETag='"v1"'),
+        Response(_listing(11), ETag='"v2"'),
+        _error(304, ETag='"v2"'),
+    )
     api.artifacts("n")
     assert api.artifacts("n") == [{"id": 11}]
     assert api.artifacts("n") == [{"id": 11}]
@@ -123,7 +146,9 @@ def test_304_sem_corpo_em_cache_falha_fechado() -> None:
 
 
 @pytest.mark.parametrize("failure", [_error(500), _error(502), urllib.error.URLError("down")])
-def test_erro_transitorio_com_corpo_em_cache_nao_devolve_o_cache_e_repete_o_limite(failure: Exception) -> None:
+def test_erro_transitorio_com_corpo_em_cache_nao_devolve_o_cache_e_repete_o_limite(
+    failure: Exception,
+) -> None:
     api, opener, clock = _api(Response(_listing(9), ETag='"v1"'), failure, failure, failure)
     api.artifacts("n")
     with pytest.raises(ValueError, match=r"^closed_ready_probe=api$"):
@@ -134,7 +159,9 @@ def test_erro_transitorio_com_corpo_em_cache_nao_devolve_o_cache_e_repete_o_limi
 
 @pytest.mark.parametrize("code", [401, 403, 404])
 def test_erro_de_cliente_com_corpo_em_cache_falha_fechado_sem_repetir(code: int) -> None:
-    api, opener, clock = _api(Response(_listing(9), ETag='"v1"'), _error(code), Response(_listing(9)))
+    api, opener, clock = _api(
+        Response(_listing(9), ETag='"v1"'), _error(code), Response(_listing(9))
+    )
     api.artifacts("n")
     with pytest.raises(ValueError, match=r"^closed_ready_probe=api$"):
         api.artifacts("n")
@@ -142,12 +169,17 @@ def test_erro_de_cliente_com_corpo_em_cache_falha_fechado_sem_repetir(code: int)
     assert clock.sleeps == []
 
 
-@pytest.mark.parametrize("error", [
-    _error(403, x_ratelimit_remaining="0", x_ratelimit_limit="5000", x_ratelimit_used="5000"),
-    _error(429, retry_after="60"),
-    _error(403, retry_after="60"),
-])
-def test_limite_de_taxa_falha_fechado_sem_repetir_nem_devolver_o_cache(error: urllib.error.HTTPError) -> None:
+@pytest.mark.parametrize(
+    "error",
+    [
+        _error(403, x_ratelimit_remaining="0", x_ratelimit_limit="5000", x_ratelimit_used="5000"),
+        _error(429, retry_after="60"),
+        _error(403, retry_after="60"),
+    ],
+)
+def test_limite_de_taxa_falha_fechado_sem_repetir_nem_devolver_o_cache(
+    error: urllib.error.HTTPError,
+) -> None:
     api, opener, clock = _api(Response(_listing(9), ETag='"v1"'), error, Response(_listing(9)))
     api.artifacts("n")
     with pytest.raises(ValueError, match=r"^github=rate_limited$"):
@@ -158,9 +190,16 @@ def test_limite_de_taxa_falha_fechado_sem_repetir_nem_devolver_o_cache(error: ur
 
 def test_numeros_de_limite_sao_os_da_ultima_resposta_incluindo_304_e_erro() -> None:
     api, _, _ = _api(
-        Response(_listing(9), ETag='"v1"', x_ratelimit_limit="5000", x_ratelimit_used="3", x_ratelimit_remaining="4997"),
+        Response(
+            _listing(9),
+            ETag='"v1"',
+            x_ratelimit_limit="5000",
+            x_ratelimit_used="3",
+            x_ratelimit_remaining="4997",
+        ),
         _error(304, x_ratelimit_limit="5000", x_ratelimit_used="4", x_ratelimit_remaining="4996"),
-        _error(403, x_ratelimit_limit="5000", x_ratelimit_used="5000", x_ratelimit_remaining="0"))
+        _error(403, x_ratelimit_limit="5000", x_ratelimit_used="5000", x_ratelimit_remaining="0"),
+    )
     assert api.rate is None
     api.artifacts("n")
     assert api.rate == {"limit": 5000, "used": 3, "remaining": 4997}
@@ -189,7 +228,11 @@ def test_arquivo_segue_o_redirecionamento_sem_o_token_e_so_para_hosts_conhecidos
     assert api.archive(9) == b"ZIP"
     assert followed == [good]
     assert "if-none-match" not in _sent(opener, 0)
-    for bad in ("http://x.blob.core.windows.net/a", "https://evil.example/a", "https://blob.core.windows.net.evil/a"):
+    for bad in (
+        "http://x.blob.core.windows.net/a",
+        "https://evil.example/a",
+        "https://blob.core.windows.net.evil/a",
+    ):
         api, _, _ = _api(_error(302, Location=bad), follow=follow)
         with pytest.raises(ValueError, match=r"^closed_ready_probe=api$"):
             api.archive(9)
@@ -205,8 +248,11 @@ def test_limite_abaixo_do_assumido_recusa_antes_de_qualquer_espera_ou_leitura_de
     api.rate = {"limit": 1000, "used": 3, "remaining": 997}
     clock = Clock()
     with pytest.raises(ValueError, match=r"^github=rate_limit value=1000$"):
-        probe.wait_for_published(api, TARGET, probe.Clock(sleep=clock.sleep, monotonic=clock.monotonic, wall=lambda: 0.0))
-    assert clock.sleeps == [] and api.calls == 0
+        probe.wait_for_published(
+            api, TARGET, probe.Clock(sleep=clock.sleep, monotonic=clock.monotonic, wall=lambda: 0.0)
+        )
+    assert clock.sleeps == []
+    assert api.calls == 0
 
 
 def test_limite_do_assumido_exatamente_e_aceito() -> None:
@@ -214,7 +260,9 @@ def test_limite_do_assumido_exatamente_e_aceito() -> None:
     api = TimedApi(states=[_state(_job("completed", "2026-11-25T12:00:00Z"))])
     api.rate = {"limit": 5000, "used": 3, "remaining": 4997}
     clock = Clock()
-    timed = probe.Clock(sleep=clock.sleep, monotonic=clock.monotonic, wall=lambda: 1_795_608_000.0 + 5)
+    timed = probe.Clock(
+        sleep=clock.sleep, monotonic=clock.monotonic, wall=lambda: 1_795_608_000.0 + 5
+    )
     assert probe.wait_for_published(api, TARGET, timed)
 
 
@@ -223,13 +271,17 @@ def test_primeira_resposta_sem_numeros_de_limite_recusa_com_na() -> None:
     api.rate = None
     clock = Clock()
     with pytest.raises(ValueError, match=r"^github=rate_limit value=na$"):
-        probe.wait_for_published(api, TARGET, probe.Clock(sleep=clock.sleep, monotonic=clock.monotonic))
+        probe.wait_for_published(
+            api, TARGET, probe.Clock(sleep=clock.sleep, monotonic=clock.monotonic)
+        )
 
 
 def test_cadencia_da_espera_do_artefato_e_de_uma_leitura_a_cada_5_s_e_de_jobs_a_cada_60_s() -> None:
     api, clock = Api(appears_at=10**6), Clock()
     with pytest.raises(ValueError, match=r"^closed_ready_probe=deadline$"):
-        probe.wait_for_closed_ready(api, TARGET, probe.Clock(sleep=clock.sleep, monotonic=clock.monotonic), 600)
+        probe.wait_for_closed_ready(
+            api, TARGET, probe.Clock(sleep=clock.sleep, monotonic=clock.monotonic), 600
+        )
     assert api.calls == 600 // ia.PROBE_POLL_SECONDS * ia.PROBE_ARTIFACT_READS_PER_POLL + 1
     assert api.job_reads == 600 // 60 * ia.PROBE_JOBS_READS_PER_MINUTE
 
@@ -238,14 +290,18 @@ def test_conclusao_do_application_sem_artefato_e_detectada_em_ate_60_s() -> None
     api, clock = Api(appears_at=10**6), Clock()
     api.application = "completed"
     with pytest.raises(ValueError, match=r"^closed_ready_probe=application_concluded$"):
-        probe.wait_for_closed_ready(api, TARGET, probe.Clock(sleep=clock.sleep, monotonic=clock.monotonic))
+        probe.wait_for_closed_ready(
+            api, TARGET, probe.Clock(sleep=clock.sleep, monotonic=clock.monotonic)
+        )
     assert clock.now <= 60
 
 
 def test_fase_de_inicio_le_a_lista_de_jobs_a_cada_5_s() -> None:
     api = TimedApi(states=[_state(_job("queued", None))] * 12 + [_state(_job())])
     clock = Clock()
-    timed = probe.Clock(sleep=clock.sleep, monotonic=clock.monotonic, wall=lambda: 1_795_608_000.0 + clock.now)
+    timed = probe.Clock(
+        sleep=clock.sleep, monotonic=clock.monotonic, wall=lambda: 1_795_608_000.0 + clock.now
+    )
     probe.wait_for_application_start(api, TARGET, timed)
     assert api.job_reads == 13
     assert clock.sleeps == [ia.PROBE_POLL_SECONDS] * 12 == [probe.POLL_SECONDS] * 12
@@ -269,15 +325,24 @@ class _Main:
 
 def _env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     output = tmp_path / "out"
-    for key, value in {"RUN_ID": "7", "RUN_ATTEMPT": "1", "REPOSITORY": "VINIClUS/CnesData",
-                       "APPLICATION_JOB": "application / execute", "GH_TOKEN": "t0k3n",
-                       "GITHUB_OUTPUT": str(output)}.items():
+    for key, value in {
+        "RUN_ID": "7",
+        "RUN_ATTEMPT": "1",
+        "REPOSITORY": "VINIClUS/CnesData",
+        "APPLICATION_JOB": "application / execute",
+        "GH_TOKEN": "t0k3n",
+        "GITHUB_OUTPUT": str(output),
+    }.items():
         monkeypatch.setenv(key, value)
     return output
 
 
 def _exit_lines(caplog: pytest.LogCaptureFixture) -> list[str]:
-    return [r.getMessage() for r in caplog.records if r.getMessage().startswith("closed_ready_probe=exit")]
+    return [
+        r.getMessage()
+        for r in caplog.records
+        if r.getMessage().startswith("closed_ready_probe=exit")
+    ]
 
 
 def _recent_job() -> dict[str, Any]:
@@ -286,7 +351,10 @@ def _recent_job() -> dict[str, Any]:
 
 @pytest.mark.parametrize("case", ["ok", "limit", "rate_limited", "deadline", "unexpected"])
 def test_toda_saida_registra_uma_linha_com_os_numeros_da_ultima_resposta(
-    case: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture,
+    case: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     _env(monkeypatch, tmp_path)
     api = TimedApi(states=[_state(_recent_job())])
@@ -298,7 +366,11 @@ def test_toda_saida_registra_uma_linha_com_os_numeros_da_ultima_resposta(
     if case == "unexpected":
         api.jobs = lambda: (_ for _ in ()).throw(RuntimeError("boom"))  # type: ignore[method-assign]
     if case == "deadline":
-        monkeypatch.setattr(probe, "wait_for_published", lambda *a, **k: (_ for _ in ()).throw(ValueError("closed_ready_probe=deadline")))
+        monkeypatch.setattr(
+            probe,
+            "wait_for_published",
+            lambda *a, **k: (_ for _ in ()).throw(ValueError("closed_ready_probe=deadline")),
+        )
     monkeypatch.setattr(probe, "HttpApi", _Main(api))
     caplog.set_level(logging.INFO)
     if case == "unexpected":
@@ -308,12 +380,16 @@ def test_toda_saida_registra_uma_linha_com_os_numeros_da_ultima_resposta(
         assert probe.main() == (0 if case == "ok" else 1)
     (line,) = _exit_lines(caplog)
     limit, used = (1000, 8) if case == "limit" else (5000, 3)
-    assert line == (f"closed_ready_probe=exit x_ratelimit_limit={limit} x_ratelimit_used={used} "
-                    f"x_ratelimit_remaining={limit - used}")
+    assert line == (
+        f"closed_ready_probe=exit x_ratelimit_limit={limit} x_ratelimit_used={used} "
+        f"x_ratelimit_remaining={limit - used}"
+    )
 
 
 def test_linha_de_saida_sem_numeros_registra_na_e_nunca_o_token(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     _env(monkeypatch, tmp_path)
     api = TimedApi(states=[_state(_recent_job())])
@@ -322,11 +398,14 @@ def test_linha_de_saida_sem_numeros_registra_na_e_nunca_o_token(
     caplog.set_level(logging.INFO)
     assert probe.main() == 1
     (line,) = _exit_lines(caplog)
-    assert line == "closed_ready_probe=exit x_ratelimit_limit=na x_ratelimit_used=na x_ratelimit_remaining=na"
+    unknown = "x_ratelimit_limit=na x_ratelimit_used=na x_ratelimit_remaining=na"
+    assert line == f"closed_ready_probe=exit {unknown}"
     assert "t0k3n" not in caplog.text
 
 
-def test_sucesso_escreve_o_hash_no_output_do_job(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_sucesso_escreve_o_hash_no_output_do_job(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     output = _env(monkeypatch, tmp_path)
     monkeypatch.setattr(probe, "HttpApi", _Main(TimedApi(states=[_state(_recent_job())])))
     assert probe.main() == 0
