@@ -13,7 +13,7 @@ from typing import Any
 import pytest
 import yaml
 
-from tests.production.delivery import _ia_lifecycle_steps_catalog as catalog
+from scripts.promotion import lifecycle_descriptor
 from tests.production.delivery._plan_apply_fixtures import (
     CONTRACT_PATH,
     CONTRACT_REPOSITORY,
@@ -56,18 +56,6 @@ def _closure(name: str, jobs: dict[str, Any]) -> set[str]:
                 seen.add(need)
                 pending.append(need)
     return seen
-
-
-def test_job_names_do_catalogo_conferem_com_o_yaml_na_fatia_a() -> None:
-    jobs = _jobs()
-    for name in catalog.SLICE_A_STEPS:
-        caller_job, reusable_job = catalog.CATALOG[name]["job_name"].split(" / ")
-        assert caller_job in jobs
-        assert "uses" in jobs[caller_job]
-        assert reusable_job == REUSABLE["job"]
-    pending = {n for n in catalog.CATALOG if n not in catalog.SLICE_A_STEPS}
-    pending_jobs = {catalog.CATALOG[n]["job_name"].split(" / ")[0] for n in pending}
-    assert pending_jobs.isdisjoint(jobs)
 
 
 def test_placeholder_do_closed_ready_acabou_e_a_sonda_real_esta_ligada() -> None:
@@ -144,7 +132,7 @@ def test_inputs_do_contrato_sao_literais_iguais_as_constantes_do_pin() -> None:
     assert with_["contract_path"] == CONTRACT_PATH
     assert with_["contract_sha256"] == CONTRACT_SHA256
     assert with_["contract_source_sha"] == PRODUCER
-    assert with_["purpose"] == catalog.CATALOG[catalog.KEEPER_STEP]["purpose"]
+    assert with_["purpose"] == lifecycle_descriptor.catalog()["application-inventory"]["purpose"]
     assert with_["expected_source_sha"] == "${{ needs.admit.outputs.source_sha }}"
     assert with_["request_descriptor"] == "${{ needs.descriptor.outputs.request_descriptor }}"
     assert with_["request_descriptor_sha256"] == (
@@ -167,8 +155,9 @@ def test_host_gate_e_host_outcome_seguem_o_dd2_com_needs_coerente() -> None:
     assert _needs(jobs["host-gate"]) == {"preamble", "closed-ready"}
     assert jobs["host-gate"]["uses"].endswith(f"@{PRODUCER}")
     assert _needs(jobs["host-outcome"]) == {"closed-ready", "host-gate"}
-    assert set(jobs) == {"admit", "preamble", "descriptor", "application", "closed-ready",
-                         "host-gate", "host-outcome"}
+    gates = {step["job_name"].split(" / ")[0] for step in lifecycle_descriptor.catalog().values()}
+    assert set(jobs) == {"preamble", "descriptor", "closed-ready", "host-gate", "host-outcome",
+                         "admit", "static-inputs", "static-inventory"} | gates
 
 
 def test_jobs_de_producao_nao_leem_o_workflow_pela_lista_do_referenced_workflows() -> None:

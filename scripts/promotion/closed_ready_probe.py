@@ -16,7 +16,7 @@ import zipfile
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final, Protocol
+from typing import TYPE_CHECKING, Any, Final, Protocol, cast
 from urllib.parse import urlparse
 
 from scripts.promotion._closed_ready import object_hash
@@ -217,6 +217,16 @@ class _Transient(Exception):
     pass
 
 
+def _listing(body: bytes, key: str) -> list[dict[str, Any]]:
+    try:
+        value = json.loads(body)[key]
+    except (ValueError, KeyError, TypeError) as error:
+        raise _Transient from error
+    if type(value) is not list:
+        raise _Transient
+    return cast("list[dict[str, Any]]", value)
+
+
 def _refuse_rate_limited(error: urllib.error.HTTPError) -> None:
     if error.code in (403, 429) and (error.headers.get("x-ratelimit-remaining") == "0"
                                      or error.headers.get("retry-after") is not None):
@@ -280,27 +290,28 @@ class HttpApi:
         except _NETWORK_ERRORS as error:
             raise _Transient from error
 
-    def _get(self, path: str, *, conditional: bool) -> bytes:
+    def _get(self, path: str, *, conditional: bool, key: str | None = None) -> Any:
         cached = self._cache.get(path) if conditional else None
         for attempt in range(API_ATTEMPTS):
             try:
                 body, etag = self._fetch(path, cached)
+                value = body if key is None else _listing(body, key)
             except _Transient:
                 if attempt + 1 < API_ATTEMPTS:
                     self._transport.sleep(API_RETRY_SECONDS)
                 continue
             if conditional and etag:
                 self._cache[path] = (etag, body)
-            return body
+            return value
         raise ValueError("closed_ready_probe=api")
 
     def artifacts(self, name: str) -> list[dict[str, Any]]:
         path = f"{self._base}/runs/{self._target.run_id}/artifacts?name={name}"
-        return json.loads(self._get(path, conditional=True))["artifacts"]
+        return self._get(path, conditional=True, key="artifacts")
 
     def jobs(self) -> list[dict[str, Any]]:
         path = f"{self._base}/runs/{self._target.run_id}/attempts/{self._target.attempt}/jobs?per_page=100"
-        return json.loads(self._get(path, conditional=True))["jobs"]
+        return self._get(path, conditional=True, key="jobs")
 
     def archive(self, artifact_id: int) -> bytes:
         return self._get(f"{self._base}/artifacts/{artifact_id}/zip", conditional=False)

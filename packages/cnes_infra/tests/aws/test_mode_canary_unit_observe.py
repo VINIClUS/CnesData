@@ -68,8 +68,9 @@ def test_cluster_unico_da_definicao_da_maquina() -> None:
     _machine({"Cluster": CLUSTER}, [{"Cluster": f"{ACCOUNT}:cluster/outro"}]),
     _machine({"Cluster": 7}),
     _machine({"Cluster": "cnesdata-prod"}),
+    _machine({"Cluster": f"{ACCOUNT}:service/cnesdata-prod"}),
     "{nao-json",
-], ids=["ausente", "dois", "nao-texto", "sem-cluster-no-arn", "json-invalido"])
+], ids=["ausente", "dois", "nao-texto", "sem-cluster-no-arn", "servico", "json-invalido"])
 def test_cluster_ausente_duplo_ou_invalido_e_none(definition: str) -> None:
     assert unit_cluster(definition) is None
 
