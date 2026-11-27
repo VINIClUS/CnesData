@@ -12,6 +12,7 @@ from tests.production.delivery._phase_a_application_fixtures import _application
 NOW = datetime(2026, 11, 9, 0, 45, tzinfo=UTC)
 APPLICATION_NOW = datetime(2026, 11, 7, 20, 52, tzinfo=UTC)
 SOURCE = "a" * 40
+PR_HEAD = "b" * 40
 PRODUCER = "797e7fb3b0fc3e521344609f633c81b07151eb18"
 PRODUCER_CLOSURE_SHA256 = "dbc47bc4811bb9b98cf130fe694ae32e1b2e7f35bc9cc3d899b1e04899533059"
 CONTRACT_REPOSITORY = "VINIClUS/infra-ansible"
@@ -158,15 +159,26 @@ def source_responses(api, mode):
             },
         }
     ]
-    api.responses["VINIClUS/CnesData", f"commits/{SOURCE}/check-runs?per_page=100"] = {
-        "total_count": 10,
+    pr = {
+        "number": 9,
+        "merged_at": "2026-11-09T00:00:00Z",
+        "merge_commit_sha": SOURCE,
+        "base": {"ref": "main", "repo": {"full_name": "VINIClUS/CnesData"}},
+        "head": {"sha": PR_HEAD},
+    }
+    api.responses["VINIClUS/CnesData", f"commits/{SOURCE}/pulls?per_page=100&page=1"] = [pr]
+    api.responses["VINIClUS/CnesData", "pulls/9"] = pr
+    api.responses[
+        "VINIClUS/CnesData", f"commits/{PR_HEAD}/check-runs?filter=all&per_page=100&page=1"
+    ] = {
         "check_runs": [
             {
                 "id": i,
                 "name": name,
-                "head_sha": SOURCE,
+                "head_sha": PR_HEAD,
                 "status": "completed",
                 "conclusion": "success",
+                "completed_at": "2026-11-08T23:00:00Z",
             }
             for i, name in enumerate(sorted(REQUIRED_CHECKS), 1)
         ],
