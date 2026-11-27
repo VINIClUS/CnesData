@@ -1,0 +1,76 @@
+---
+name: sign-activation
+
+"on":
+  workflow_dispatch:
+    inputs:
+      expected_source_sha:
+        required: true
+        type: string
+      request_descriptor:
+        required: true
+        type: string
+      request_descriptor_sha256:
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: sign-activation
+  cancel-in-progress: false
+
+jobs:
+  admit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    outputs:
+      request_descriptor: ${{ steps.admit.outputs.request_descriptor }}
+      request_descriptor_sha256: ${{ steps.admit.outputs.request_descriptor_sha256 }}
+      expected_source_sha: ${{ steps.admit.outputs.expected_source_sha }}
+    steps:
+      - name: Validar contexto exato e transportar o descriptor canônico
+        id: admit
+        env:
+          EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
+          REQUEST_DESCRIPTOR: ${{ inputs.request_descriptor }}
+          REQUEST_DESCRIPTOR_SHA256: ${{ inputs.request_descriptor_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "VINIClUS/CnesData"
+          test "$GITHUB_EVENT_NAME" = "workflow_dispatch"
+          test "$GITHUB_REF" = "refs/heads/main"
+          [[ "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$GITHUB_SHA" = "$EXPECTED_SOURCE_SHA"
+          [[ "$REQUEST_DESCRIPTOR_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          body="${REQUEST_DESCRIPTOR%$'\n'}"
+          test -n "$body"
+          [[ "$body" != *$'\n'* ]]
+          descriptor="$body"$'\n'
+          test "$(printf '%s' "$descriptor" | wc -c)" -le 65536
+          digest="$(printf '%s' "$descriptor" | sha256sum)"
+          test "${digest%% *}" = "$REQUEST_DESCRIPTOR_SHA256"
+          delimiter="EXT2_$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
+          {
+            printf 'request_descriptor<<%s\n%s\n%s\n' "$delimiter" "$descriptor" "$delimiter"
+            printf 'request_descriptor_sha256=%s\n' "$REQUEST_DESCRIPTOR_SHA256"
+            printf 'expected_source_sha=%s\n' "$EXPECTED_SOURCE_SHA"
+          } >> "$GITHUB_OUTPUT"
+
+  sign:
+    needs: admit
+    permissions:
+      actions: read
+      checks: read
+      contents: read
+      id-token: write
+    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-signing-gate.yml@82e9ff210cbc0767c88f4f761b09e7ccfc38e50c
+    with:
+      request_descriptor: ${{ needs.admit.outputs.request_descriptor }}
+      request_descriptor_sha256: ${{ needs.admit.outputs.request_descriptor_sha256 }}
+      expected_source_sha: ${{ needs.admit.outputs.expected_source_sha }}
+      mode: activation
+    secrets:
+      CNESDATA_DELIVERY_GOVERNANCE: ${{ secrets.CNESDATA_DELIVERY_GOVERNANCE }}

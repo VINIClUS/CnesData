@@ -5,11 +5,12 @@ from __future__ import annotations
 import hashlib
 import json
 from copy import deepcopy
-from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any
+
+from scripts.promotion._phase_c_core import PhaseBContext, _require_utc, object_hash
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -26,14 +27,6 @@ SFN_ACTIONS = {
     "states:StopExecution",
 }
 SCHEDULER_PREFIX = "module.schedulers."
-
-
-def _canonical(value: Any) -> bytes:
-    return (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
-
-
-def object_hash(value: Any) -> str:
-    return hashlib.sha256(_canonical(value)).hexdigest()
 
 
 def _changes(plan: Mapping[str, Any]) -> list[Node]:
@@ -195,12 +188,6 @@ def review_phase_b_plan(
     return mode
 
 
-def _require_utc(value: datetime) -> str:
-    if value.tzinfo is None or value.utcoffset() != timedelta(0):
-        raise ValueError("reason=datetime_not_utc")
-    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
-
-
 def _routes(routes: Mapping[str, Any], expected_machine: str) -> Node:
     required = {
         "mode",
@@ -221,25 +208,6 @@ def _routes(routes: Mapping[str, Any], expected_machine: str) -> Node:
     if routes["mode"] not in {"initial", "established"}:
         raise ValueError("routes=mode")
     return dict(routes)
-
-
-@dataclass(frozen=True)
-class PhaseBContext:
-    """Referências originais autenticadas; não reconstruídas de um JSON do caller."""
-
-    canary: Node
-    phase_a: Node
-    machine: Node
-    activation: bytes | None = None
-
-    @property
-    def oracle(self) -> Node:
-        return {
-            "active_before": self.phase_a["active_before"],
-            "unit_revision": self.canary["revisions"]["unit"],
-            "state_machine_arn": self.machine["arn"],
-            "machine_after": self.machine,
-        }
 
 
 def prepare_phase_b(reference: Node, services: Node, governed: Node) -> PhaseBContext:

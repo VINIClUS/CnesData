@@ -18,7 +18,14 @@ from scripts.promotion.phase_b import _context_from_admitted, execute_reviewed_p
 from scripts.promotion.run_canary import _contract
 from scripts.promotion.verify_routes import NativePhaseB
 from tests.production.delivery.test_activation_manifest import _reseal_phase, admit, prepare
-from tests.production.delivery.test_phase_b import COMMON, MACHINE_ARN, Clock, Probe, _phase_plan
+from tests.production.delivery.test_phase_b import (
+    COMMON,
+    MACHINE_ARN,
+    WINDOWS,
+    Clock,
+    Probe,
+    _phase_plan,
+)
 from tests.production.delivery.test_phase_b import activation as activation_fixture
 from tests.production.delivery.test_phase_b import case as case_fixture
 from tests.production.delivery.test_phase_b import ddb as ddb_fixture
@@ -107,8 +114,9 @@ class Boundary:
 
 
 @pytest.fixture
-def operation(case, activation, ddb, tmp_path, monkeypatch):
+def operation(request, case, activation, ddb, tmp_path, monkeypatch):
     contract, *_ = case
+    promotion = getattr(request.module, "PROMOTION_ID", contract["release_id"])
     context = _context_from_admitted(contract, prepare(activation))
     adapter, client = ddb
     assert context.activation is not None
@@ -120,17 +128,18 @@ def operation(case, activation, ddb, tmp_path, monkeypatch):
             for key in ("repository", "release_id", "source_sha", "candidate_sha256", "canary_id")
         },
         "activation_sha256": hashlib.sha256(context.activation).hexdigest(),
-        "promotion_id": contract["release_id"],
+        "promotion_id": promotion,
     }
     close = close_and_drain(
         adapter,
         StepFunctionsExecutionProbe(cast("Any", Probe()), MACHINE_ARN),
         None,
         "prod",
-        contract["release_id"],
+        promotion,
         now,
         clock=Clock(),
         common=common,
+        windows=WINDOWS,
         expirations=[
             {
                 "kind": "activation",

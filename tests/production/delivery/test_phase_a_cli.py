@@ -95,16 +95,23 @@ def test_chama_as_duas_clis_pelo_modulo_com_ambiente_travado_por_lock():
     commands = _runs()
     assert "uv sync --locked --all-packages" in commands
     module = "uv run --no-sync python -m scripts.promotion.phase_a_cli"
-    assert f"{module} promote-ecr" in commands
-    assert f"{module} phase-inputs" in commands
-    assert commands.index("promote-ecr") < commands.index("phase-inputs")
+    order = ("promote-ecr", "phase-inputs", "stage-private", "upload-private")
+    for command in order:
+        assert f"{module} {command}" in commands
+    assert [commands.index(command) for command in order] == sorted(
+        commands.index(command) for command in order
+    )
 
 
-def test_assume_so_a_role_ecr_promotion_em_us_east_2_com_audience_sts():
+def test_assume_so_as_duas_roles_esperadas_em_us_east_2_com_audience_sts():
     commands = _runs()
     assert "role/cnesdata-prod-ecr-promotion" in _text()
-    assert len(re.findall(r"role/[\w-]+", _text())) == 1
-    assert "audience=sts.amazonaws.com" in commands
+    assert "role/cnesdata-prod-phase-inputs-writer" in _text()
+    assert sorted(re.findall(r"role/([\w-]+)", _text())) == [
+        "cnesdata-prod-ecr-promotion",
+        "cnesdata-prod-phase-inputs-writer",
+    ]
+    assert commands.count("audience=sts.amazonaws.com") == 2
     assert "AWS_WEB_IDENTITY_TOKEN_FILE" in _text()
     assert "AWS_REGION: us-east-2" in _text()
 
@@ -115,14 +122,41 @@ def test_token_do_ghcr_vem_do_job_e_o_token_oidc_e_mascarado():
     assert "::add-mask::" in _runs()
 
 
-def test_saidas_ficam_em_artifact_do_job_e_nao_em_s3():
+def test_artefato_publico_tem_so_phase_a_public_e_retencao_de_30_dias():
     uploads = [step for step in _steps() if "upload-artifact" in step.get("uses", "")]
     assert len(uploads) == 1
-    paths = uploads[0]["with"]["path"]
-    assert "promotion.json" in paths
-    assert "phase-inputs.json" in paths
-    assert uploads[0]["with"]["if-no-files-found"] == "error"
-    assert not re.search(r"\baws s3\b|s3://|s3api", _text())
+    options = uploads[0]["with"]
+    assert options["name"] == "phase-a-prepare-${{ github.run_id }}-${{ github.run_attempt }}"
+    assert options["path"].strip() == "${{ runner.temp }}/phase-a/phase-a-public.json"
+    assert options["if-no-files-found"] == "error"
+    assert options["retention-days"] == 30
+    assert uploads[0] == _steps()[-1]
+
+
+def test_nao_ha_caminho_de_upload_local_nem_cli_do_aws_nem_chave_de_ensaio():
+    text = _text()
+    assert not re.search(r"\baws s3\b|s3://|s3api|aws-cli", text)
+    assert "rehearsal" not in text
+    assert "rehearsal_plan" not in text
+
+
+def test_variaveis_de_evidencia_vem_do_environment_e_o_role_de_escrita_so_no_upload():
+    steps = _steps()
+    upload = next(s for s in steps if "upload-private" in s.get("run", ""))
+    assert upload["env"] == {
+        "EVIDENCE_BUCKET": "${{ vars.PRODUCTION_EVIDENCE_BUCKET }}",
+        "EVIDENCE_PREFIX": "${{ vars.PRODUCTION_EVIDENCE_PREFIX }}",
+        "EVIDENCE_KMS_KEY_ARN": "${{ vars.PRODUCTION_EVIDENCE_KMS_KEY_ARN }}",
+        "ACCOUNT_ID": "${{ vars.PRODUCTION_AWS_ACCOUNT_ID }}",
+        "SOURCE_SHA": "${{ inputs.source_sha }}",
+        "RUN_ID": "${{ github.run_id }}",
+        "RUN_ATTEMPT": "${{ github.run_attempt }}",
+    }
+    writer = next(i for i, s in enumerate(steps) if "phase-inputs-writer" in s.get("run", ""))
+    assert steps.index(upload) > writer
+    promote = next(i for i, s in enumerate(steps) if "promote-ecr" in s.get("run", ""))
+    assert promote < writer
+    assert "phase-inputs-writer" not in steps[promote]["run"]
 
 
 def test_actionlint_valida_o_workflow():
@@ -181,9 +215,15 @@ def test_account_id_vem_so_de_vars_do_ambiente_e_nunca_de_input_ou_texto():
     assert "inputs.account_id" not in text
     assert not re.search(r"(?<![0-9a-zA-Z])[0-9]{12}(?![0-9a-zA-Z])", text)
     seen = [step["env"]["ACCOUNT_ID"] for step in _steps() if "ACCOUNT_ID" in step.get("env", {})]
-    assert len(seen) == 3
+    assert len(seen) == 5
     assert set(seen) == {"${{ vars.PRODUCTION_AWS_ACCOUNT_ID }}"}
     assert "vars." not in _runs()
+    for step in _steps():
+        if "env" in step:
+            assert all(
+                "vars." not in value or name.startswith(("ACCOUNT", "EVIDENCE"))
+                for name, value in step["env"].items()
+            )
 
 
 def test_regex_de_12_digitos_precede_todo_uso_do_account_id():
