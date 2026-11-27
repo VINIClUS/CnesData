@@ -66,7 +66,7 @@ jobs:
       checks: read
       contents: read
       id-token: write
-    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-signing-gate.yml@249c9115557f142bfdd80b0cfe185b9cac6e1efb
+    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-signing-gate.yml@2a61ad885b435c4e40ee3eab8bf43b5e3c58f828
     with:
       request_descriptor: ${{ needs.admit.outputs.request_descriptor }}
       request_descriptor_sha256: ${{ needs.admit.outputs.request_descriptor_sha256 }}

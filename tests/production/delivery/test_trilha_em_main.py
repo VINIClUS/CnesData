@@ -12,7 +12,7 @@ from scripts.promotion._api_static_handoff import HOST_GATE_SHA
 from scripts.promotion.verify_plan_artifact import PRODUCER_SHA
 
 WORKFLOWS = Path(__file__).resolve().parents[3] / ".github/workflows"
-PRODUCER = "249c9115557f142bfdd80b0cfe185b9cac6e1efb"
+PRODUCER = "2a61ad885b435c4e40ee3eab8bf43b5e3c58f828"
 REUSABLE = "VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-"
 SECRET = {"CNESDATA_DELIVERY_GOVERNANCE": "${{ secrets.CNESDATA_DELIVERY_GOVERNANCE }}"}
 

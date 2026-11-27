@@ -12,11 +12,11 @@ from tests.production.delivery._phase_a_application_fixtures import _application
 NOW = datetime(2026, 11, 9, 0, 45, tzinfo=UTC)
 APPLICATION_NOW = datetime(2026, 11, 7, 20, 52, tzinfo=UTC)
 SOURCE = "a" * 40
-PRODUCER = "249c9115557f142bfdd80b0cfe185b9cac6e1efb"
-PRODUCER_CLOSURE_SHA256 = "5e10424e0864f7c046d84e8aeb15e83bb270109dc66f946f26524525e129f1c8"
+PRODUCER = "2a61ad885b435c4e40ee3eab8bf43b5e3c58f828"
+PRODUCER_CLOSURE_SHA256 = "afe81481780ff83a089c2376e771ff9cf2dbf836f2a4f8ba67fbd7dde5d79d39"
 CONTRACT_REPOSITORY = "VINIClUS/infra-ansible"
 CONTRACT_PATH = "docs/cnesdata-delivery-application-lifecycle.md"
-CONTRACT_SHA256 = "f426f3222fe20e12ee60b0d49516725d26c38daa79d4f401650c45c17c26fb02"
+CONTRACT_SHA256 = "3a3a09ed470151cb51d85dba6eef9a17d379a17266956f15024d0150d175b756"
 BASELINES = ["backend", "cost", "drift", "policy", "shared-outputs", "toolchain"]
 
 
