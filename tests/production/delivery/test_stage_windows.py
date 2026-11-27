@@ -300,7 +300,7 @@ def test_espelho_recusa_soma_apos_static_acima_de_1200_com_mensagem_chave_valor(
     assert ia.governed_windows(at_cap)
 
 
-def test_produto_e_espelho_divergem_so_no_teto_ocioso_de_1200_apos_o_static() -> None:
+def test_teto_de_1200_apos_o_static_fica_ocioso_sob_o_teto_de_soma_de_1830() -> None:
     governed = windows(unit=120, phase_c_recovery=660, phase_c_audit=361)
     assert _ia_refusal(governed) == "stage windows sum=1921 ceiling=1830"
     assert _both_refuse(governed) == "windows=sum sum=1921 ceiling=1830"
@@ -343,13 +343,13 @@ def test_espelho_do_close_drain_recusa_janela_so_com_prazo_fixo_diferente() -> N
     assert "fixed_deadline_seconds" in str(refused.value)
 
 
-def test_pin_do_espelho_e_o_merge_do_p35_com_os_dois_sha256() -> None:
-    assert ia.IA_PIN == "fcdb61d68af9d6c42db20300c5b15fdf150dfa3a"
+def test_pin_do_espelho_e_o_merge_do_p40_com_os_dois_sha256() -> None:
+    assert ia.IA_PIN == "2a61ad885b435c4e40ee3eab8bf43b5e3c58f828"
     assert ia.IA_MIRRORED_SOURCES == {
         "tools/cnesdata_delivery/lifecycle_contract.py":
-            "51c611fe1961069de4e3478c2757b97bed7b2d13f653604983cd607dfce2012f",
+            "fdd7d8ccf92a987e5018a9f6d4e6d1a75524a7b788b1c37cd05f7c8d3d3d3511",
         "tools/cnesdata_delivery/host_gate.py":
-            "7e3e103b85c29e83a2a37032c6dc34f85f2a90c98c0613a603a617b205a509d6",
+            "2a0a2eedd524f6dfe2119022797a91becd01670a853befba495e1abecf8e0cb1",
     }
 
 

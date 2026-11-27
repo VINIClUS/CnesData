@@ -7,14 +7,14 @@ import re
 from datetime import UTC, datetime
 from typing import Any
 
-# infra-ansible fcdb61d6 (P35 mergeado) tools/cnesdata_delivery/{lifecycle_contract,host_gate}.py.
-IA_PIN = "fcdb61d68af9d6c42db20300c5b15fdf150dfa3a"
+# infra-ansible 2a61ad88 (P42b mergeado) tools/cnesdata_delivery/{lifecycle_contract,host_gate}.py.
+IA_PIN = "2a61ad885b435c4e40ee3eab8bf43b5e3c58f828"
 IA_MIRRORED_SOURCES = {
     "tools/cnesdata_delivery/lifecycle_contract.py": (
-        "51c611fe1961069de4e3478c2757b97bed7b2d13f653604983cd607dfce2012f"
+        "fdd7d8ccf92a987e5018a9f6d4e6d1a75524a7b788b1c37cd05f7c8d3d3d3511"
     ),
     "tools/cnesdata_delivery/host_gate.py": (
-        "7e3e103b85c29e83a2a37032c6dc34f85f2a90c98c0613a603a617b205a509d6"
+        "2a0a2eedd524f6dfe2119022797a91becd01670a853befba495e1abecf8e0cb1"
     ),
 }
 ADAPTER_ABI_VERSION = 3
