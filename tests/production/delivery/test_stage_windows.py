@@ -344,12 +344,12 @@ def test_espelho_do_close_drain_recusa_janela_so_com_prazo_fixo_diferente() -> N
 
 
 def test_pin_do_espelho_e_o_merge_do_p40_com_os_dois_sha256() -> None:
-    assert ia.IA_PIN == "82e9ff210cbc0767c88f4f761b09e7ccfc38e50c"
+    assert ia.IA_PIN == "797e7fb3b0fc3e521344609f633c81b07151eb18"
     assert ia.IA_MIRRORED_SOURCES == {
         "tools/cnesdata_delivery/lifecycle_contract.py":
             "2f689fcd2e0c41525ba7e002e45289071af01e1c5c56b9333f23d6fb8424e63f",
         "tools/cnesdata_delivery/host_gate.py":
-            "2a0a2eedd524f6dfe2119022797a91becd01670a853befba495e1abecf8e0cb1",
+            "02b29abf7feb37429da9ff830177590b51d9cb1b645f836fcfe99a69c660a74d",
     }
 
 

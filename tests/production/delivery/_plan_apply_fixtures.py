@@ -12,8 +12,8 @@ from tests.production.delivery._phase_a_application_fixtures import _application
 NOW = datetime(2026, 11, 9, 0, 45, tzinfo=UTC)
 APPLICATION_NOW = datetime(2026, 11, 7, 20, 52, tzinfo=UTC)
 SOURCE = "a" * 40
-PRODUCER = "82e9ff210cbc0767c88f4f761b09e7ccfc38e50c"
-PRODUCER_CLOSURE_SHA256 = "73de670f57a6788b262191a26779fb90a0b381e234dca6c21d76594f0eb34a5f"
+PRODUCER = "797e7fb3b0fc3e521344609f633c81b07151eb18"
+PRODUCER_CLOSURE_SHA256 = "dbc47bc4811bb9b98cf130fe694ae32e1b2e7f35bc9cc3d899b1e04899533059"
 CONTRACT_REPOSITORY = "VINIClUS/infra-ansible"
 CONTRACT_PATH = "docs/cnesdata-delivery-application-lifecycle.md"
 CONTRACT_SHA256 = "36bb6277923063d19bf5bdb5f414bef92bdc4caf2f45a76a8a4c44be7b6a5e3a"

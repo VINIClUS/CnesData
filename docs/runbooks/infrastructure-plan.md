@@ -65,7 +65,7 @@ com bytes/pins idênticos, auditoria e CI de main; não é autorização para ex
 nem para habilitar Deploy develop.
 
 Os callers e a constante de produtor usam o pin integrado
-`82e9ff210cbc0767c88f4f761b09e7ccfc38e50c` (infra-ansible#55, passo 4a), que declara o
+`797e7fb3b0fc3e521344609f633c81b07151eb18` (infra-ansible#55, passo 4a), que declara o
 segredo de governança. Os callers o passam por nome, nunca com `secrets: inherit`. Proposta/HEAD
 não integrado não substitui release. Toda atualização de produtor exige pins coerentes
 nos dois callers e no helper, conferência de contratos, CI e nova auditoria do HEAD.
