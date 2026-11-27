@@ -42,6 +42,8 @@ POLICY_NAMES = {
     "canary_seeder": "canary-seeder-put", "canary_verifier": "canary-verifier-read",
     "promotion_fence_operator": "promotion-fence-operator-gate",
 }
+API_ROLE = f"arn:aws:iam::{ACCOUNT}:role/{PREFIX}-api"
+PROBE_KEY = "cnesdata/host-gate/missing-probe"
 ROLE_NAMES = {role: f"{PREFIX}-{role.replace('_', '-')}" for role in ROLES}
 INVALID_RELEASES = {
     "estrela": "r1*x", "estrela_final": "r1*", "interrogacao": "r1?x", "barra": "r1/x",
@@ -79,6 +81,7 @@ PROCESSING_BASE: Node = {
     "state_machine_arn": f"arn:aws:states:us-east-2:{ACCOUNT}:stateMachine:{PREFIX}",
     "public_subnet_ids": ["subnet-production"], "security_group_id": "sg-production",
     "canary_storage_enabled": True, "canary_verifier_role_id": ROLE_NAMES["canary_verifier"],
+    "api_probe_role_arn": None,
 }
 
 def _override(target: str, values: Node) -> str:
@@ -162,6 +165,7 @@ def processing_events(tmp_path_factory: pytest.TempPathFactory, prod_root: Path,
     runs = {
         "ativo": {},
         "desligado": {"canary_storage_enabled": False, "canary_verifier_role_id": None},
+        "com_sonda_api": {"api_probe_role_arn": API_ROLE},
         "invalido_sem_digest": {"image_digest": None},
         "invalido_verifier_alheio": {"canary_verifier_role_id": f"{PREFIX}-api"},
     }
@@ -452,6 +456,31 @@ def test_bucket_de_canary_tem_object_lock_compliance_tls_e_bloqueio_publico(
         "Condition": {"Bool": {"aws:SecureTransport": "false"}}}]
     rule = _by_type(plan, "aws_s3_bucket_lifecycle_configuration")["rule"][0]
     assert rule["abort_incomplete_multipart_upload"][0]["days_after_initiation"] == 1
+
+
+def test_politica_do_bucket_canary_so_nega_transporte_inseguro_sem_papel_da_sonda(
+    processing_events: list[Node],
+) -> None:
+    plan = _plan(processing_events, "ativo")
+    policy = json.loads(_by_type(plan, "aws_s3_bucket_policy")["policy"])
+    assert [s["Sid"] for s in policy["Statement"]] == ["DenyInsecureTransport"]
+
+
+def test_politica_do_bucket_canary_concede_a_sonda_so_ao_papel_da_api(
+    processing_events: list[Node],
+) -> None:
+    plan = _plan(processing_events, "com_sonda_api")
+    statements = json.loads(_by_type(plan, "aws_s3_bucket_policy")["policy"])["Statement"]
+    deny, *allows = statements
+    assert deny["Sid"] == "DenyInsecureTransport"
+    assert deny["Effect"] == "Deny"
+    get_probe = {"Sid": "ApiProbeGetMissingKey", "Effect": "Allow",
+                 "Principal": {"AWS": API_ROLE}, "Action": "s3:GetObject",
+                 "Resource": f"{BUCKET}/{PROBE_KEY}"}
+    list_bucket = {"Sid": "ApiProbeListBucket", "Effect": "Allow",
+                   "Principal": {"AWS": API_ROLE}, "Action": "s3:ListBucket", "Resource": BUCKET}
+    expected = [get_probe, list_bucket]
+    assert allows == expected
 
 
 def test_run_task_so_na_revisao_exata_de_audit_no_cluster(processing_events: list[Node]) -> None:

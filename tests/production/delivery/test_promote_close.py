@@ -30,7 +30,7 @@ from data_processor.orchestration.coordinator import (
 from packages.cnes_infra.tests.control_plane import test_dynamodb_adapter as tables
 from scripts.promotion import promote_api, promote_close
 from scripts.promotion.environment_gate import DrainError
-from tests.production.delivery.test_phase_b import NOW, Clock, Probe, _claim, _seed
+from tests.production.delivery.test_phase_b import NOW, WINDOWS, Clock, Probe, _claim, _seed
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -45,7 +45,7 @@ INFRA_CLOSE_DRAIN_ROW = {"inputs": "activation expirations", "stage": {"applicat
                          "observation": "close-drain"}
 INFRA_CLOSE_DRAIN_FIELDS = (
     "version kind common fence close_confirmed_at drain_observed_at frozen_membership_sha256 "
-    "members proofs permit input_expirations fixed_deadline decision"
+    "members proofs permit input_expirations fixed_deadline decision windows"
 )
 INFRA_CLOSE_EXPIRATION_KINDS = frozenset({"envelope", "artifact", "platform", "cost",
                                           "credential", "activation", "plan"})
@@ -78,7 +78,7 @@ def _epoch(seconds: int) -> int:
 PREPARE = {"close": None, "fixed_deadline": None, "input_deadline": _epoch(3600),
            "stage": "application-prepare", "admitted_at": _epoch(0), "deadline": _epoch(180),
            "decision": None, "preparation_deadline": _epoch(180), "sequence": 0,
-           "checkpoint_sha256": "8" * 64}
+           "checkpoint_sha256": "8" * 64, "windows": WINDOWS}
 
 
 def _activation(**changes: Any) -> bytes:
@@ -103,7 +103,7 @@ def _inputs(activation: bytes | None = None, expirations: bytes | None = None) -
 
 def _request(inputs: dict[str, bytes], stage: dict[str, Any] = PREPARE,
              owner: dict[str, Any] = OWNER) -> dict[str, Any]:
-    return {"abi_version": 2, "operation": "close-drain", "repository": "VINIClUS/CnesData",
+    return {"abi_version": 3, "operation": "close-drain", "repository": "VINIClUS/CnesData",
             "source_sha": SHA, "owner": owner, "checkpoint_sha256": stage["checkpoint_sha256"],
             "activation_sha256": sha(inputs["activation"]), "stage": stage,
             "inputs": {name: {"sha256": sha(raw), "size": len(raw)}
@@ -200,7 +200,7 @@ def _run(context: Context, request: dict[str, Any] | None = None) -> dict[str, A
 def test_tabela_do_close_drain_e_copia_literal_da_correcao_do_infra() -> None:
     """Correção infra-ansible#55 6906038586 (close-drain) e main ca3643e5 (campos, kinds)."""
     assert promote_api.INPUTS["close-drain"] == frozenset(INFRA_CLOSE_DRAIN_ROW["inputs"].split())
-    assert {promote_api.STAGES["close-drain"]} == INFRA_CLOSE_DRAIN_ROW["stage"]
+    assert promote_api.STAGES["close-drain"] == INFRA_CLOSE_DRAIN_ROW["stage"]
     assert promote_api.OBSERVATIONS["close-drain"] == INFRA_CLOSE_DRAIN_ROW["observation"]
     assert INFRA_CLOSE_EXPIRATION_KINDS - {"envelope"} == promote_close.EXPIRATION_KINDS
     assert promote_close.ROLE == "fence_operator"
@@ -235,7 +235,7 @@ def test_close_drain_fecha_drena_e_observa_documento_canonico(
     assert [item["kind"] for item in record["input_expirations"]] == ["credential", "envelope"]
     assert {role for role, *_ in context.calls} == {"fence_operator"}
     assert context.guards == len(context.calls)
-    assert result == {"abi_version": 2, "operation": "close-drain", "generation": 7,
+    assert result == {"abi_version": 3, "operation": "close-drain", "generation": 7,
                       "owner_sha256": OWNER["owner_sha256"], "unknown": [], "pending": [],
                       "checkpoint_sha256": PREPARE["checkpoint_sha256"], "call_receipts_sha256":
                       "e" * 64, "observations": [{"kind": "close-drain", "size": len(observation),
@@ -487,7 +487,7 @@ def test_timestamps_seguem_o_contract_instant(end: float, monkeypatch: pytest.Mo
               record["fence"]["changed_at"], record["close_confirmed_at"],
               record["drain_observed_at"], record["fixed_deadline"]]
     assert [_instant(stamp) for stamp in stamps] == [
-        "14:00:00", "13:00:00", "12:30:00", "12:00:00", "12:00:00", "12:00:02", "12:30:00"]
+        "14:00:00", "13:00:00", "12:37:30", "12:00:00", "12:00:00", "12:00:02", "12:30:00"]
 
 
 def test_teto_do_drain_igual_ao_prazo_fixo_recusa(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -498,3 +498,10 @@ def test_teto_do_drain_igual_ao_prazo_fixo_recusa(monkeypatch: pytest.MonkeyPatc
         with pytest.raises(DrainError, match="drain=deadline_exceeded"):
             _run(context)
     assert context.observed == []
+
+
+def test_activation_com_inputs_do_payload_verificado_e_aceita() -> None:
+    raw = canonical(json.loads(_activation()) | {"inputs": {"candidate_reference": None}})
+    request = {"activation_sha256": sha(raw)}
+    value, _ = promote_close._activation(raw, request)
+    assert value["inputs"] == {"candidate_reference": None}

@@ -1,11 +1,28 @@
-"""Entrypoint fixo do adapter ABI2: inventário, publicação e rollback estáticos (#473)."""
+"""Entrypoint fixo do adapter ABI3: inventário, publicação e rollback estáticos (#473)."""
 
 from __future__ import annotations
 
 import re
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
+from scripts.promotion._adapter_abi import (
+    ABI_VERSION,
+    CLOSED_READY_FIELDS,
+    INPUTS,
+    MEMBER_IDENTITY,
+    MODE_INPUTS,
+    MODE_OBSERVATION_FIELDS,
+    MODE_OBSERVATIONS,
+    MODE_OPERATIONS,
+    MODE_STAGES,
+    OBSERVATIONS,
+    ROUTING_FIELDS,
+    STAGE_FIELDS,
+    STAGES,
+    TERMINAL_READBACK_FIELDS,
+    stage_deadline,
+)
 from scripts.promotion._api_static_handoff import HOST_GATE_SHA
 from scripts.promotion._api_static_records import (
     PLAN_DRIFT_FIELDS,
@@ -23,6 +40,7 @@ from scripts.promotion._api_static_records import (
     static_plan,
     static_target,
 )
+from scripts.promotion._stage_windows import governed_windows
 from scripts.promotion.build_host_archive import (
     CALLER_REF,
     CALLER_WORKFLOW,
@@ -30,6 +48,17 @@ from scripts.promotion.build_host_archive import (
     archive_manifest,
 )
 from scripts.promotion.promote_close import close_drain
+from scripts.promotion.promote_mode import audit_observe, recovery_observe, unit_observe
+from scripts.promotion.promote_mode_effects import (
+    audit_start,
+    recovery_seed,
+    recovery_start,
+    unit_seed,
+    unit_start,
+)
+from scripts.promotion.promote_mode_record import audit_record, recovery_record, unit_record
+from scripts.promotion.promote_ready import closed_ready
+from scripts.promotion.promote_terminal import reopen, terminal_readback
 from scripts.promotion.publish_dashboard import (
     PublicationError,
     StaticChannel,
@@ -52,28 +81,34 @@ from scripts.promotion.rollback_api_static import (
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
-__all__ = ["CLOCK", "canonical", "execute_shared_operation", "static_plan"]
+__all__ = [
+    "CLOCK",
+    "CLOSED_READY_FIELDS",
+    "INPUTS",
+    "MEMBER_IDENTITY",
+    "MODE_INPUTS",
+    "MODE_OBSERVATIONS",
+    "MODE_OBSERVATION_FIELDS",
+    "MODE_OPERATIONS",
+    "MODE_STAGES",
+    "OBSERVATIONS",
+    "ROUTING_FIELDS",
+    "STAGES",
+    "TERMINAL_READBACK_FIELDS",
+    "AdapterContext",
+    "ModeEffectContext",
+    "canonical",
+    "execute_shared_operation",
+    "static_plan",
+]
 
-ABI_VERSION = 2
 REQUEST_FIELDS = frozenset({
     "abi_version", "operation", "repository", "source_sha", "owner", "checkpoint_sha256",
     "activation_sha256", "stage", "inputs",
 })
-INPUTS = {
-    "inventory": frozenset({"candidate", "dashboard-artifact", "archive", "static-baseline"}),
-    "publish-static": frozenset(
-        {"candidate", "dashboard-artifact", "static-plan", "inventory", "host-receipt"}
-    ),
-    "rollback-api-static": frozenset(
-        {"static-plan", "inventory", "publication", "host-recovery-receipt", "recovery-decision"}
-    ),
-    "close-drain": frozenset({"activation", "expirations"}),
-}
-OBSERVATIONS = {"inventory": "inventory", "publish-static": "publication",
-                "rollback-api-static": "rollback", "close-drain": "close-drain"}
-STAGES = {"inventory": "application-prepare", "publish-static": "static",
-          "rollback-api-static": "recovery", "close-drain": "application-prepare"}
 _DIGEST = re.compile(r"[0-9a-f]{64}")
+_INPUTS: dict[str, frozenset[str]] = {**INPUTS, **MODE_INPUTS}
+_STAGES: dict[str, frozenset[str]] = {**STAGES, **MODE_STAGES}
 
 
 class AdapterContext(Protocol):
@@ -88,6 +123,37 @@ class AdapterContext(Protocol):
     def evidence_snapshot(self) -> dict[str, Any]: ...
 
 
+class ModeEffectContext(AdapterContext, Protocol):
+    """Métodos do keeper que só os efeitos de modo usam, além do ABI3 original."""
+
+    def ledger_admit_effect(self, kind: str, request_sha256: str, target_sha256: str,
+                            admitted_at: str) -> str: ...
+
+    def ledger_mark_unknown(self, effect_id: str) -> None: ...
+
+    def ledger_settle(self, effect_id: str, receipt_sha256: str) -> None: ...
+
+    def dispatch_unit(self, locator: str) -> dict[str, Any]: ...
+
+    def mode_readbacks(self) -> dict[str, Any]: ...
+
+
+class _Journal:
+    """Context original que registra cada observação na ordem do journal do keeper."""
+
+    def __init__(self, context: AdapterContext) -> None:
+        self._context = context
+        self.observations: list[dict[str, Any]] = []
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._context, name)
+
+    def observe(self, kind: str, raw: bytes) -> str:
+        digest = self._context.observe(kind, raw)
+        self.observations.append({"kind": kind, "sha256": digest, "size": len(raw)})
+        return digest
+
+
 def _utc_now() -> datetime:
     return datetime.now(UTC)
 
@@ -99,9 +165,9 @@ def execute_shared_operation(
     operation: str, request: Mapping[str, Any], context: AdapterContext
 ) -> dict[str, Any]:
     """Returns:
-    Resultado ABI2 com a observação registrada e a incerteza do journal compartilhado.
+    Resultado ABI3 com a observação registrada e a incerteza do journal compartilhado.
     Raises:
-    ValueError: operação fora desta tarefa ou request/input fora do contrato ABI2.
+    ValueError: operação fora desta tarefa ou request/input fora do contrato ABI3.
     PublicationError: binding de candidato, archive, plano ou host divergente.
     """
     handler = _HANDLERS.get(operation)
@@ -109,9 +175,9 @@ def execute_shared_operation(
         raise ValueError(f"operation=unsupported name={operation}")
     _require_request(operation, request)
     inputs = {name: _read(context, name, ref) for name, ref in request["inputs"].items()}
-    observation = handler(request, inputs, context)
-    kind = OBSERVATIONS[operation]
-    digest = context.observe(kind, observation)
+    journal = _Journal(context)
+    observation = handler(request, inputs, cast("AdapterContext", journal))
+    journal.observe(OBSERVATIONS.get(operation) or MODE_OBSERVATIONS[operation], observation)
     snapshot = context.evidence_snapshot()
     return {
         "abi_version": ABI_VERSION,
@@ -119,7 +185,7 @@ def execute_shared_operation(
         "owner_sha256": request["owner"]["owner_sha256"],
         "generation": request["owner"]["generation"],
         "checkpoint_sha256": request["checkpoint_sha256"],
-        "observations": [{"kind": kind, "sha256": digest, "size": len(observation)}],
+        "observations": journal.observations,
         "call_receipts_sha256": snapshot["call_receipts_sha256"],
         "pending": snapshot["pending"],
         "unknown": snapshot["unknown"],
@@ -163,6 +229,15 @@ def _publish(request: Mapping[str, Any], inputs: Mapping[str, bytes],
     return publication_record(inputs["static-plan"], receipt, closed_ready)
 
 
+def _recorded_publication(inputs: Mapping[str, bytes], ready: str) -> Any:
+    if inputs["publication"] == canonical(None):
+        return None
+    publication, published_ready = read_publication(inputs["publication"], inputs["static-plan"])
+    if published_ready != ready:
+        raise PublicationError("host_recovery_receipt=closed_ready")
+    return publication
+
+
 def _rollback(request: Mapping[str, Any], inputs: Mapping[str, bytes],
               context: AdapterContext) -> bytes:
     plan = read_plan(inputs["static-plan"], inputs["inventory"])
@@ -171,9 +246,7 @@ def _rollback(request: Mapping[str, Any], inputs: Mapping[str, bytes],
     if host.step is not HostStep.RECOVERY or host.decision != decision:
         raise PublicationError(f"host_recovery_receipt=decision next={host.step.value}")
     deadline = min(recovery_window(decision, _clock).deadline, _deadline(request["stage"]))
-    publication, published_ready = read_publication(inputs["publication"], inputs["static-plan"])
-    if published_ready != ready:
-        raise PublicationError("host_recovery_receipt=closed_ready")
+    publication = _recorded_publication(inputs, ready)
     receipt = restore_entrypoints(StaticChannel(context, static_target(plan)),
                                   rollback_targets(read_record(inputs["inventory"])),
                                   publication, UploadWindow(_clock, deadline))
@@ -188,14 +261,19 @@ def _rollback(request: Mapping[str, Any], inputs: Mapping[str, bytes],
 
 _HANDLERS: dict[str, Callable[[Mapping[str, Any], Mapping[str, bytes], AdapterContext], bytes]] = {
     "inventory": _inventory, "publish-static": _publish, "rollback-api-static": _rollback,
-    "close-drain": close_drain,
+    "close-drain": close_drain, "closed-ready": closed_ready, "reopen": reopen,
+    "terminal-readback": terminal_readback, "unit-observe": unit_observe,
+    "recovery-observe": recovery_observe, "audit-observe": audit_observe,
+    "unit-seed": unit_seed, "recovery-seed": recovery_seed, "unit-start": unit_start,
+    "recovery-start": recovery_start, "audit-start": audit_start,
+    "unit-record": unit_record, "recovery-record": recovery_record, "audit-record": audit_record,
 }
 
 
 def _require_request(operation: str, request: Mapping[str, Any]) -> None:
     if set(request) != REQUEST_FIELDS or request["abi_version"] != ABI_VERSION:
         raise ValueError("request=fields")
-    if request["operation"] != operation or set(request["inputs"]) != INPUTS[operation]:
+    if request["operation"] != operation or set(request["inputs"]) != _INPUTS[operation]:
         raise ValueError("request=operation")
     owner = request["owner"]
     if (request["repository"], owner["repository"], owner["source_sha"]) != (
@@ -203,10 +281,13 @@ def _require_request(operation: str, request: Mapping[str, Any]) -> None:
     ):
         raise ValueError("request=source")
     stage = request["stage"]
-    if stage["stage"] != STAGES[operation] or (stage["close"] is None) != (
+    if not isinstance(stage, dict) or set(cast("dict[str, Any]", stage)) != STAGE_FIELDS:
+        raise ValueError("request=stage")
+    if stage["stage"] not in _STAGES[operation] or (stage["close"] is None) != (
         stage["stage"] == "application-prepare"
     ):
         raise ValueError("request=stage")
+    governed_windows(stage["windows"])
 
 
 def _read(context: AdapterContext, name: str, reference: Any) -> bytes:
@@ -257,6 +338,5 @@ def _clock() -> datetime:
     return CLOCK()
 
 
-def _deadline(stage: Mapping[str, Any]) -> datetime:
-    limit = stage["preparation_deadline"] if stage["close"] is None else stage["deadline"]
-    return datetime.fromtimestamp(limit, UTC)
+def _deadline(stage: dict[str, Any]) -> datetime:
+    return datetime.fromtimestamp(stage_deadline(stage), UTC)

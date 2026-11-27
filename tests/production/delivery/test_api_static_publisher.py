@@ -65,7 +65,8 @@ def _window(port: FakeStaticPort, seconds: int = 180) -> UploadWindow:
 
 
 def _inventory(port: FakeStaticPort, files: dict[str, bytes], current=None, prior=None):
-    candidate = read_candidate(dist_tar(files))
+    port.artifact = dist_tar(files)
+    candidate = read_candidate(port.artifact)
     channel = StaticChannel(port, TARGET)
     inventory = take_inventory(channel, baseline(current, prior), candidate, _scan(port))
     port.scope(inventory.decision.upload_order, tuple(r.key for r in inventory.rollback_versions))

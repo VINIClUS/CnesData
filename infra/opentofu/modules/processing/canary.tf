@@ -5,6 +5,7 @@ locals {
   canary_expiration_days  = 2
   canary_cluster_suffix   = ":cluster/${var.name_prefix}-processor"
   canary_task_arn_pattern = "${trimsuffix(aws_ecs_cluster.processor.arn, local.canary_cluster_suffix)}:task/${var.name_prefix}-processor/*"
+  canary_probe_key        = "cnesdata/host-gate/missing-probe"
   canary_index_names      = [for position in range(1, 7) : "gsi${position}"]
   canary_audit_task_definition_arn = one([
     for mode, definition in aws_ecs_task_definition.processor : definition.arn if mode == "audit"
@@ -179,14 +180,26 @@ resource "aws_s3_bucket_policy" "canary" {
   bucket = aws_s3_bucket.canary[0].id
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
+    Statement = concat([{
       Sid       = "DenyInsecureTransport"
       Effect    = "Deny"
       Principal = "*"
       Action    = "s3:*"
       Resource  = [aws_s3_bucket.canary[0].arn, "${aws_s3_bucket.canary[0].arn}/*"]
       Condition = { Bool = { "aws:SecureTransport" = "false" } }
-    }]
+      }], var.api_probe_role_arn == null ? [] : [{
+      Sid       = "ApiProbeGetMissingKey"
+      Effect    = "Allow"
+      Principal = { AWS = var.api_probe_role_arn }
+      Action    = "s3:GetObject"
+      Resource  = "${aws_s3_bucket.canary[0].arn}/${local.canary_probe_key}"
+      }, {
+      Sid       = "ApiProbeListBucket"
+      Effect    = "Allow"
+      Principal = { AWS = var.api_probe_role_arn }
+      Action    = "s3:ListBucket"
+      Resource  = aws_s3_bucket.canary[0].arn
+    }])
   })
 
   depends_on = [aws_s3_bucket_public_access_block.canary]

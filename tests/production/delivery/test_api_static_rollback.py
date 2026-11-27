@@ -95,7 +95,8 @@ def _published(port: FakeStaticPort):
            for key, body in sorted(release_files("v0").items())]
     files = {key: body + b"-v1" if key in ROOT else body
              for key, body in release_files("v0").items()}
-    candidate = read_candidate(dist_tar(files))
+    port.artifact = dist_tar(files)
+    candidate = read_candidate(port.artifact)
     channel = StaticChannel(port, TARGET)
     inventory = take_inventory(channel, baseline(old, None), candidate, _scan(port))
     port.scope(inventory.decision.upload_order, tuple(r.key for r in inventory.rollback_versions))
@@ -135,8 +136,8 @@ def test_rollback_sem_entrypoint_escrito_nao_toca_raiz() -> None:
 
 
 def test_primeira_publicacao_sem_par_anterior_fica_residual_sem_restaurar() -> None:
-    port = FakeStaticPort()
-    candidate = read_candidate(dist_tar(release_files("v1")))
+    port = FakeStaticPort(artifact=dist_tar(release_files("v1")))
+    candidate = read_candidate(port.artifact)
     channel = StaticChannel(port, TARGET)
     inventory = take_inventory(channel, baseline(None, None), candidate, _scan(port))
     port.scope(inventory.decision.upload_order, ())

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import gzip
 import hashlib
 import io
@@ -10,6 +11,7 @@ import re
 import tarfile
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -19,7 +21,8 @@ REPOSITORY = "VINIClUS/CnesData"
 CALLER_WORKFLOW = ".github/workflows/promote-production.yml"
 # Single caller-ref point; the owner amendment of the workflow track moves it to main.
 CALLER_REF = "refs/heads/main"
-PRODUCER_WORKFLOWS = frozenset({CALLER_WORKFLOW})
+HOST_ARCHIVE_WORKFLOW = ".github/workflows/host-archive.yml"
+PRODUCER_WORKFLOWS = frozenset({CALLER_WORKFLOW, HOST_ARCHIVE_WORKFLOW})
 ACTIONS = frozenset({"validate", "deploy", "rollback-previous"})
 MEMBERS = ("release-manifest.json", "compose.yml", "config.json")
 LIMITS = {"release-manifest.json": 65536, "compose.yml": 1024**2, "config.json": 16 * 1024**2}
@@ -295,3 +298,47 @@ _HEALTH = (
     "import urllib.request;"
     "urllib.request.urlopen('http://127.0.0.1:8000/api/v1/system/health', timeout=10)"
 )
+
+
+_CLI_FIELDS = ("source-sha", "api-image", "platform-plan", "static-release", "requested-action",
+               "port", "config", "lifetime-hours", "output")
+
+
+def _plan(text: str) -> dict[str, str]:
+    try:
+        value = json.loads(text)
+    except ValueError as error:
+        raise ArchiveError("platform_plan=json") from error
+    if not isinstance(value, dict):
+        raise ArchiveError("platform_plan=invalid")
+    return {str(key): item for key, item in value.items()}
+
+
+def _bounded(text: str, low: int, high: int, field: str) -> int:
+    if not text.isascii() or not text.isdecimal() or not low <= int(text) <= high:
+        raise ArchiveError(f"{field}=range")
+    return int(text)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Raises: ArchiveError: entrada fora do contrato do host ou arquivo de saída existente."""
+    parser = argparse.ArgumentParser(description="Archive de host EXT-3")
+    for name in _CLI_FIELDS:
+        parser.add_argument(f"--{name}", required=True)
+    arguments = parser.parse_args(argv)
+    now = datetime.now(UTC)
+    lifetime = timedelta(hours=_bounded(arguments.lifetime_hours, 1, 24, "lifetime_hours"))
+    compose = render_compose(arguments.api_image, _bounded(arguments.port, 0, 65535, "port"))
+    config = arguments.config.encode("utf-8")
+    release = HostRelease(arguments.source_sha, arguments.api_image, _plan(arguments.platform_plan),
+                          arguments.requested_action, now + lifetime, arguments.static_release)
+    archive = build_archive(host_manifest(release, compose, config, now), compose, config)
+    output = Path(arguments.output)
+    if output.exists():
+        raise ArchiveError("output=exists")
+    output.write_bytes(archive)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

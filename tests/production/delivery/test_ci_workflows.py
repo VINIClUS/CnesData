@@ -154,7 +154,7 @@ def test_dashboard_preserva_browser_do_lock_em_sistema_suportado() -> None:
     )
     assert "playwright install" not in _commands(job)
     assert "PLAYWRIGHT_CHANNEL" not in yaml.safe_dump(job) + DIST_ORACLE
-    assert {"--only-dev", "--managed-python", "--no-sync"} <= set(split(_commands(job)))
+    assert {"--package", "--managed-python", "--no-sync"} <= set(split(_commands(job)))
     steps = yaml.safe_dump(job["steps"])
     assert steps.index("install -y --no-install-recommends unzip") < steps.index("oven-sh/")
 

@@ -1,4 +1,4 @@
-"""Handler ABI2 close-drain: fecha e drena o fence prod pelo shim de context.call (#473)."""
+"""Handler ABI3 close-drain: fecha e drena o fence prod pelo shim de context.call (#473)."""
 
 from __future__ import annotations
 
@@ -69,7 +69,8 @@ def close_drain(request: Mapping[str, Any], inputs: Mapping[str, bytes],
               "activation_sha256": request["activation_sha256"], **identity}
     probe = StepFunctionsExecutionProbe(cast("Any", shim.client("stepfunctions")), machine)
     document = close_and_drain(_Gate(shim), probe, None, ENVIRONMENT, identity["promotion_id"],
-                               now, expirations, clock=DRAIN_CLOCK, common=common)
+                               now, expirations, clock=DRAIN_CLOCK, common=common,
+                               windows=request["stage"]["windows"])
     return canonical(document)
 
 
@@ -80,6 +81,12 @@ def owner_identity(request: Mapping[str, Any]) -> dict[str, Any]:
     owner = request["owner"]
     return {"caller": _caller(request), "promotion_generation": owner["generation"],
             "promotion_id": owner["owner_sha256"]}
+
+
+def bound_to_owner(common: Mapping[str, Any], request: Mapping[str, Any]) -> bool:
+    """Returns: True se o common carrega a identidade completa do owner autenticado do request."""
+    identity = owner_identity(request)
+    return {key: common.get(key) for key in identity} == identity
 
 
 class FenceShim:
@@ -179,7 +186,7 @@ def _activation(raw: bytes, request: Mapping[str, Any]) -> tuple[dict[str, Any],
         value = json.loads(raw)
     except ValueError as error:
         raise ValueError("activation=encoding") from error
-    if (not isinstance(value, dict) or set(value) != FIELDS
+    if (not isinstance(value, dict) or set(value) - {"inputs"} != FIELDS
             or not all(isinstance(value[key], str) for key in _COMMON)):
         raise ValueError("activation=fields")
     return value, _account(value["revisions"])

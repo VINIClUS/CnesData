@@ -23,8 +23,11 @@ from cnes_domain.ports.environment_gate import (
     ExecutionPresence,
     ExecutionProbePort,
 )
+from scripts.promotion._stage_windows import CLOSE_DRAIN_VERSION, governed_windows
 
 Node = dict[str, Any]
+_EXPIRY_KINDS = frozenset({"envelope", "artifact", "platform", "cost", "credential", "activation",
+                           "plan"})
 Clock = Callable[[], datetime]
 
 
@@ -282,21 +285,15 @@ def _probe_member(member: Node, probe: ExecutionProbePort) -> ExecutionObservati
     return observation
 
 
-def _fixed_deadline(closed_at: datetime, expirations: Iterable[Mapping[str, Any]]) -> datetime:
-    values = [closed_at + timedelta(seconds=1800)]
+def _fixed_deadline(
+    closed_at: datetime, expirations: Iterable[Mapping[str, Any]], windows: Mapping[str, Any]
+) -> datetime:
+    values = [closed_at + timedelta(seconds=windows["fixed_deadline_seconds"])]
     identities = []
     for item in expirations:
         if not isinstance(item, Mapping) or set(item) != {"kind", "object_sha256", "expires_at"}:
             raise DrainError("expiry=original_descriptor_required")
-        if item["kind"] not in {
-            "envelope",
-            "artifact",
-            "platform",
-            "cost",
-            "credential",
-            "activation",
-            "plan",
-        }:
+        if item["kind"] not in _EXPIRY_KINDS:
             raise DrainError("expiry=kind")
         if len(item["object_sha256"]) != 64:
             raise DrainError("expiry=hash")
@@ -381,15 +378,17 @@ def close_and_drain(
     expirations: Iterable[Mapping[str, Any]] = (),
     clock: DrainClock | None = None,
     common: Mapping[str, Any] | None = None,
+    windows: Mapping[str, Any] | None = None,
 ) -> Node:
     """Fecha e drena usando membership persistida e provas originais do recovery."""
     if common is None:
         raise DrainError("common=original_binding_required")
     validated_common = _common(common, promotion_id)
+    governed = governed_windows(windows)
     active_clock = clock or _SystemDrainClock()
     started = active_clock.monotonic()
     expirations = tuple(expirations)
-    if _fixed_deadline(now, expirations) <= now:
+    if _fixed_deadline(now, expirations, governed) <= now:
         raise DrainError("drain=deadline_exceeded")
     state = _close_fence(gate, environment, promotion_id, now)
     observed_close = _second(cast("datetime", state.fence.changed_at))
@@ -399,7 +398,7 @@ def close_and_drain(
     state = cast("EnvironmentGateState", confirm(environment, promotion_id, observed_close))
     closed_at = cast("datetime", state.fence.confirmed_at)
     expirations = _original_expirations(state, expirations)
-    fixed_deadline = _second(_fixed_deadline(closed_at, expirations))
+    fixed_deadline = _second(_fixed_deadline(closed_at, expirations, governed))
     limit = started + (fixed_deadline - now).total_seconds()
     if membership is not None and not isinstance(membership, PersistedMembershipSource):
         raise DrainError("membership=source_capability")
@@ -424,6 +423,7 @@ def close_and_drain(
         observed_at,
         expirations,
         fixed_deadline,
+        governed,
     )
 
 
@@ -436,9 +436,10 @@ def _drain_document(
     observed_at: datetime,
     expirations: Iterable[Mapping[str, Any]],
     deadline: datetime,
+    windows: Mapping[str, Any],
 ) -> Node:
     return {
-        "version": 1,
+        "version": CLOSE_DRAIN_VERSION,
         "kind": "close-drain",
         "common": common,
         "fence": {
@@ -463,6 +464,7 @@ def _drain_document(
         "input_expirations": [dict(value) for value in expirations],
         "fixed_deadline": _utc(deadline),
         "decision": None,
+        "windows": {**windows, "stages": dict(windows["stages"])},
     }
 
 

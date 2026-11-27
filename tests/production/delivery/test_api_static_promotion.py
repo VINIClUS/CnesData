@@ -27,6 +27,7 @@ from tests.production.delivery._api_static_fixtures import (
     sha,
 )
 from tests.production.delivery.test_api_static_rollback import CALLER, READY, decision, handoff
+from tests.production.delivery.test_phase_b import WINDOWS
 
 SHA = "a" * 40
 CANDIDATE_ID = f"candidate-{SHA}-77-1"
@@ -49,7 +50,7 @@ def _epoch(seconds: int) -> int:
 PREPARE = {"close": None, "fixed_deadline": None, "input_deadline": _epoch(3600),
            "stage": "application-prepare", "admitted_at": _epoch(0), "deadline": _epoch(180),
            "decision": None, "preparation_deadline": _epoch(180), "sequence": 0,
-           "checkpoint_sha256": "8" * 64}
+           "checkpoint_sha256": "8" * 64, "windows": WINDOWS}
 STATIC = PREPARE | {"close": _epoch(0), "fixed_deadline": _epoch(1800), "stage": "static",
                     "deadline": _epoch(300), "sequence": 3}
 RECOVERY = STATIC | {"stage": "recovery", "deadline": _epoch(300), "sequence": 4}
@@ -60,6 +61,9 @@ class FakeContext:
     port: FakeStaticPort
     inputs: dict[str, bytes]
     observed: list[tuple[str, bytes]] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        self.port.artifact = self.inputs.get("dashboard-artifact", self.port.artifact)
 
     def read(self, name: str) -> bytes:
         return self.inputs[name]
@@ -84,7 +88,7 @@ def _relogio(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _request(operation: str, inputs: dict[str, bytes], stage: dict[str, Any]) -> dict[str, Any]:
-    return {"abi_version": 2, "operation": operation, "repository": OWNER["repository"],
+    return {"abi_version": 3, "operation": operation, "repository": OWNER["repository"],
             "source_sha": SHA, "owner": OWNER, "checkpoint_sha256": stage["checkpoint_sha256"],
             "activation_sha256": "9" * 64, "stage": stage,
             "inputs": {name: {"sha256": sha(raw), "size": len(raw)}
@@ -143,11 +147,9 @@ def _seeded(port: FakeStaticPort) -> tuple[dict[str, bytes], list[tuple[str, str
     return files, old
 
 
-@pytest.mark.parametrize("operation", ["closed-ready", "reopen", "terminal-readback",
-                                       "retire-static"])
-def test_operacao_fora_da_tarefa_e_recusada(operation: str) -> None:
+def test_retire_static_fora_de_qualquer_estagio_e_recusado() -> None:
     with pytest.raises(ValueError, match="operation=unsupported"):
-        _run(FakeStaticPort(), operation, _inventory_inputs(release_files()))
+        _run(FakeStaticPort(), "retire-static", _inventory_inputs(release_files()))
 
 
 def test_inventory_registra_observacao_canonica_e_resultado_abi2() -> None:
@@ -158,7 +160,7 @@ def test_inventory_registra_observacao_canonica_e_resultado_abi2() -> None:
     assert raw == promote_api.canonical(record)
     assert record["outcome"] == "PLANNED"
     assert record["upload_order"][-1] == "index.html"
-    assert result == {"abi_version": 2, "operation": "inventory",
+    assert result == {"abi_version": 3, "operation": "inventory",
                       "owner_sha256": OWNER["owner_sha256"], "generation": 7,
                       "checkpoint_sha256": PREPARE["checkpoint_sha256"],
                       "observations": [{"kind": "inventory", "sha256": sha(raw),
@@ -443,6 +445,42 @@ def test_rollback_exige_o_mesmo_closed_ready_da_publicacao() -> None:
     port = FakeStaticPort()
     inputs = _published(port)
     rollback = _recovery(inputs, decision(), closed_ready_sha256="d" * 64)
+    with pytest.raises(PublicationError, match="host_recovery_receipt=closed_ready"):
+        _run(port, "rollback-api-static", rollback, RECOVERY)
+    assert port.writes("CopyObject") == []
+
+
+def _null_publication(inputs: dict[str, bytes]) -> dict[str, bytes]:
+    return _recovery(inputs | {"publication": promote_api.canonical(None)}, decision())
+
+
+def test_rollback_aceita_publicacao_null_sem_restaurar_nada_e_sem_chamar_o_s3() -> None:
+    port = FakeStaticPort()
+    inputs = _published(port)
+    before = len(port.calls)
+    _, context = _run(port, "rollback-api-static", _null_publication(inputs), RECOVERY)
+    [(kind, raw)] = context.observed
+    record = json.loads(raw)
+    assert kind == "rollback"
+    assert (record["restored"], record["residual"], record["invalidation_id"]) == ([], False, None)
+    assert len(port.calls) == before
+
+
+@pytest.mark.parametrize("raw", [b'"x"\n', b"[]\n", b"{}\n", b"nul\n"])
+def test_rollback_recusa_publicacao_malformada_que_nao_e_null(raw: bytes) -> None:
+    port = FakeStaticPort()
+    inputs = _published(port)
+    rollback = _recovery(inputs | {"publication": raw}, decision())
+    with pytest.raises(PublicationError, match=r"publication="):
+        _run(port, "rollback-api-static", rollback, RECOVERY)
+    assert port.writes("CopyObject") == []
+
+
+def test_rollback_com_publicacao_valida_continua_comparando_o_closed_ready() -> None:
+    port = FakeStaticPort()
+    inputs = _published(port)
+    record = json.loads(inputs["publication"]) | {"closed_ready_sha256": "f" * 64}
+    rollback = _recovery(inputs | {"publication": promote_api.canonical(record)}, decision())
     with pytest.raises(PublicationError, match="host_recovery_receipt=closed_ready"):
         _run(port, "rollback-api-static", rollback, RECOVERY)
     assert port.writes("CopyObject") == []
