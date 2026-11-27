@@ -128,7 +128,7 @@ def request(name: str, inputs: dict[str, bytes], owner: dict[str, Any] = OWNER,
                    "deadline": int(end.timestamp())}
     return {"abi_version": 3, "operation": name, "repository": owner["repository"],
             "source_sha": SHA, "owner": owner, "checkpoint_sha256": API["checkpoint_sha256"],
-            "activation_sha256": sha(ACTIVATION), "stage": stage,
+            "activation_sha256": sha(inputs.get("activation", ACTIVATION)), "stage": stage,
             "inputs": {key: {"sha256": sha(raw), "size": len(raw)}
                        for key, raw in sorted(inputs.items())}}
 

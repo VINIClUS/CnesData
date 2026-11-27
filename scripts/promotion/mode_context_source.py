@@ -40,7 +40,7 @@ _SHAPES: Final = {
     "product_source_closure_sha256": re.compile(r"[0-9a-f]{64}"),
     "shared_source_closure_sha256": re.compile(r"[0-9a-f]{64}"),
     "activation_sha256": re.compile(r"[0-9a-f]{64}"),
-    "release_id": re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,31}"),
+    "release_id": re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}"),
     "application_principal_arn": re.compile(r"arn:aws:iam::([0-9]{12}):role/[A-Za-z0-9+=,.@_-]+"),
 }
 _DISTRIBUTION: Final = re.compile(r"arn:aws:cloudfront::([0-9]{12}):distribution/[A-Z0-9]+")

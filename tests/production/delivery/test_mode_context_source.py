@@ -16,6 +16,7 @@ from scripts.promotion.prepare_mode_canary import check_mode_canary_input
 from tests.production.delivery import _ia_lifecycle_consumer as ia
 from tests.production.delivery.test_lifecycle_inputs import ACCOUNT, PRINCIPAL, RESOURCES
 
+RAW_RELEASE_ID = "candidate-" + "a" * 40 + "-123456789-1"
 ROOT = Path(__file__).resolve().parents[3]
 SOURCE = "a" * 40
 TARGET = Target(7, 1, "application / execute")
@@ -113,3 +114,21 @@ def test_marker_fora_do_run_ou_do_estagio_recusa(change: dict[str, Any]) -> None
 
 def test_nome_do_marker_e_o_do_estagio_application_prepare_do_run() -> None:
     assert source.stage_marker_name(TARGET) == "cnesdata-stage-open-application-prepare-7-1"
+
+
+def test_mode_context_aceita_o_id_cru_do_candidato_de_ate_128_caracteres() -> None:
+    assert len(RAW_RELEASE_ID) > 32
+    for release in (RAW_RELEASE_ID, "r" * 128):
+        assert source.mode_context(_secret(release_id=release))["release_id"] == release
+
+
+def test_mode_context_recusa_id_de_release_com_mais_de_128_caracteres() -> None:
+    with pytest.raises(ValueError, match=r"^mode_context field=release_id$"):
+        source.mode_context(_secret(release_id="r" * 129))
+
+
+def test_input_do_static_inventory_carrega_o_id_cru_ate_o_oraculo_e_o_consumidor() -> None:
+    value = _canary(_secret(release_id=RAW_RELEASE_ID))
+    check_mode_canary_input(value)
+    manifest, _ = ia.decode_mode_context(inputs_bytes({"region": "us-east-2"}, mode_canary=value))
+    assert manifest["release_id"] == RAW_RELEASE_ID
