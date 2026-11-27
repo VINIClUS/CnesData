@@ -340,6 +340,9 @@ async def _aws_lifespan(app: FastAPI) -> AsyncGenerator[None]:
     adoption = _adopt_process_credentials(app, session) if production else None
     runtime = build_runtime("aws", os.environ, session)
     install_billing(app, runtime, session)
+    from central_api.routes.readiness import sts_readiness
+
+    app.state.sts_readiness = sts_readiness(session, settings)
     http_client = httpx.Client(timeout=_OIDC_HTTP_TIMEOUT_SECONDS)
     app.state.runtime = runtime
     app.state.oidc_verifier = OidcVerifier(
