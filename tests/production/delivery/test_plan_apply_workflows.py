@@ -17,6 +17,8 @@ from scripts.promotion._plan_contract import _package, verify_application
 from tests.production.delivery._plan_apply_fixtures import (
     APPLICATION_NOW,
     NOW,
+    PR_HEAD,
+    SOURCE,
     application,
     canonical,
     evidence,
@@ -140,11 +142,44 @@ def test_artefato_errado_ou_ambiguo_e_recusado_antes_do_reusable(case):
         admission().prepare_request(value, api, NOW)
 
 
-def test_source_sem_um_dos_dez_checks_e_recusado():
+def pr_checks(api):
+    key = "VINIClUS/CnesData", f"commits/{PR_HEAD}/check-runs?filter=all&per_page=100&page=1"
+    return api.responses[key]["check_runs"]
+
+
+def test_sonar_so_na_cabeca_do_pr_admite_o_commit_de_main():
     value, api = request()
-    checks = api.responses["VINIClUS/CnesData", "commits/" + "a" * 40 + "/check-runs?per_page=100"]
-    checks["check_runs"][0]["conclusion"] = "failure"
-    with pytest.raises(ValueError):
+    assert not any(key[1].startswith(f"commits/{SOURCE}/check-runs") for key in api.responses)
+    admission().prepare_request(value, api, NOW)
+
+
+def test_source_sem_um_dos_dez_checks_no_pr_e_recusado():
+    value, api = request()
+    pr_checks(api)[0]["conclusion"] = "failure"
+    with pytest.raises(ValueError, match="pull=not_green"):
+        admission().prepare_request(value, api, NOW)
+
+
+def test_check_concluido_apos_o_merge_e_recusado():
+    value, api = request()
+    pr_checks(api)[0]["completed_at"] = "2026-11-09T00:10:00Z"
+    with pytest.raises(ValueError, match="pull=not_green"):
+        admission().prepare_request(value, api, NOW)
+
+
+def test_source_sem_pr_mergeado_e_recusado():
+    value, api = request()
+    api.responses["VINIClUS/CnesData", f"commits/{SOURCE}/pulls?per_page=100&page=1"] = []
+    with pytest.raises(ValueError, match="pull=association"):
+        admission().prepare_request(value, api, NOW)
+
+
+def test_regras_com_contexto_alterado_sao_recusadas():
+    value, api = request()
+    api.responses["VINIClUS/CnesData", "rules/branches/main"][0]["parameters"][
+        "required_status_checks"
+    ].pop()
+    with pytest.raises(ValueError, match="rules"):
         admission().prepare_request(value, api, NOW)
 
 
