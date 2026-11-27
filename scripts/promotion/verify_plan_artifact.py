@@ -216,6 +216,16 @@ def _descriptor(request: Node) -> Node:
     return descriptor
 
 
+def verify_descriptor(request: Node) -> Node:
+    """Returns: descriptor admitido; a mesma checagem do passo admit do plan e do apply."""
+    return _descriptor(request)
+
+
+def verify_payload(request: Node, descriptor: Node) -> Node | None:
+    """Returns: referência do payload coerente com o transporte do request, ou None."""
+    return _payload(request, descriptor)
+
+
 def _payload(request: Node, descriptor: Node) -> Node | None:
     payload = descriptor["payload_artifact"]
     if request["mode"] == "plan":

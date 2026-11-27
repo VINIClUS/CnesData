@@ -133,6 +133,7 @@ module "processing" {
   step_functions_role_id    = module.runtime_iam.step_functions_role_id
   enable_step_functions_iam = true
   canary_storage_enabled    = var.canary_storage_enabled
+  api_probe_role_arn        = var.shared_outputs.roles_anywhere.api_role_arn
   canary_verifier_role_id   = module.runtime_iam.canary_verifier_role_id
   execution_role_arn        = module.runtime_iam.execution_role_arn
   log_group_name            = aws_cloudwatch_log_group.processor.name
