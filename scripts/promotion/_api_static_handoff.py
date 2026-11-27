@@ -25,7 +25,7 @@ from scripts.promotion.rollback_api_static import (
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-HOST_GATE_SHA = "2a61ad885b435c4e40ee3eab8bf43b5e3c58f828"
+HOST_GATE_SHA = "82e9ff210cbc0767c88f4f761b09e7ccfc38e50c"
 HOST_JOB = "host-gate / execute"
 GATE_STEP = "Repeat source gate before OIDC and exchange exactly three SSH frames"
 HANDOFF_STEP = "Publish only the closed public handoff projection"

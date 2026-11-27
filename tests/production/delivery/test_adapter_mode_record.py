@@ -103,6 +103,20 @@ def test_audit_amarra_o_seed_do_recovery_e_emite_os_ids_publicados(
         f"reconciliation.published:{fx.TENANT}:{run}" for run in fx.runs("recovery")]
 
 
+@pytest.mark.parametrize("mode", MODES)
+def test_record_liga_o_id_cru_do_candidato_entre_activation_close_e_manifest(
+        monkeypatch: pytest.MonkeyPatch, mode: str) -> None:
+    raw = "candidate-" + "a" * 40 + "-123456789-1"
+    activation = fx.activation_bytes(release_id=raw)
+    linked = sha(activation)
+    inputs = fx.record_inputs(
+        mode, activation=activation,
+        **{"close-drain": fx.close_drain(release_id=raw, activation_sha256=linked),
+           "mode-input": fx.mode_input(release_id=raw, activation_sha256=linked)})
+    run = fx.execute(monkeypatch, f"{mode}-record", inputs)
+    assert json.loads(json.loads(run["raw"])["record"])["release_id"] == raw
+
+
 @pytest.mark.parametrize("mode", ["unit", "recovery"])
 def test_unit_e_recovery_nao_tem_ids_de_audit_e_ligam_o_seed_ao_fixture(
         monkeypatch: pytest.MonkeyPatch, mode: str) -> None:

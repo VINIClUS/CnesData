@@ -181,7 +181,7 @@ def test_validacao_publica_precede_reusable_e_id_token(mode):
         "expected_source_sha",
         "purpose",
     }
-    assert gate["uses"].endswith("@2a61ad885b435c4e40ee3eab8bf43b5e3c58f828")
+    assert gate["uses"].endswith("@82e9ff210cbc0767c88f4f761b09e7ccfc38e50c")
     assert gate["secrets"] == {
         "CNESDATA_DELIVERY_GOVERNANCE": "${{ secrets.CNESDATA_DELIVERY_GOVERNANCE }}"
     }
