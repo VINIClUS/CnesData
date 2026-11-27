@@ -4,33 +4,33 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from copy import deepcopy
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any, Final, cast
 
-from cnes_infra.aws.mode_canary import canonical_text
-from scripts.promotion.accept_routing import (
+from scripts.promotion._phase_c_core import (
     MODES,
-    CanaryAcceptance,
-    PhaseCWatchdog,
-    assert_fence,
-    observe_gate,
-    read_routes,
-)
-from scripts.promotion.mode_canary import RESULT_FIELDS, RESULT_SCHEMA
-from scripts.promotion.phase_b import (
     PhaseBContext,
-    _assert_task_revisions_unchanged,
-    _context_from_admitted,
+    PhaseCContext,
+    PhaseCWatchdog,
+    _canonical,
     _require_utc,
+    accept_mode_canary,
+    accept_recovery_canary,
+    assert_fence,
+    mode_result,
     object_hash,
+    verify_mode_route,
 )
+from scripts.promotion.accept_routing import observe_gate, read_routes
+from scripts.promotion.phase_b import _assert_task_revisions_unchanged, _context_from_admitted
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable
 
     from scripts.promotion.verify_routes import NativePhaseB
 
@@ -44,6 +44,10 @@ VARIABLES: Final = {
     "audit": "scheduler_audit_task_definition_arn",
 }
 _SCHEDULERS: Final = "module.schedulers."
+_HEX: Final = frozenset("0123456789abcdef")
+# Why: tests freeze the clock by replacing this module's datetime with a subclass; the
+# observed_at type check keeps the class bound at import.
+_INSTANT: Final = datetime
 _EVENTS: Final = {"recovery": ("recovery_failed",), "audit": ("audit_failed", "audit_succeeded")}
 INITIAL: Final = {
     mode: (
@@ -60,79 +64,11 @@ _EMPTY_TARGET: Final = ("input", "dead_letter_config", "eventbridge_parameters",
                         "kinesis_parameters", "sagemaker_pipeline_parameters", "sqs_parameters")
 _EMPTY_ECS: Final = ("capacity_provider_strategy", "placement_constraints", "placement_strategy",
                      "propagate_tags", "reference_id", "group", "tags")
-_RESULT_COMMON: Final = ("canary_id", "candidate_sha256", "release_id", "source_sha")
 
 
 def _require(condition: bool, reason: str) -> None:
     if not condition:
         raise ValueError(reason)
-
-
-def _second(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(microsecond=0)
-
-
-@dataclass(frozen=True)
-class PhaseCContext:
-    """Phase B autenticada, close-drain original, fases C e canaries aceitos, em ordem."""
-
-    phase_b: PhaseBContext
-    phase_b_evidence: Node
-    close: Node
-    accepted: tuple[Node, ...] = ()
-    canaries: tuple[CanaryAcceptance, ...] = ()
-
-    @property
-    def activation_sha256(self) -> str:
-        return hashlib.sha256(self.phase_b.activation or b"").hexdigest()
-
-    @property
-    def revisions(self) -> Node:
-        return dict(self.phase_b.canary["revisions"])
-
-    @property
-    def initial(self) -> bool:
-        return self.phase_b_evidence["routes"]["mode"] == "initial"
-
-    @property
-    def prior(self) -> dict[str, str | None]:
-        routes = self.phase_b_evidence["routes"]
-        return {mode: None if self.initial else routes[f"{mode}_revision"] for mode in MODES}
-
-    @property
-    def next_mode(self) -> str | None:
-        return MODES[len(self.accepted)] if len(self.accepted) < len(MODES) else None
-
-    @property
-    def checkpoint(self) -> Node:
-        return (self.accepted[-1] if self.accepted else self.phase_b_evidence)["after"]
-
-    @property
-    def watchdog(self) -> PhaseCWatchdog:
-        return PhaseCWatchdog.from_close(self.close)
-
-    def routes_for(self, mode: str) -> dict[str, str | None]:
-        """Returns: Rotas esperadas depois do apply do modo; o outro modo fica onde estava."""
-        applied = MODES[: MODES.index(mode) + 1]
-        return {
-            "unit": self.revisions["unit"],
-            **{m: self.revisions[m] if m in applied else self.prior[m] for m in MODES},
-        }
-
-    def accept(self, evidence: Mapping[str, Any]) -> PhaseCContext:
-        """Raises: ValueError: Evidência fora da ordem, da cadeia de checkpoint ou das rotas."""
-        mode = self.next_mode
-        _require(
-            mode is not None
-            and evidence.get("kind") == f"phase-c-{mode}"
-            and evidence.get("common") == self.phase_b_evidence["common"]
-            and evidence.get("close_drain_sha256") == self.phase_b_evidence["close_drain_sha256"]
-            and evidence.get("before") == self.checkpoint
-            and evidence.get("routes") == self.routes_for(str(mode))
-            and len(self.canaries) == len(self.accepted),
-            "phase_c=evidence",
-        )
-        return replace(self, accepted=(*self.accepted, deepcopy(dict(evidence))))
 
 
 def phase_c_context(phase_b: PhaseBContext, evidence: Mapping[str, Any],
@@ -312,9 +248,73 @@ def _apply_reviewed(native: NativePhaseB, raw: bytes, review: Callable[[Node], N
     return applied
 
 
+def _checkpoint(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    lineage, serial = cast("Node", value).get("lineage"), cast("Node", value).get("serial")
+    return isinstance(lineage, str) and bool(lineage) and type(serial) is int
+
+
+def _digest(value: object) -> bool:
+    return type(value) is str and len(value) == 64 and all(char in _HEX for char in value)
+
+
 def _advanced(before: Node, after: Node) -> None:
     _require(after["lineage"] == before["lineage"] and after["serial"] > before["serial"],
              "phase_c=checkpoint_not_advanced")
+
+
+@dataclass(frozen=True, slots=True)
+class PhaseCEvidence:
+    """Insumos do elemento phase-c: o deploy C do keeper fornece todos menos a forma."""
+
+    mode: str
+    close: Mapping[str, Any]
+    before: Node
+    after: Node
+    plan_sha256: str
+    audit_sha256: str
+    apply_output: bytes
+    routes: Any
+    observed_at: datetime
+
+
+def _projected(mode: str, routes: Any) -> bool:
+    if mode not in MODES or type(routes) is not dict:
+        return False
+    values = cast("Node", routes)
+    applied = ("unit", *MODES[: MODES.index(mode) + 1])
+    return (set(values) == {"unit", *MODES}
+            and all(value is None or type(value) is str for value in values.values())
+            and all(type(values[name]) is str and values[name] for name in applied))
+
+
+def phase_c_evidence(evidence: PhaseCEvidence) -> bytes:
+    """Returns: Bytes canônicos do elemento `phase-c-<mode>` com apply_sha256 da saída do apply.
+
+    Raises: ValueError: phase_c=checkpoint_invalid, phase_c=close_invalid,
+    phase_c=apply_output_invalid, phase_c=observed_at_invalid, phase_c=digest_invalid,
+    phase_c=checkpoint_not_advanced, phase_c=routes ou relógio não UTC.
+    """
+    _require(_checkpoint(evidence.before) and _checkpoint(evidence.after),
+             "phase_c=checkpoint_invalid")
+    close = evidence.close
+    _require(isinstance(close, Mapping) and isinstance(close.get("common"), dict),
+             "phase_c=close_invalid")
+    _require(type(evidence.apply_output) is bytes, "phase_c=apply_output_invalid")
+    _require(isinstance(evidence.observed_at, _INSTANT), "phase_c=observed_at_invalid")
+    _require(_digest(evidence.plan_sha256) and _digest(evidence.audit_sha256),
+             "phase_c=digest_invalid")
+    _advanced(evidence.before, evidence.after)
+    _require(_projected(evidence.mode, evidence.routes), "phase_c=routes")
+    return _canonical({
+        "version": 1, "kind": f"phase-c-{evidence.mode}", "common": dict(close["common"]),
+        "close_drain_sha256": object_hash(close), "before": evidence.before,
+        "after": evidence.after, "plan_sha256": evidence.plan_sha256,
+        "audit_sha256": evidence.audit_sha256,
+        "apply_sha256": hashlib.sha256(evidence.apply_output).hexdigest(),
+        "routes": evidence.routes, "observed_at": _require_utc(evidence.observed_at),
+    })
 
 
 def execute_reviewed_phase_c(context: PhaseCContext, native: NativePhaseB,
@@ -338,100 +338,26 @@ def execute_reviewed_phase_c(context: PhaseCContext, native: NativePhaseB,
     routes = read_routes(native, context, state)
     _require(routes == context.routes_for(str(mode)), "phase_c=routes")
     assert_fence(observe_gate(native)[1], close)
-    return {
-        "version": 1, "kind": f"phase-c-{mode}", "common": dict(close["common"]),
-        "close_drain_sha256": object_hash(close), "before": before, "after": after,
-        "plan_sha256": hashlib.sha256(raw).hexdigest(),
-        "audit_sha256": hashlib.sha256(audit).hexdigest(),
-        "apply_sha256": hashlib.sha256(applied).hexdigest(), "routes": routes,
-        "observed_at": _require_utc(datetime.now(UTC)),
-    }
+    return json.loads(phase_c_evidence(PhaseCEvidence(
+        str(mode), close, before, after, hashlib.sha256(raw).hexdigest(),
+        hashlib.sha256(audit).hexdigest(), applied, routes, datetime.now(UTC))))
 
 
-def _bound(result: Node, mode: str, context: PhaseCContext) -> None:
-    applied = [e for e in context.accepted if e["kind"] == f"phase-c-{mode}"]
-    _require(len(applied) == 1, "canary=route_not_accepted")
-    _require(len(context.canaries) == MODES.index(mode), "canary=order")
-    canary, common = context.phase_b.canary, context.close["common"]
-    _require(
-        all(result["common"][key] == canary[key] for key in _RESULT_COMMON)
-        and result["common"]["activation_sha256"] == context.activation_sha256
-        and result["common"]["promotion_generation"] == common["promotion_generation"],
-        "canary=common",
-    )
-    observed = _second(result["observed_at"])
-    _require(_second(result["fixed_deadline"]) == _second(context.close["fixed_deadline"])
-             and observed >= _second(applied[0]["observed_at"]), "canary=window")
-    context.watchdog.admit(f"canary-{mode}", observed, 0)
-
-
-def mode_result(raw: bytes, mode: str, context: PhaseCContext, readbacks: Node) -> Node:
-    """Returns: mode-result aceito. Raises: ValueError: Result de outra janela ou incompleto."""
-    result = json.loads(raw)
-    _require(canonical_text(result).encode() == raw and set(result) == set(RESULT_FIELDS)
-             and result["schema"] == RESULT_SCHEMA and result["mode"] == mode, "canary=schema")
-    _bound(result, mode, context)
-    _require(not result["pending"] and not result["unknown"], "canary=pending")
-    routing = hashlib.sha256(canonical_text(readbacks).encode()).hexdigest()
-    _require(result["routing_before_sha256"] == routing == result["routing_after_sha256"],
-             "canary=routing")
-    _require(len(result["task_receipts"]) == 1, "canary=single_task")
-    return result
-
-
-def _route_role_deadline(readbacks: Node, mode: str, context: PhaseCContext) -> None:
-    canary, revision = context.phase_b.canary, context.revisions[mode]
-    target = readbacks["schedules"][mode]["Target"]
-    definition = readbacks["task_definitions"][mode]["taskDefinition"]
-    _require(target["EcsParameters"]["TaskDefinitionArn"] == revision
-             and definition.get("taskDefinitionArn") == revision, "route=revision")
-    role = f"arn:aws:iam::{canary['account_id']}:role/cnesdata-prod-processor-{mode}"
-    _require(definition.get("taskRoleArn") == role, "route=role")
-    _require(target["RetryPolicy"] == {"MaximumRetryAttempts": 0,
-                                       "MaximumEventAgeInSeconds": 900}, "route=deadline")
-    network = canary["network"]
-    vpc = target["EcsParameters"]["NetworkConfiguration"]["awsvpcConfiguration"]
-    _require(vpc == {"Subnets": sorted(network["subnets"]),
-                     "SecurityGroups": [network["security_group"]],
-                     "AssignPublicIp": network["public_ip"]}, "route=network")
-
-
-def verify_mode_route(readbacks: Node, mode: str, context: PhaseCContext) -> None:
-    """Raises: ValueError: Revisão, rede, role, prazo ou alarme de falha fora do alvo do modo."""
-    _route_role_deadline(readbacks, mode, context)
-    alarm = readbacks["alarms"][mode]
-    _require(
-        alarm.get("AlarmName") == f"cnesdata-prod-scheduler-{mode}-repeated-failure"
-        and alarm.get("Dimensions")
-        == [{"Name": "RuleName", "Value": f"cnesdata-prod-scheduler-{mode}-failed"}]
-        and (alarm.get("EvaluationPeriods"), alarm.get("DatapointsToAlarm")) == (2, 2)
-        and alarm.get("ActionsEnabled") is True
-        and bool(alarm.get("AlarmActions")),
-        "route=alarm",
-    )
-
-
-def accept_mode_canary(raw: bytes, mode: str, context: PhaseCContext,
-                       evidence: Mapping[str, Any]) -> PhaseCContext:
-    """Returns: Contexto com o aceite do canary. Raises: ValueError: Rota, janela ou fence."""
-    verify_mode_route(evidence["readbacks"], mode, context)
-    result = mode_result(raw, mode, context, evidence["readbacks"])
-    assert_fence(evidence["gate"], context.close)
-    accepted = CanaryAcceptance(
-        mode=mode, common=dict(result["common"]),
-        phase_c_sha256=object_hash(context.accepted[MODES.index(mode)]),
-        result_sha256=hashlib.sha256(raw).hexdigest(),
-        routing_sha256=result["routing_before_sha256"],
-        task_receipts=len(result["task_receipts"]), observed_at=result["observed_at"],
-        freeze_proof_sha256=result["freeze_proof_sha256"],
-        deadline_drill_sha256=result["deadline_drill_sha256"],
-        operational_requirements=tuple(result["operational_requirements"]),
-    )
-    return replace(context, canaries=(*context.canaries, accepted))
-
-
-def accept_recovery_canary(raw: bytes, context: PhaseCContext, readbacks: Node,
-                           gate_state: Any) -> PhaseCContext:
-    """Returns: Contexto com o canary de recovery aceito. Raises: ValueError: Permit em voo."""
-    return accept_mode_canary(raw, "recovery", context,
-                              {"readbacks": readbacks, "gate": gate_state})
+__all__ = [
+    "APPLY_SECONDS",
+    "INITIAL",
+    "RUN_POLICY",
+    "SCHEDULE",
+    "VARIABLES",
+    "PhaseCContext",
+    "PhaseCEvidence",
+    "accept_mode_canary",
+    "accept_recovery_canary",
+    "execute_reviewed_phase_c",
+    "mode_result",
+    "phase_c_context",
+    "phase_c_evidence",
+    "review_recovery_plan",
+    "review_scheduler_plan",
+    "verify_mode_route",
+]

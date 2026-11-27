@@ -211,11 +211,12 @@ def publish_release(
     roots = [key for key in decision.upload_order if key in ENTRYPOINTS]
     contents = candidate.contents
     uploaded = [(key, _put(channel, objects[key], contents[key], window)) for key in assets]
-    bodies = {key: _readback(channel, objects[key], version, window) for key, version in uploaded}
+    bodies = {key: _readback(channel, objects[key], (version, contents[key]), window)
+              for key, version in uploaded}
     _verify_css_references(objects, {**contents, **bodies})
     for key in roots:
         version = _put(channel, objects[key], contents[key], window)
-        _readback(channel, objects[key], version, window)
+        _readback(channel, objects[key], (version, contents[key]), window)
         uploaded.append((key, version))
     invalidation = _invalidate(channel, uploaded, window) if roots else None
     return PublicationReceipt(tuple(uploaded), decision.already_published, invalidation)
@@ -379,7 +380,7 @@ def _put(channel: StaticChannel, item: ReleaseObject, body: bytes, window: Uploa
     parameters: dict[str, Any] = {
         "Bucket": channel.target.bucket,
         "Key": item.key,
-        "Body": {"base64": b64(body)},
+        "Body": {"member": item.key, "size": len(body), "sha256": hashlib.sha256(body).hexdigest()},
         "ContentType": item.content_type,
         "CacheControl": item.cache_control,
         "ChecksumSHA256": sha256_b64(body),
@@ -396,14 +397,16 @@ def _put(channel: StaticChannel, item: ReleaseObject, body: bytes, window: Uploa
 
 
 def _readback(
-    channel: StaticChannel, item: ReleaseObject, version: str, window: UploadWindow
+    channel: StaticChannel, item: ReleaseObject, written: tuple[str, bytes], window: UploadWindow
 ) -> bytes:
+    version, body = written
     parameters = {"Bucket": channel.target.bucket, "Key": item.key}
     result = call_within(channel.port, window, ("normal", "s3", "GetObject"), parameters)
-    body = base64.b64decode(result["Body"]["base64"], validate=True)
     if (
         result.get("VersionId") != version
+        or result.get("Body") != {"sha256": item.sha256, "size": item.size}
         or hashlib.sha256(body).hexdigest() != item.sha256
+        or len(body) != item.size
         or result.get("ContentType") != item.content_type
         or result.get("CacheControl") != item.cache_control
     ):

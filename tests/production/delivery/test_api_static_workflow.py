@@ -24,10 +24,15 @@ def test_workflow_so_tem_workflow_dispatch_e_actions_fixadas() -> None:
     assert set(triggers) == {"workflow_dispatch"}
     assert workflow["permissions"] == {}
     jobs = workflow["jobs"]
-    assert list(jobs) == ["preamble", "closed-ready", "host-gate", "host-outcome"]
+    gates = [f"{chain}{suffix}" for chain in (
+        "observer-bootstrap", "application-prepare-operational", "phase-b", "phase-c-recovery",
+        "phase-c-audit") for suffix in ("-plan", "-audit", "")]
+    assert list(jobs) == ["admit", "preamble", "descriptor", "application", *gates,
+                          "static-inputs", "static-inventory", "closed-ready", "host-gate",
+                          "host-outcome"]
     assert CALLER_REF in jobs["preamble"]["if"]
-    for name, job in jobs.items():
-        if name != "host-gate":
+    for job in jobs.values():
+        if "uses" not in job:
             assert job["runs-on"] == "ubuntu-latest"
         for step in job.get("steps", []):
             if "uses" in step:
@@ -37,7 +42,7 @@ def test_workflow_so_tem_workflow_dispatch_e_actions_fixadas() -> None:
             assert "${{" not in step.get("run", ""), step.get("name")
 
 
-def test_host_gate_fixado_e_closed_ready_recusa_sem_produtor() -> None:
+def test_host_gate_fixado_e_closed_ready_e_a_sonda_do_keeper() -> None:
     jobs = _workflow()["jobs"]
     gate = jobs["host-gate"]
     assert gate["uses"] == ("VINIClUS/infra-ansible/.github/workflows/"
@@ -46,11 +51,11 @@ def test_host_gate_fixado_e_closed_ready_recusa_sem_produtor() -> None:
                                  "artifact_id", "artifact_digest"}
     assert gate["secrets"] == {"host_governance": "${{ secrets.CNESDATA_HOST_GOVERNANCE }}"}
     ready = jobs["closed-ready"]
-    assert ready["permissions"] == {}
-    assert all("uses" not in step for step in ready["steps"])
-    assert ready["steps"][-1]["run"].rstrip().endswith("exit 1")
+    assert ready["permissions"] == {"contents": "read", "actions": "read"}
+    assert ready["steps"][-1]["run"].strip() == "python -m scripts.promotion.closed_ready_probe"
+    assert "exit 1" not in str(ready)
     assert ready["outputs"] == {
-        "closed_ready_sha256": "${{ steps.ready.outputs.closed_ready_sha256 }}"}
+        "closed_ready_sha256": "${{ steps.probe.outputs.closed_ready_sha256 }}"}
 
 
 def test_host_outcome_sincroniza_o_workspace_e_chama_o_handoff_completo() -> None:

@@ -1,0 +1,4 @@
+{
+ "descriptor_canonical_utf8": "{\"application_purpose\":\"promotion\",\"caller_binding_sha256\":\"92c822ce6259ae0492848e85459a23bffda74bada43dd7cc852f49a3cb661b29\",\"payloads\":{\"inputs\":{\"step\":\"inputs\"}},\"repository\":\"VINIClUS/CnesData\",\"schema_version\":1,\"source_sha\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"step\":\"plan-operational\"}\n",
+ "descriptor_sha256": "509d96f7e4c11f5f1cf4bb73b158f92329f2a31f4a4689523bd614fcb0e54425"
+}

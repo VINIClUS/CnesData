@@ -50,8 +50,8 @@ KEY_B = "ASIAGENB000000000002"
 GENERATION_SECONDS = 1800
 NEXT_GENERATION_SECONDS = 3590
 ADVANCE_SECONDS = 960
-API_SERVICES = {"dynamodb", "s3", "stepfunctions", "secretsmanager"}
-SIGNING_NAMES = {"dynamodb", "s3", "states", "secretsmanager"}
+API_SERVICES = {"dynamodb", "s3", "stepfunctions", "secretsmanager", "sts"}
+SIGNING_NAMES = {"dynamodb", "s3", "states", "secretsmanager", "sts"}
 LOGGER = "cnes_infra.aws.credentials"
 REFRESHED = re.compile(
     r"aws_credentials_refreshed key_fp=(?P<fp>[0-9a-f]{12}) "
@@ -233,6 +233,8 @@ def _call_each_client(api: _Api) -> set[str]:
             client.describe_state_machine(stateMachineArn=PRODUCTION_STATE_MACHINE_ARN)
         elif name == "secretsmanager":
             client.describe_secret(SecretId=os.environ["STRIPE_SECRET_KEY_SECRET_ARN"])
+        elif name == "sts":
+            client.get_caller_identity()
     return names
 
 

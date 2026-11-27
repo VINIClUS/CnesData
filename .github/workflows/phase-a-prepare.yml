@@ -102,11 +102,49 @@ jobs:
             --baseline "$out/baseline.json" --account-id "$ACCOUNT_ID" --region "$AWS_REGION" \
             --source-sha "$SOURCE_SHA" --canary-trusted-principal-arn "$CANARY_PRINCIPAL" \
             --output "$out/phase-inputs.json"
+      - name: Preparar os objetos privados e o artefato público
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          uv run --no-sync python -m scripts.promotion.phase_a_cli stage-private \
+            --directory "$RUNNER_TEMP/phase-a" --source-sha "$SOURCE_SHA" \
+            --run-id "$RUN_ID" --run-attempt "$RUN_ATTEMPT"
+      - name: Obter a credencial do role de escrita pelo OIDC do job
+        env:
+          ACCOUNT_ID: ${{ vars.PRODUCTION_AWS_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          token="$(curl -sSf -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=sts.amazonaws.com" | jq -r .value)"
+          echo "::add-mask::$token"
+          umask 077
+          printf '%s' "$token" > "$RUNNER_TEMP/oidc-token-writer"
+          {
+            echo "AWS_ROLE_ARN=arn:aws:iam::${ACCOUNT_ID}:role/cnesdata-prod-phase-inputs-writer"
+            echo "AWS_WEB_IDENTITY_TOKEN_FILE=$RUNNER_TEMP/oidc-token-writer"
+          } >> "$GITHUB_ENV"
+      - name: Gravar os três objetos privados com SSE-KMS e If-None-Match
+        env:
+          ACCOUNT_ID: ${{ vars.PRODUCTION_AWS_ACCOUNT_ID }}
+          EVIDENCE_BUCKET: ${{ vars.PRODUCTION_EVIDENCE_BUCKET }}
+          EVIDENCE_PREFIX: ${{ vars.PRODUCTION_EVIDENCE_PREFIX }}
+          EVIDENCE_KMS_KEY_ARN: ${{ vars.PRODUCTION_EVIDENCE_KMS_KEY_ARN }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          uv run --no-sync python -m scripts.promotion.phase_a_cli upload-private \
+            --directory "$RUNNER_TEMP/phase-a" --source-sha "$SOURCE_SHA" \
+            --run-id "$RUN_ID" --run-attempt "$RUN_ATTEMPT" --account-id "$ACCOUNT_ID" \
+            --bucket "$EVIDENCE_BUCKET" --prefix "$EVIDENCE_PREFIX" \
+            --kms-key-arn "$EVIDENCE_KMS_KEY_ARN"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: phase-a-prepare-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            ${{ runner.temp }}/phase-a/promotion.json
-            ${{ runner.temp }}/phase-a/phase-inputs.json
+          path: ${{ runner.temp }}/phase-a/phase-a-public.json
           if-no-files-found: error
           retention-days: 30
