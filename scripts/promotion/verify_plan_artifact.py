@@ -17,7 +17,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from release.build_candidate import REQUIRED_CHECKS, GitHub
+from release.build_candidate import REQUIRED_CHECKS, GitHub, _pull_request
 from release.verify_candidate import require, timestamp
 from scripts.promotion._canonical import parse_document
 from scripts.promotion._plan_contract import closed, validate_reference
@@ -136,6 +136,14 @@ def authenticate_reference(reference: Node, api: Any, now: datetime) -> Node:
         return _archive(path)
 
 
+class _Repository:
+    def __init__(self, api: Any) -> None:
+        self._api = api
+
+    def get(self, path: str) -> Any:
+        return self._api.get(REPOSITORY, path)
+
+
 def _source(request: Node, api: Any) -> None:
     source = request["expected_source_sha"]
     run = api.get(REPOSITORY, f"actions/runs/{request['run_id']}/attempts/{request['run_attempt']}")
@@ -159,22 +167,7 @@ def _source(request: Node, api: Any) -> None:
         for check in rule["parameters"]["required_status_checks"]
     }
     require(required == REQUIRED_CHECKS, "checks=rules_changed")
-    checks = api.get(REPOSITORY, f"commits/{source}/check-runs?per_page=100")
-    require(checks["total_count"] <= 100, "checks=pagination_required")
-    latest: Node = {}
-    for check in checks["check_runs"]:
-        if check["name"] not in latest or check["id"] > latest[check["name"]]["id"]:
-            latest[check["name"]] = check
-    require(
-        all(
-            name in latest
-            and latest[name]["head_sha"] == source
-            and latest[name]["status"] == "completed"
-            and latest[name]["conclusion"] == "success"
-            for name in required
-        ),
-        "checks=source_not_green",
-    )
+    _pull_request(_Repository(api), source, REPOSITORY)
 
 
 def _descriptor(request: Node) -> Node:
