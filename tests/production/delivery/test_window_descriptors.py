@@ -284,7 +284,7 @@ def test_cli_de_ativacao_escreve_o_descritor(tmp_path: Path) -> None:
     assert written == wd.activation_descriptor(_activation_spec()).raw
 
 
-IA_SIGNING_PIN = "797e7fb3b0fc3e521344609f633c81b07151eb18"
+IA_SIGNING_PIN = "94706ea3e950227b59687a6f69e725b126721821"
 DECODE_SCRIPT = (
     "import json,sys;from tools.cnesdata_delivery import signing_gate as g;"
     "raw=sys.stdin.buffer.read();"
