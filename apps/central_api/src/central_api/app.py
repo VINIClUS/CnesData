@@ -32,6 +32,7 @@ from central_api.routes import (
     raw_admin,
     raw_jobs,
     raw_manifests,
+    readiness,
     serving,
     stripe_webhook,
     tenants,
@@ -132,6 +133,7 @@ def create_app() -> FastAPI:
     app.add_exception_handler(OAuthError, cast("ExceptionHandler", _oauth_error_handler))
     app.include_router(jobs.router, prefix="/api/v1")
     app.include_router(health.router, prefix="/api/v1")
+    app.include_router(readiness.router)
     app.include_router(admin.router, prefix="/api/v1")
     app.include_router(agents.router, prefix="/api/v1")
     app.include_router(extractions.router, prefix="/api/v1")
