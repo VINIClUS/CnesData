@@ -147,12 +147,11 @@ def _deadlines(request: Mapping[str, Any], sources: _Sources) -> dict[str, str]:
 
     fixed = _moment(sources.close["fixed_deadline"])
     stage = datetime.fromtimestamp(stage_deadline(request["stage"]), UTC)
-    expires = _moment(sources.manifest.fields["deadline"])
     canary = min(fixed, stage)
-    if promote_api.CLOCK() >= min(canary, expires):
+    if promote_api.CLOCK() >= canary:
         raise ValueError("mode=record_deadline")
     return {"fixed_deadline": fixed.strftime(_STAMP), "stage_deadline": stage.strftime(_STAMP),
-            "canary_deadline": canary.strftime(_STAMP), "expires_at": expires.strftime(_STAMP)}
+            "canary_deadline": canary.strftime(_STAMP), "expires_at": canary.strftime(_STAMP)}
 
 
 __all__ = [
