@@ -21,9 +21,9 @@ ROOT = Path(__file__).resolve().parents[3]
 TENANT = "prod-canary-" + "c" * 32
 OWNERS = ("2" * 64, "e" * 64)
 TERRAFORM = (ROOT / "infra/opentofu/modules/runtime-iam/variables.tf").read_text()
-AUDIT_REGEX = re.compile(
-    re.search(r'regex\("(\^audit/.*?\$)", key\)', TERRAFORM)[1].replace("\\\\", "\\")
-)
+_AUDIT_RULE = re.search(r'regex\("(\^audit/.*?\$)", key\)', TERRAFORM)
+assert _AUDIT_RULE is not None
+AUDIT_REGEX = re.compile(_AUDIT_RULE[1].replace("\\\\", "\\"))
 
 
 def _context(scope: Any) -> str:
