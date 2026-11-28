@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from scripts.promotion.mode_scope import mode_scope
 from tests.production.infra._athena_root_plan import (
     CANARY_ID,
     CANARY_PRINCIPAL,
@@ -65,22 +66,7 @@ def _nome(alias):
 
 
 def _escopo():
-    tenant = "prod-canary-" + CANARY_ID
-    return {
-        "tenant_id": tenant,
-        "run_ids": [
-            f"{prefix}-4444444444444444" for prefix in ("recovery-a", "recovery-b", "unit")
-        ],
-        "raw_object_keys": [
-            f"raw/{tenant}/cnes-nacional/2026-01/{'a' * 64}/data.parquet",
-            f"raw/{tenant}/cnes-nacional/2026-01/{'a' * 64}/manifest.json",
-        ],
-        "output_object_keys": [f"outputs/{tenant}/unit-4444444444444444/manifest.json"],
-        "audit_object_keys": [
-            "audit/.event-id/" + "b" * 64 + ".json",
-            "audit/2026/11/10/" + "b" * 64 + ".json",
-        ],
-    }
+    return mode_scope("prod-canary-" + CANARY_ID, "4" * 64)
 
 
 def _recursos(plano):

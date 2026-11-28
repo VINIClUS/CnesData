@@ -25,7 +25,8 @@ OTHER_ACCOUNT = ACCOUNT.replace("1", "9")
 CONTEXT: dict[str, Any] = {
     "shared_source_sha": "b" * 40, "product_source_closure_sha256": "3" * 64,
     "shared_source_closure_sha256": "4" * 64, "release_id": "r1", "activation_sha256": "5" * 64,
-    "application_principal_arn": PRINCIPAL, "resources": RESOURCES,
+    "application_principal_arn": PRINCIPAL,
+    "resources": RESOURCES | {"scope": {"tenant_id": "prod-canary-" + "c" * 32}},
     "distribution_arn": DISTRIBUTION,
 }
 MARKER: dict[str, Any] = {
@@ -63,7 +64,8 @@ def test_secret_de_fixture_monta_o_input_aceito_pelo_oraculo_e_pelo_consumidor()
         "release_id": "r1", "activation_sha256": "5" * 64}
     assert manifest["predecessor_terminal_sha256"] is None
     assert manifest["scenario_plan_sha256"] == source.scenario_plan_sha256()
-    assert value["resources"] == RESOURCES
+    assert {k: v for k, v in value["resources"].items() if k != "scope"} == {
+        k: v for k, v in RESOURCES.items() if k != "scope"}
     assert value["application_principal_arn"] == PRINCIPAL
 
 
