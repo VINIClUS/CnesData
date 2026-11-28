@@ -239,7 +239,6 @@ def _phase_a(proof: dict[str, Any], candidate: dict[str, Any], now: datetime) ->
     schema = data["x-consumed-schemas"]["phase-a"]["schema"]
     require(sha(canonical(schema)) == PHASE_A_SCHEMA_SHA256, "consumed_schema_pin")
     _schema(proof, schema, schema["$defs"])
-    valid_time(proof, now)
     require(timestamp(proof["expires_at"]) <= timestamp(candidate["expires_at"]), "expiry")
     require(
         proof["r1_verification"] == candidate["verification"]

@@ -343,14 +343,6 @@ def authenticate_evidence(
         )
         artifacts[name] = _artifact(ref, api, now)
     indexes = {name: _json(artifacts[name]["index.json"]) for name in ("planned", "applied")}
-    for name, index in indexes.items():
-        _index(index, proof, name)
-        _reports(index, artifacts[name], now)
-        _dependencies(index["admission_proof"]["artifacts"], api, now)
-    _require(
-        artifacts["planned"]["redacted-plan.json"] == artifacts["applied"]["redacted-plan.json"],
-        "phase_a_plan_changed",
-    )
     receipt = _json(artifacts["publication"]["receipt.json"])
     applied = references["applied"]
     match_fields(
@@ -367,9 +359,20 @@ def authenticate_evidence(
         },
         "phase_a_checkpoint",
     )
-    _require(_date(receipt["verified_at"]) <= now, "phase_a_checkpoint")
+    anchor = _date(receipt["verified_at"])
+    _require(anchor <= now, "phase_a_checkpoint")
     for key in ("lease_evidence_sha256", "checkpoint_sha256"):
         _require(re.fullmatch(r"[0-9a-f]{64}", receipt[key]), "phase_a_checkpoint")
+    _require(anchor < _date(proof["expires_at"]), "expiry")
+    _require(anchor <= _date(proof["created_at"]) <= now, "expiry")
+    for name, index in indexes.items():
+        _index(index, proof, name)
+        _reports(index, artifacts[name], anchor)
+        _dependencies(index["admission_proof"]["artifacts"], api, now, anchor)
+    _require(
+        artifacts["planned"]["redacted-plan.json"] == artifacts["applied"]["redacted-plan.json"],
+        "phase_a_plan_changed",
+    )
     return scan
 
 
@@ -379,7 +382,7 @@ def _fingerprints(proof: dict[str, Any]) -> None:
         _require(addresses == sorted(set(addresses)), "phase_a_fingerprints")
 
 
-def _reports(index: dict[str, Any], members: dict[str, bytes], now: datetime) -> None:
+def _reports(index: dict[str, Any], members: dict[str, bytes], at: datetime) -> None:
     proof = index["admission_proof"]
     reports, checks = proof["reports"], proof["checks"]
     _require(len(reports) == len(checks) and 0 < len(reports) <= 64, "admission_reports")
@@ -398,7 +401,7 @@ def _reports(index: dict[str, Any], members: dict[str, bytes], now: datetime) ->
             and value["source_sha"] == index["source_sha"]
             and check["result"] == "pass"
             and check["expected_sha256"] == check["observed_sha256"]
-            and _date(check["observed_at"]) <= now < _date(check["expires_at"]),
+            and _date(check["observed_at"]) <= at < _date(check["expires_at"]),
             "admission_report",
         )
         measurement = _canonical(value["measurement"])
@@ -408,12 +411,12 @@ def _reports(index: dict[str, Any], members: dict[str, bytes], now: datetime) ->
         )
 
 
-def _dependencies(items: list[dict[str, Any]], api: Any, now: datetime) -> None:
+def _dependencies(items: list[dict[str, Any]], api: Any, now: datetime, at: datetime) -> None:
     _require(type(items) is list and 0 < len(items) <= 32, "admission_dependencies")
     purposes = [item["purpose"] for item in items]
     _require(purposes == sorted(set(purposes)), "admission_dependencies")
     for item in items:
-        _require(_date(item["expires_at"]) > now, "expiry")
+        _require(_date(item["expires_at"]) > at, "expiry")
         members = _artifact(item["reference"], api, now)
         manifest = [
             {"name": name, "size": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
