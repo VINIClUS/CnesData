@@ -59,9 +59,12 @@ def _matches(pattern: re.Pattern[str], value: Any) -> re.Match[str] | None:
 
 
 def _check_resources(resources: Any) -> None:
-    scope = resources.get("scope") if type(resources) is dict else None
-    if (type(scope) is not dict or set(scope) != {"tenant_id"}
-            or not is_canonical_mode_canary_tenant(str(scope["tenant_id"]))):
+    if not isinstance(resources, dict):
+        raise _refuse("resources")
+    scope = resources.get("scope")
+    if not isinstance(scope, dict) or set(scope) != {"tenant_id"}:
+        raise _refuse("resources")
+    if not is_canonical_mode_canary_tenant(str(scope["tenant_id"])):
         raise _refuse("resources")
 
 
