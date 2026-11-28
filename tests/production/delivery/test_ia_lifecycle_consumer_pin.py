@@ -42,7 +42,7 @@ def test_fontes_espelhados_conferem_com_a_arvore_do_infra_ansible_no_pin() -> No
 
 
 def test_pin_do_espelho_e_o_merge_do_p40_com_os_tres_sha256() -> None:
-    assert ia.IA_PIN == "7adf2071c8444a4aeba7a51637c84ee176c754b8"
+    assert ia.IA_PIN == "11251c77e503be406beaa74985fcb0a5eb778826"
     assert ia.IA_MIRRORED_SOURCES == {
         "tools/cnesdata_delivery/contract.py": (
             "315d42b9a6c43ebac822bb0b73e4ac853abaf724eecaccd737024df39e4afb60"
@@ -51,6 +51,6 @@ def test_pin_do_espelho_e_o_merge_do_p40_com_os_tres_sha256() -> None:
             "2f689fcd2e0c41525ba7e002e45289071af01e1c5c56b9333f23d6fb8424e63f"
         ),
         "tools/cnesdata_delivery/lifecycle_runtime.py": (
-            "cf0a18a95fa64a300fef4463059759b451f22ce776ed48cd96d8e98af64a731b"
+            "edf014783e83833fc801ad9107f1739229d5b0460f246d65552bad5fd4760873"
         ),
     }

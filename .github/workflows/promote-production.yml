@@ -143,8 +143,8 @@ jobs:
           SOURCE_SHA: ${{ needs.admit.outputs.source_sha }}
           RUN_ID: ${{ github.run_id }}
           RUN_ATTEMPT: ${{ github.run_attempt }}
-          PRODUCER_WORKFLOW_SHA: 7adf2071c8444a4aeba7a51637c84ee176c754b8
-          PRODUCER_SOURCE_CLOSURE_SHA256: 72ab1bdde2fdac153d4a03ce8cbdfde9cfcf1e5dfcaf9f22dc9930721b89cfeb
+          PRODUCER_WORKFLOW_SHA: 11251c77e503be406beaa74985fcb0a5eb778826
+          PRODUCER_SOURCE_CLOSURE_SHA256: 2234c54ca576c0aef15ae36de64ece73d5714ecade7e154742fed884bc3832cf
         run: |
           set -euo pipefail
           python -m scripts.promotion.lifecycle_descriptor \
@@ -167,12 +167,12 @@ jobs:
       actions: read
       checks: read
       id-token: write
-    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-application-gate.yml@7adf2071c8444a4aeba7a51637c84ee176c754b8
+    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-application-gate.yml@11251c77e503be406beaa74985fcb0a5eb778826
     with:
       request_descriptor: ${{ needs.descriptor.outputs.request_descriptor }}
       request_descriptor_sha256: ${{ needs.descriptor.outputs.request_descriptor_sha256 }}
       contract_repository: VINIClUS/infra-ansible
-      contract_source_sha: 7adf2071c8444a4aeba7a51637c84ee176c754b8
+      contract_source_sha: 11251c77e503be406beaa74985fcb0a5eb778826
       contract_path: docs/cnesdata-delivery-application-lifecycle.md
       contract_sha256: 36bb6277923063d19bf5bdb5f414bef92bdc4caf2f45a76a8a4c44be7b6a5e3a
       expected_source_sha: ${{ needs.admit.outputs.source_sha }}
@@ -187,12 +187,12 @@ jobs:
       actions: read
       checks: read
       id-token: write
-    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-infra-plan-gate.yml@7adf2071c8444a4aeba7a51637c84ee176c754b8
+    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-infra-plan-gate.yml@11251c77e503be406beaa74985fcb0a5eb778826
     with:
       request_descriptor: ${{ needs.descriptor.outputs.observer_bootstrap_plan_descriptor }}
       request_descriptor_sha256: ${{ needs.descriptor.outputs.observer_bootstrap_plan_descriptor_sha256 }}
       contract_repository: VINIClUS/infra-ansible
-      contract_source_sha: 7adf2071c8444a4aeba7a51637c84ee176c754b8
+      contract_source_sha: 11251c77e503be406beaa74985fcb0a5eb778826
       contract_path: docs/cnesdata-delivery-application-lifecycle.md
       contract_sha256: 36bb6277923063d19bf5bdb5f414bef92bdc4caf2f45a76a8a4c44be7b6a5e3a
       expected_source_sha: ${{ needs.admit.outputs.source_sha }}
@@ -207,12 +207,12 @@ jobs:
       actions: read
       checks: read
       id-token: write
-    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-infra-audit-gate.yml@7adf2071c8444a4aeba7a51637c84ee176c754b8
+    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-infra-audit-gate.yml@11251c77e503be406beaa74985fcb0a5eb778826
     with:
       request_descriptor: ${{ needs.descriptor.outputs.observer_bootstrap_audit_descriptor }}
       request_descriptor_sha256: ${{ needs.descriptor.outputs.observer_bootstrap_audit_descriptor_sha256 }}
       contract_repository: VINIClUS/infra-ansible
-      contract_source_sha: 7adf2071c8444a4aeba7a51637c84ee176c754b8
+      contract_source_sha: 11251c77e503be406beaa74985fcb0a5eb778826
       contract_path: docs/cnesdata-delivery-application-lifecycle.md
       contract_sha256: 36bb6277923063d19bf5bdb5f414bef92bdc4caf2f45a76a8a4c44be7b6a5e3a
       expected_source_sha: ${{ needs.admit.outputs.source_sha }}
@@ -227,12 +227,12 @@ jobs:
       actions: read
       checks: read
       id-token: write
-    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-infra-deploy-gate.yml@7adf2071c8444a4aeba7a51637c84ee176c754b8
+    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-infra-deploy-gate.yml@11251c77e503be406beaa74985fcb0a5eb778826
     with:
       request_descriptor: ${{ needs.descriptor.outputs.observer_bootstrap_descriptor }}
       request_descriptor_sha256: ${{ needs.descriptor.outputs.observer_bootstrap_descriptor_sha256 }}
       contract_repository: VINIClUS/infra-ansible
-      contract_source_sha: 7adf2071c8444a4aeba7a51637c84ee176c754b8
+      contract_source_sha: 11251c77e503be406beaa74985fcb0a5eb778826
       contract_path: docs/cnesdata-delivery-application-lifecycle.md
       contract_sha256: 36bb6277923063d19bf5bdb5f414bef92bdc4caf2f45a76a8a4c44be7b6a5e3a
       expected_source_sha: ${{ needs.admit.outputs.source_sha }}
@@ -247,12 +247,12 @@ jobs:
       actions: read
       checks: read
       id-token: write
-    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-infra-plan-gate.yml@7adf2071c8444a4aeba7a51637c84ee176c754b8
+    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-infra-plan-gate.yml@11251c77e503be406beaa74985fcb0a5eb778826
     with:
       request_descriptor: ${{ needs.descriptor.outputs.application_prepare_operational_plan_descriptor }}
       request_descriptor_sha256: ${{ needs.descriptor.outputs.application_prepare_operational_plan_descriptor_sha256 }}
       contract_repository: VINIClUS/infra-ansible
-      contract_source_sha: 7adf2071c8444a4aeba7a51637c84ee176c754b8
+      contract_source_sha: 11251c77e503be406beaa74985fcb0a5eb778826
       contract_path: docs/cnesdata-delivery-application-lifecycle.md
       contract_sha256: 36bb6277923063d19bf5bdb5f414bef92bdc4caf2f45a76a8a4c44be7b6a5e3a
       expected_source_sha: ${{ needs.admit.outputs.source_sha }}
@@ -267,12 +267,12 @@ jobs:
       actions: read
       checks: read
       id-token: write
-    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-infra-audit-gate.yml@7adf2071c8444a4aeba7a51637c84ee176c754b8
+    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-infra-audit-gate.yml@11251c77e503be406beaa74985fcb0a5eb778826
     with:
       request_descriptor: ${{ needs.descriptor.outputs.application_prepare_operational_audit_descriptor }}
       request_descriptor_sha256: ${{ needs.descriptor.outputs.application_prepare_operational_audit_descriptor_sha256 }}
       contract_repository: VINIClUS/infra-ansible
-      contract_source_sha: 7adf2071c8444a4aeba7a51637c84ee176c754b8
+      contract_source_sha: 11251c77e503be406beaa74985fcb0a5eb778826
       contract_path: docs/cnesdata-delivery-application-lifecycle.md
       contract_sha256: 36bb6277923063d19bf5bdb5f414bef92bdc4caf2f45a76a8a4c44be7b6a5e3a
       expected_source_sha: ${{ needs.admit.outputs.source_sha }}
@@ -287,12 +287,12 @@ jobs:
       actions: read
       checks: read
       id-token: write
-    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-infra-deploy-gate.yml@7adf2071c8444a4aeba7a51637c84ee176c754b8
+    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-infra-deploy-gate.yml@11251c77e503be406beaa74985fcb0a5eb778826
     with:
       request_descriptor: ${{ needs.descriptor.outputs.application_prepare_operational_descriptor }}
       request_descriptor_sha256: ${{ needs.descriptor.outputs.application_prepare_operational_descriptor_sha256 }}
       contract_repository: VINIClUS/infra-ansible
-      contract_source_sha: 7adf2071c8444a4aeba7a51637c84ee176c754b8
+      contract_source_sha: 11251c77e503be406beaa74985fcb0a5eb778826
       contract_path: docs/cnesdata-delivery-application-lifecycle.md
       contract_sha256: 36bb6277923063d19bf5bdb5f414bef92bdc4caf2f45a76a8a4c44be7b6a5e3a
       expected_source_sha: ${{ needs.admit.outputs.source_sha }}
@@ -307,12 +307,12 @@ jobs:
       actions: read
       checks: read
       id-token: write
-    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-infra-plan-gate.yml@7adf2071c8444a4aeba7a51637c84ee176c754b8
+    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-infra-plan-gate.yml@11251c77e503be406beaa74985fcb0a5eb778826
     with:
       request_descriptor: ${{ needs.descriptor.outputs.phase_b_plan_descriptor }}
       request_descriptor_sha256: ${{ needs.descriptor.outputs.phase_b_plan_descriptor_sha256 }}
       contract_repository: VINIClUS/infra-ansible
-      contract_source_sha: 7adf2071c8444a4aeba7a51637c84ee176c754b8
+      contract_source_sha: 11251c77e503be406beaa74985fcb0a5eb778826
       contract_path: docs/cnesdata-delivery-application-lifecycle.md
       contract_sha256: 36bb6277923063d19bf5bdb5f414bef92bdc4caf2f45a76a8a4c44be7b6a5e3a
       expected_source_sha: ${{ needs.admit.outputs.source_sha }}
@@ -327,12 +327,12 @@ jobs:
       actions: read
       checks: read
       id-token: write
-    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-infra-audit-gate.yml@7adf2071c8444a4aeba7a51637c84ee176c754b8
+    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-infra-audit-gate.yml@11251c77e503be406beaa74985fcb0a5eb778826
     with:
       request_descriptor: ${{ needs.descriptor.outputs.phase_b_audit_descriptor }}
       request_descriptor_sha256: ${{ needs.descriptor.outputs.phase_b_audit_descriptor_sha256 }}
       contract_repository: VINIClUS/infra-ansible
-      contract_source_sha: 7adf2071c8444a4aeba7a51637c84ee176c754b8
+      contract_source_sha: 11251c77e503be406beaa74985fcb0a5eb778826
       contract_path: docs/cnesdata-delivery-application-lifecycle.md
       contract_sha256: 36bb6277923063d19bf5bdb5f414bef92bdc4caf2f45a76a8a4c44be7b6a5e3a
       expected_source_sha: ${{ needs.admit.outputs.source_sha }}
@@ -347,12 +347,12 @@ jobs:
       actions: read
       checks: read
       id-token: write
-    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-infra-deploy-gate.yml@7adf2071c8444a4aeba7a51637c84ee176c754b8
+    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-infra-deploy-gate.yml@11251c77e503be406beaa74985fcb0a5eb778826
     with:
       request_descriptor: ${{ needs.descriptor.outputs.phase_b_descriptor }}
       request_descriptor_sha256: ${{ needs.descriptor.outputs.phase_b_descriptor_sha256 }}
       contract_repository: VINIClUS/infra-ansible
-      contract_source_sha: 7adf2071c8444a4aeba7a51637c84ee176c754b8
+      contract_source_sha: 11251c77e503be406beaa74985fcb0a5eb778826
       contract_path: docs/cnesdata-delivery-application-lifecycle.md
       contract_sha256: 36bb6277923063d19bf5bdb5f414bef92bdc4caf2f45a76a8a4c44be7b6a5e3a
       expected_source_sha: ${{ needs.admit.outputs.source_sha }}
@@ -367,12 +367,12 @@ jobs:
       actions: read
       checks: read
       id-token: write
-    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-infra-plan-gate.yml@7adf2071c8444a4aeba7a51637c84ee176c754b8
+    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-infra-plan-gate.yml@11251c77e503be406beaa74985fcb0a5eb778826
     with:
       request_descriptor: ${{ needs.descriptor.outputs.phase_c_recovery_plan_descriptor }}
       request_descriptor_sha256: ${{ needs.descriptor.outputs.phase_c_recovery_plan_descriptor_sha256 }}
       contract_repository: VINIClUS/infra-ansible
-      contract_source_sha: 7adf2071c8444a4aeba7a51637c84ee176c754b8
+      contract_source_sha: 11251c77e503be406beaa74985fcb0a5eb778826
       contract_path: docs/cnesdata-delivery-application-lifecycle.md
       contract_sha256: 36bb6277923063d19bf5bdb5f414bef92bdc4caf2f45a76a8a4c44be7b6a5e3a
       expected_source_sha: ${{ needs.admit.outputs.source_sha }}
@@ -387,12 +387,12 @@ jobs:
       actions: read
       checks: read
       id-token: write
-    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-infra-audit-gate.yml@7adf2071c8444a4aeba7a51637c84ee176c754b8
+    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-infra-audit-gate.yml@11251c77e503be406beaa74985fcb0a5eb778826
     with:
       request_descriptor: ${{ needs.descriptor.outputs.phase_c_recovery_audit_descriptor }}
       request_descriptor_sha256: ${{ needs.descriptor.outputs.phase_c_recovery_audit_descriptor_sha256 }}
       contract_repository: VINIClUS/infra-ansible
-      contract_source_sha: 7adf2071c8444a4aeba7a51637c84ee176c754b8
+      contract_source_sha: 11251c77e503be406beaa74985fcb0a5eb778826
       contract_path: docs/cnesdata-delivery-application-lifecycle.md
       contract_sha256: 36bb6277923063d19bf5bdb5f414bef92bdc4caf2f45a76a8a4c44be7b6a5e3a
       expected_source_sha: ${{ needs.admit.outputs.source_sha }}
@@ -407,12 +407,12 @@ jobs:
       actions: read
       checks: read
       id-token: write
-    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-infra-deploy-gate.yml@7adf2071c8444a4aeba7a51637c84ee176c754b8
+    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-infra-deploy-gate.yml@11251c77e503be406beaa74985fcb0a5eb778826
     with:
       request_descriptor: ${{ needs.descriptor.outputs.phase_c_recovery_descriptor }}
       request_descriptor_sha256: ${{ needs.descriptor.outputs.phase_c_recovery_descriptor_sha256 }}
       contract_repository: VINIClUS/infra-ansible
-      contract_source_sha: 7adf2071c8444a4aeba7a51637c84ee176c754b8
+      contract_source_sha: 11251c77e503be406beaa74985fcb0a5eb778826
       contract_path: docs/cnesdata-delivery-application-lifecycle.md
       contract_sha256: 36bb6277923063d19bf5bdb5f414bef92bdc4caf2f45a76a8a4c44be7b6a5e3a
       expected_source_sha: ${{ needs.admit.outputs.source_sha }}
@@ -427,12 +427,12 @@ jobs:
       actions: read
       checks: read
       id-token: write
-    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-infra-plan-gate.yml@7adf2071c8444a4aeba7a51637c84ee176c754b8
+    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-infra-plan-gate.yml@11251c77e503be406beaa74985fcb0a5eb778826
     with:
       request_descriptor: ${{ needs.descriptor.outputs.phase_c_audit_plan_descriptor }}
       request_descriptor_sha256: ${{ needs.descriptor.outputs.phase_c_audit_plan_descriptor_sha256 }}
       contract_repository: VINIClUS/infra-ansible
-      contract_source_sha: 7adf2071c8444a4aeba7a51637c84ee176c754b8
+      contract_source_sha: 11251c77e503be406beaa74985fcb0a5eb778826
       contract_path: docs/cnesdata-delivery-application-lifecycle.md
       contract_sha256: 36bb6277923063d19bf5bdb5f414bef92bdc4caf2f45a76a8a4c44be7b6a5e3a
       expected_source_sha: ${{ needs.admit.outputs.source_sha }}
@@ -447,12 +447,12 @@ jobs:
       actions: read
       checks: read
       id-token: write
-    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-infra-audit-gate.yml@7adf2071c8444a4aeba7a51637c84ee176c754b8
+    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-infra-audit-gate.yml@11251c77e503be406beaa74985fcb0a5eb778826
     with:
       request_descriptor: ${{ needs.descriptor.outputs.phase_c_audit_audit_descriptor }}
       request_descriptor_sha256: ${{ needs.descriptor.outputs.phase_c_audit_audit_descriptor_sha256 }}
       contract_repository: VINIClUS/infra-ansible
-      contract_source_sha: 7adf2071c8444a4aeba7a51637c84ee176c754b8
+      contract_source_sha: 11251c77e503be406beaa74985fcb0a5eb778826
       contract_path: docs/cnesdata-delivery-application-lifecycle.md
       contract_sha256: 36bb6277923063d19bf5bdb5f414bef92bdc4caf2f45a76a8a4c44be7b6a5e3a
       expected_source_sha: ${{ needs.admit.outputs.source_sha }}
@@ -467,12 +467,12 @@ jobs:
       actions: read
       checks: read
       id-token: write
-    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-infra-deploy-gate.yml@7adf2071c8444a4aeba7a51637c84ee176c754b8
+    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-infra-deploy-gate.yml@11251c77e503be406beaa74985fcb0a5eb778826
     with:
       request_descriptor: ${{ needs.descriptor.outputs.phase_c_audit_descriptor }}
       request_descriptor_sha256: ${{ needs.descriptor.outputs.phase_c_audit_descriptor_sha256 }}
       contract_repository: VINIClUS/infra-ansible
-      contract_source_sha: 7adf2071c8444a4aeba7a51637c84ee176c754b8
+      contract_source_sha: 11251c77e503be406beaa74985fcb0a5eb778826
       contract_path: docs/cnesdata-delivery-application-lifecycle.md
       contract_sha256: 36bb6277923063d19bf5bdb5f414bef92bdc4caf2f45a76a8a4c44be7b6a5e3a
       expected_source_sha: ${{ needs.admit.outputs.source_sha }}
@@ -598,7 +598,7 @@ jobs:
       contents: read
       checks: read
       id-token: write
-    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-host-deploy-gate.yml@7adf2071c8444a4aeba7a51637c84ee176c754b8
+    uses: VINIClUS/infra-ansible/.github/workflows/reusable-cnesdata-host-deploy-gate.yml@11251c77e503be406beaa74985fcb0a5eb778826
     with:
       plan_evidence_id: ${{ inputs.plan_evidence_id }}
       plan_evidence_digest: ${{ inputs.plan_evidence_digest }}
