@@ -24,7 +24,7 @@ from scripts.promotion._plan_contract import closed, validate_reference
 
 type Node = dict[str, Any]
 REPOSITORY = "VINIClUS/CnesData"
-PRODUCER_SHA = "94706ea3e950227b59687a6f69e725b126721821"
+PRODUCER_SHA = "7adf2071c8444a4aeba7a51637c84ee176c754b8"
 PRODUCER_READY = True
 CONTRACT = {
     "contract_repository": REPOSITORY,
