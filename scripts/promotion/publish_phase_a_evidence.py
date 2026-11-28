@@ -13,7 +13,7 @@ import re
 import zlib
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.error import HTTPError
 from urllib.parse import urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
@@ -25,10 +25,15 @@ from scripts.promotion._artifact_origin import artifact_content_hash
 from scripts.promotion._canonical import object_hash, parse_document
 from scripts.promotion._phase_a_evidence import EVIDENCE_SCHEMA, validate_evidence, validate_schema
 
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
 type Node = dict[str, Any]
 LIMIT = 262144
 ENCODED_LIMIT = 65535
 DOCUMENTS = ("evidence", "envelope", "promotion")
+INPUTS = frozenset({"expected_source_sha", *DOCUMENTS, *(name + "_sha256" for name in DOCUMENTS)})
+REPOSITORY = "VINIClUS/CnesData"
 OUTPUTS = frozenset({
     "processor_task_definition_arns", "image_digest", "active_before", "retained_before",
     "retained_after", "canary_id", "binding_sha256", "resource_fingerprints",
@@ -78,6 +83,7 @@ def encode_document(raw: bytes) -> str:
 def decode_document(encoded: str, digest: str) -> bytes:
     """Returns: bytes originais; Raises: ValueError para tamanho, codificação ou SHA-256."""
     require(type(encoded) is str and 0 < len(encoded) <= ENCODED_LIMIT, "publish=encoded_size")
+    require(re.fullmatch(r"[A-Za-z0-9+/]+=*", encoded), "publish=document_charset")
     require(re.fullmatch(r"[0-9a-f]{64}", digest or ""), "publish=document_sha256_format")
     try:
         compressed = base64.b64decode(encoded, validate=True)
@@ -219,16 +225,36 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+def _event_inputs(environ: Mapping[str, str]) -> dict[str, str]:
+    require(environ.get("GITHUB_EVENT_PATH"), "publish=event_path")
+    event: Any = json.loads(Path(environ["GITHUB_EVENT_PATH"]).read_bytes())
+    inputs: Any = event.get("inputs") if type(event) is dict else None
+    require(
+        type(inputs) is dict
+        and set(inputs) == INPUTS
+        and all(type(value) is str for value in inputs.values()),
+        "publish=inputs",
+    )
+    expected = str(inputs["expected_source_sha"])
+    require(
+        environ.get("GITHUB_REPOSITORY") == REPOSITORY
+        and environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
+        and environ.get("GITHUB_REF") == "refs/heads/main"
+        and re.fullmatch(r"[0-9a-f]{40}", expected) is not None
+        and environ.get("GITHUB_SHA") == expected,
+        "publish=context",
+    )
+    return inputs
+
+
 def main(argv: list[str] | None = None) -> None:
-    """Args: --output; lê documentos e token do ambiente do job."""
+    """Args: --output; lê os documentos do payload do evento, nunca do ambiente do job."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", required=True)
     arguments = parser.parse_args(argv)
+    inputs = _event_inputs(os.environ)
     documents = {
-        name: decode_document(
-            os.environ.get(name.upper(), ""), os.environ.get(name.upper() + "_SHA256", "")
-        )
-        for name in DOCUMENTS
+        name: decode_document(inputs[name], inputs[name + "_sha256"]) for name in DOCUMENTS
     }
     data = publish(documents, GitHubReader(os.environ.get("GITHUB_TOKEN", "")), _now())
     output = Path(arguments.output)
