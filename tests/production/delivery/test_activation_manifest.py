@@ -37,7 +37,7 @@ from tests.production.delivery._phase_a_runtime_fixtures import (
 github = candidates.github
 ROOT = Path(__file__).resolve().parents[3]
 NOW = BASE_NOW + timedelta(seconds=20)
-EXT2_SHA = "6d452373d3e6d83b88ba42c072356dec4d93d60b"
+EXT2_SHA = "11251c77e503be406beaa74985fcb0a5eb778826"
 PIN_ANTERIOR = "d6c2fe101f5a5c2287aabc83ed73dd9f9b95f41f"
 
 

@@ -13,8 +13,8 @@ NOW = datetime(2026, 11, 9, 0, 45, tzinfo=UTC)
 APPLICATION_NOW = datetime(2026, 11, 7, 20, 52, tzinfo=UTC)
 SOURCE = "a" * 40
 PR_HEAD = "b" * 40
-PRODUCER = "7adf2071c8444a4aeba7a51637c84ee176c754b8"
-PRODUCER_CLOSURE_SHA256 = "72ab1bdde2fdac153d4a03ce8cbdfde9cfcf1e5dfcaf9f22dc9930721b89cfeb"
+PRODUCER = "11251c77e503be406beaa74985fcb0a5eb778826"
+PRODUCER_CLOSURE_SHA256 = "2234c54ca576c0aef15ae36de64ece73d5714ecade7e154742fed884bc3832cf"
 CONTRACT_REPOSITORY = "VINIClUS/infra-ansible"
 CONTRACT_PATH = "docs/cnesdata-delivery-application-lifecycle.md"
 CONTRACT_SHA256 = "36bb6277923063d19bf5bdb5f414bef92bdc4caf2f45a76a8a4c44be7b6a5e3a"
