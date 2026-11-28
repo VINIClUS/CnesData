@@ -7,8 +7,8 @@ import re
 from datetime import UTC, datetime
 from typing import Any
 
-# infra-ansible 94706ea3 (X4 mergeado) tools/cnesdata_delivery/{lifecycle_contract,host_gate}.py.
-IA_PIN = "94706ea3e950227b59687a6f69e725b126721821"
+# infra-ansible 7adf2071 (X5 mergeado) tools/cnesdata_delivery/{lifecycle_contract,host_gate}.py.
+IA_PIN = "7adf2071c8444a4aeba7a51637c84ee176c754b8"
 IA_MIRRORED_SOURCES = {
     "tools/cnesdata_delivery/lifecycle_contract.py": (
         "2f689fcd2e0c41525ba7e002e45289071af01e1c5c56b9333f23d6fb8424e63f"
