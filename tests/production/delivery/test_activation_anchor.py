@@ -95,6 +95,12 @@ def test_reescrever_o_receipt_sem_mudar_valores_preserva_a_admissao(activation):
     assert json.loads(_prepare(activation, NOW))
 
 
+def test_admite_evidencia_montada_depois_de_expirar_o_plano(activation):
+    activation["proof"]["created_at"] = "2026-11-07T22:00:00Z"
+    _publish_proof(activation)
+    assert json.loads(_prepare(activation, LATE))
+
+
 def test_recusa_receipt_verificado_depois_do_now(activation):
     _receipt(activation, verified_at="2026-11-07T21:00:30Z")
     with pytest.raises(ValueError, match="phase_a_checkpoint"):
