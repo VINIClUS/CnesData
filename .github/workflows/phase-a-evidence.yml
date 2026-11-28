@@ -1,0 +1,76 @@
+name: phase-a-evidence
+
+"on":
+  workflow_dispatch:
+    inputs:
+      expected_source_sha:
+        required: true
+        type: string
+      evidence:
+        description: gzip+base64 dos bytes canônicos de phase-a-evidence.json
+        required: true
+        type: string
+      evidence_sha256:
+        required: true
+        type: string
+      envelope:
+        description: gzip+base64 do envelope privado aplicado da Phase A
+        required: true
+        type: string
+      envelope_sha256:
+        required: true
+        type: string
+      promotion:
+        description: gzip+base64 do promotion.json privado da phase-a-prepare
+        required: true
+        type: string
+      promotion_sha256:
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: phase-a-evidence
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    permissions:
+      contents: read
+      actions: read
+      checks: read
+    steps:
+      - name: Validar contexto exato antes do checkout
+        env:
+          EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "VINIClUS/CnesData"
+          test "$GITHUB_EVENT_NAME" = "workflow_dispatch"
+          test "$GITHUB_REF" = "refs/heads/main"
+          [[ "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$GITHUB_SHA" = "$EXPECTED_SOURCE_SHA"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.expected_source_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+      - name: Ler os documentos do evento, autenticar os campos e gravar a evidência
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          OUTPUT: ${{ runner.temp }}/phase-a-evidence/phase-a-evidence.json
+        run: python -B -m scripts.promotion.publish_phase_a_evidence --output "$OUTPUT"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: phase-a-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/phase-a-evidence/phase-a-evidence.json
+          if-no-files-found: error
+          retention-days: 30
