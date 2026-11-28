@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 
+from cnes_domain.orchestration.mode_canary import is_canonical_mode_canary_tenant
 from scripts.promotion._canonical import canonical_bytes
 from scripts.promotion.lifecycle_inputs import mode_canary_input
 from scripts.promotion.mode_canary_contract import (
@@ -16,6 +17,7 @@ from scripts.promotion.mode_canary_contract import (
     SESSION_OPERATIONS,
     parse_context_manifest,
 )
+from scripts.promotion.mode_scope import mode_scope
 
 if TYPE_CHECKING:
     from scripts.promotion.closed_ready_probe import Target
@@ -56,6 +58,16 @@ def _matches(pattern: re.Pattern[str], value: Any) -> re.Match[str] | None:
     return pattern.fullmatch(value) if type(value) is str else None
 
 
+def _check_resources(resources: Any) -> None:
+    if not isinstance(resources, dict):
+        raise _refuse("resources")
+    scope = resources.get("scope")
+    if not isinstance(scope, dict) or set(scope) != {"tenant_id"}:
+        raise _refuse("resources")
+    if not is_canonical_mode_canary_tenant(str(scope["tenant_id"])):
+        raise _refuse("resources")
+
+
 def mode_context(raw: str) -> dict[str, Any]:
     """Returns: o secret CNESDATA_MODE_CONTEXT, conjunto fechado e formas conferidos.
 
@@ -70,8 +82,7 @@ def mode_context(raw: str) -> dict[str, Any]:
     for field, pattern in _SHAPES.items():
         if _matches(pattern, value[field]) is None:
             raise _refuse(field)
-    if type(value["resources"]) is not dict:
-        raise _refuse("resources")
+    _check_resources(value["resources"])
     account = _SHAPES["application_principal_arn"].fullmatch(value["application_principal_arn"])
     distribution = _matches(_DISTRIBUTION, value["distribution_arn"])
     if distribution is None or account is None or distribution[1] != account[1]:
@@ -149,10 +160,14 @@ def mode_canary_file(context: dict[str, Any], marker: dict[str, Any], target: Ta
                    admitted + timedelta(seconds=PROMOTION_CONTEXT_SECONDS))
     owner = {"repository": REPOSITORY, "run_id": target.run_id, "run_attempt": target.attempt,
              "generation": marker["generation"], "owner_sha256": marker["owner_sha256"]}
-    text = canonical_bytes(_manifest(context, owner, source_sha, (admitted, deadline))).decode()
+    scope = mode_scope(context["resources"]["scope"]["tenant_id"], marker["owner_sha256"])
+    resources = context["resources"] | {"scope": scope}
+    manifest_fields = _manifest(context | {"resources": resources}, owner, source_sha,
+                                (admitted, deadline))
+    text = canonical_bytes(manifest_fields).decode()
     manifest = parse_context_manifest(
         {"canonical_utf8": text, "sha256": hashlib.sha256(text.encode()).hexdigest()})
     enabled = admitted + timedelta(seconds=MODE_ENABLED_SECONDS)
-    value = mode_canary_input(manifest, context["resources"], context["application_principal_arn"],
+    value = mode_canary_input(manifest, resources, context["application_principal_arn"],
                               enabled.strftime(_FORMAT))
     return canonical_bytes(value)
